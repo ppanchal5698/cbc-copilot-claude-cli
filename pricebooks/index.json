@@ -1,0 +1,320 @@
+{
+  "description": "Inventory of CBC vendor price books. Read-only during a pipeline run.",
+  "generated_from": "final_pricebooks/",
+  "refresh_cadence": "UNDEFINED - see .claude/rules/data-stewardship.md (NFR-10, OPEN)",
+  "pricebooks": [
+    {
+      "vendor": "asi",
+      "name": "ASI price list",
+      "file": "asi_price_list.pdf",
+      "effective_date": "2026-01-12",
+      "kind": "price_book",
+      "divisions": [
+        "10"
+      ],
+      "source": "ASI/ASI-Price-List - 1-12-26 - .375 Multiplier.pdf",
+      "size_bytes": 2568334
+    },
+    {
+      "vendor": "bobrick",
+      "name": "Cross reference (estimator)",
+      "file": "bobrick_cross_reference.xlsx",
+      "effective_date": null,
+      "kind": "crosswalk",
+      "divisions": [
+        "10"
+      ],
+      "source": "BOBRICK/Shandas Cross Reference.xlsx",
+      "size_bytes": 35643
+    },
+    {
+      "vendor": "bobrick",
+      "name": "HP program NET sheet - Bobrick",
+      "file": "bobrick_hp_program_net.xlsx",
+      "effective_date": "2017-01-01",
+      "kind": "net_sheet",
+      "divisions": [
+        "10"
+      ],
+      "source": "BOBRICK/Hamilton Parker 2017 Program Price Sheet Bobrick NET.xlsx",
+      "size_bytes": 60895
+    },
+    {
+      "vendor": "bobrick",
+      "name": "Bobrick multiplier memo",
+      "file": "bobrick_multiplier.docx",
+      "effective_date": null,
+      "kind": "multiplier_sheet",
+      "divisions": [
+        "10"
+      ],
+      "source": "BOBRICK/Multiplier.docx",
+      "size_bytes": 11978
+    },
+    {
+      "vendor": "bobrick",
+      "name": "Bobrick price list",
+      "file": "bobrick_price_list.pdf",
+      "effective_date": "2020-01-01",
+      "kind": "price_book",
+      "divisions": [
+        "10"
+      ],
+      "source": "BOBRICK/BOBRICK 2020 PRICE LIST.pdf",
+      "size_bytes": 642427
+    },
+    {
+      "vendor": "bradley",
+      "name": "Bradley 2026 price book (WAD)",
+      "file": "bradley_price_book_2026.pdf",
+      "effective_date": "2026-01-01",
+      "kind": "price_book",
+      "divisions": [
+        "10"
+      ],
+      "source": "BRADLEY/26 price book WAD .53.pdf",
+      "size_bytes": 2162240
+    },
+    {
+      "vendor": "gamco",
+      "name": "Gamco cross-reference",
+      "file": "gamco_crossover.xls",
+      "effective_date": null,
+      "kind": "crosswalk",
+      "divisions": [
+        "10"
+      ],
+      "source": "BOBRICK/Gamco Cross over (2).xls",
+      "size_bytes": 87552
+    },
+    {
+      "vendor": "gamco",
+      "name": "HP program NET sheet - Gamco",
+      "file": "gamco_hp_program_net.xlsx",
+      "effective_date": "2017-01-01",
+      "kind": "net_sheet",
+      "divisions": [
+        "10"
+      ],
+      "source": "BOBRICK/Hamilton Parker 2017 Program Price Sheet Gamco.xlsx",
+      "size_bytes": 30393
+    },
+    {
+      "vendor": "gamco",
+      "name": "Gamco price list",
+      "file": "gamco_price_list.pdf",
+      "effective_date": "2020-01-01",
+      "kind": "price_book",
+      "divisions": [
+        "10"
+      ],
+      "source": "BOBRICK/Gamco_Price_List_2020.pdf",
+      "size_bytes": 574394
+    },
+    {
+      "vendor": "gamco",
+      "name": "Gamco price list (xlsx)",
+      "file": "gamco_price_list.xlsx",
+      "effective_date": "2020-01-01",
+      "kind": "price_book",
+      "divisions": [
+        "10"
+      ],
+      "source": "BOBRICK/GAM-PL 2020 PRICE LIST.xlsx",
+      "size_bytes": 18472
+    },
+    {
+      "vendor": "hager",
+      "name": "Hager multipliers and special nets",
+      "file": "hager_multipliers.pdf",
+      "effective_date": "2026-03-02",
+      "kind": "multiplier_sheet",
+      "divisions": [
+        "08"
+      ],
+      "source": "HAGER/Hager Multipliers and Special Nets - Effective 3-2-26.pdf",
+      "size_bytes": 314573
+    },
+    {
+      "vendor": "hager",
+      "name": "Hager Door Hardware Price Book #18",
+      "file": "hager_price_book_18.pdf",
+      "effective_date": "2026-02-02",
+      "kind": "price_book",
+      "divisions": [
+        "08"
+      ],
+      "source": "HAGER/Hager Price Book #18 - Complete - Effective 2-2-26.pdf",
+      "size_bytes": 23369730
+    },
+    {
+      "vendor": "national_guard",
+      "name": "National Guard Products price list",
+      "file": "national_guard_price_list.pdf",
+      "effective_date": "2026-06-08",
+      "kind": "price_book",
+      "divisions": [
+        "08"
+      ],
+      "source": "NATIONAL GUARD PRODUCTS/NGP Price List 6-8-2026 - .45 Multiplier.pdf",
+      "size_bytes": 5321120
+    },
+    {
+      "vendor": "national_guard",
+      "name": "NGP threshold catalog",
+      "file": "national_guard_threshold_catalog.pdf",
+      "effective_date": null,
+      "kind": "catalog",
+      "divisions": [
+        "08"
+      ],
+      "source": "NATIONAL GUARD PRODUCTS/NGP Threshold Catalog.pdf",
+      "size_bytes": 8293477
+    },
+    {
+      "vendor": "nudo",
+      "name": "Midwest-East Coast FRP pricing",
+      "file": "nudo_frp_pricing.pdf",
+      "effective_date": "2026-05-11",
+      "kind": "price_book",
+      "divisions": [
+        "10"
+      ],
+      "source": "NUDO/MIDWEST-EAST COAST FRP 5-11-26.pdf",
+      "size_bytes": 176676
+    },
+    {
+      "vendor": "nudo",
+      "name": "NUDO price increase memo",
+      "file": "nudo_price_increase_memo.msg",
+      "effective_date": null,
+      "kind": "memo",
+      "divisions": [
+        "10"
+      ],
+      "source": "NUDO/FW Pricing Sheets - NUDO - PRICE INCREASE.msg",
+      "size_bytes": 1025536
+    },
+    {
+      "vendor": "nudo",
+      "name": "Vinyl moldings pricing",
+      "file": "nudo_vinyl_moldings_pricing.pdf",
+      "effective_date": "2026-05-11",
+      "kind": "price_book",
+      "divisions": [
+        "10"
+      ],
+      "source": "NUDO/VINYL MOLDINGS PRICING 5-11-26.pdf",
+      "size_bytes": 466718
+    },
+    {
+      "vendor": "pemko",
+      "name": "PEMKO buying program acct 4244636",
+      "file": "pemko_buying_program.pdf",
+      "effective_date": "2020-01-01",
+      "kind": "multiplier_sheet",
+      "divisions": [
+        "08"
+      ],
+      "source": "PEMKO/Buying Program Account 4244636 - Effective 1-1-20.pdf",
+      "size_bytes": 93265
+    },
+    {
+      "vendor": "pemko",
+      "name": "PEMKO / Markar price book 2026",
+      "file": "pemko_markar_price_book_2026.pdf",
+      "effective_date": "2026-01-01",
+      "kind": "price_book",
+      "divisions": [
+        "08"
+      ],
+      "source": "PEMKO/markar_and_pemko_price_book_2026.pdf",
+      "size_bytes": 7263666
+    },
+    {
+      "vendor": "rockwood",
+      "name": "Rockwood accessories price book",
+      "file": "rockwood_accessories_price_book.pdf",
+      "effective_date": null,
+      "kind": "price_book",
+      "divisions": [
+        "08",
+        "10"
+      ],
+      "source": "ROCKWOOD/Rockwood Accessories Price Book - .55 Multiplier.pdf",
+      "size_bytes": 952485
+    },
+    {
+      "vendor": "rockwood",
+      "name": "Rockwood architectural price book",
+      "file": "rockwood_architectural_price_book.pdf",
+      "effective_date": "2025-03-03",
+      "kind": "price_book",
+      "divisions": [
+        "08"
+      ],
+      "source": "ROCKWOOD/Rockwood Architectural Price Book - 3-3-25.pdf",
+      "size_bytes": 1498795
+    },
+    {
+      "vendor": "rockwood",
+      "name": "Rockwood architectural price book (alt)",
+      "file": "rockwood_architectural_price_book_alt.pdf",
+      "effective_date": null,
+      "kind": "price_book",
+      "divisions": [
+        "08"
+      ],
+      "source": "ROCKWOOD/Rockwood Architectural Price Book -.pdf",
+      "size_bytes": 1213148
+    },
+    {
+      "vendor": "rockwood",
+      "name": "Glass solutions price book",
+      "file": "rockwood_glass_solutions_price_book.pdf",
+      "effective_date": "2022-07-29",
+      "kind": "price_book",
+      "divisions": [
+        "08"
+      ],
+      "source": "ROCKWOOD/7.29.22 Glass Solutions Price Book.pdf",
+      "size_bytes": 1338564
+    },
+    {
+      "vendor": "rockwood",
+      "name": "Rockwood lites & louvers price book",
+      "file": "rockwood_lites_louvers_price_book.pdf",
+      "effective_date": "2023-02-27",
+      "kind": "price_book",
+      "divisions": [
+        "08"
+      ],
+      "source": "ROCKWOOD/Rockwood LitesLouvers Price Book - 02.27.23_b.pdf",
+      "size_bytes": 268942
+    },
+    {
+      "vendor": "world_dryer",
+      "name": "World Dryer L3 pricing change memo",
+      "file": "world_dryer_l3_memo.pdf",
+      "effective_date": "2022-09-12",
+      "kind": "memo",
+      "divisions": [
+        "10"
+      ],
+      "source": "WORLD DRYER/L3-Pricing Change Memo September 12th 2022 Level 3 - .339 MULTIPLIER.pdf",
+      "size_bytes": 180310
+    },
+    {
+      "vendor": "world_dryer",
+      "name": "World Dryer L3 pricing",
+      "file": "world_dryer_l3_pricing.xlsx",
+      "effective_date": "2022-09-01",
+      "kind": "price_book",
+      "divisions": [
+        "10"
+      ],
+      "source": "WORLD DRYER/Copy of L-3World Dryer Pricing_9.2022_L3 - .339 MULTIPLIER.xlsx",
+      "size_bytes": 68424
+    }
+  ]
+}

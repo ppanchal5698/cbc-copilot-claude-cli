@@ -1,0 +1,277 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is([data-theme="dark"] *));
+
+/* ───────────────────────────────────────────────────────────────────────────
+   Design tokens, ported verbatim from the Ops-Hub prototype.
+   Everything in the app reads these; the shadcn tokens below are mapped onto
+   them so shadcn primitives inherit the same look without restyling.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="dark"] {
+  --app-bg: #0a0a12;
+  --app-bg-2: #0e0e18;
+  --app-panel: #15151f;
+  --app-panel-2: #1b1b28;
+  --app-line: rgba(255, 255, 255, 0.075);
+  --app-tx: #f3f3f8;
+  --app-tx-2: #a2a2b8;
+  --app-tx-3: #6e6e88;
+  --app-accent: #818cf8;
+  --app-accent-soft: rgba(129, 140, 248, 0.14);
+  --app-accent-line: rgba(129, 140, 248, 0.28);
+  --app-neg: #fb7185;
+  --app-neg-soft: rgba(251, 113, 133, 0.14);
+  --app-neg-line: rgba(251, 113, 133, 0.3);
+  --app-pos: #34d399;
+  --app-pos-soft: rgba(52, 211, 153, 0.13);
+  --app-warn: #fbbf24;
+  --app-warn-soft: rgba(251, 191, 36, 0.14);
+  --app-warn-line: rgba(251, 191, 36, 0.3);
+  --app-sh-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --app-sh-2: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --app-sh-3: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+
+[data-theme="light"] {
+  --app-bg: #f6f6fa;
+  --app-bg-2: #ffffff;
+  --app-panel: #ffffff;
+  --app-panel-2: #f1f1f7;
+  --app-line: #e7e7f0;
+  --app-tx: #15151f;
+  --app-tx-2: #55556b;
+  --app-tx-3: #8b8ba3;
+  --app-accent: #5b5bd6;
+  --app-accent-soft: rgba(91, 91, 214, 0.08);
+  --app-accent-line: rgba(91, 91, 214, 0.22);
+  --app-neg: #e11d48;
+  --app-neg-soft: rgba(225, 29, 72, 0.07);
+  --app-neg-line: rgba(225, 29, 72, 0.22);
+  --app-pos: #059669;
+  --app-pos-soft: rgba(5, 150, 105, 0.08);
+  --app-warn: #b45309;
+  --app-warn-soft: rgba(180, 83, 9, 0.09);
+  --app-warn-line: rgba(180, 83, 9, 0.24);
+  --app-sh-1: 0 1px 2px rgba(20, 20, 40, 0.06);
+  --app-sh-2: 0 8px 24px rgba(20, 20, 40, 0.08);
+  --app-sh-3: 0 24px 60px rgba(20, 20, 40, 0.14);
+}
+
+:root {
+  --app-font: "Manrope", system-ui, sans-serif;
+  --app-font-h: "Manrope", system-ui, sans-serif;
+  --app-font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+  --radius: 0.625rem;
+
+  /* shadcn tokens mapped onto the app palette */
+  --background: var(--app-bg);
+  --foreground: var(--app-tx);
+  --card: var(--app-panel);
+  --card-foreground: var(--app-tx);
+  --popover: var(--app-panel);
+  --popover-foreground: var(--app-tx);
+  --primary: var(--app-accent);
+  --primary-foreground: #ffffff;
+  --secondary: var(--app-panel-2);
+  --secondary-foreground: var(--app-tx);
+  --muted: var(--app-panel-2);
+  --muted-foreground: var(--app-tx-2);
+  --accent: var(--app-accent-soft);
+  --accent-foreground: var(--app-accent);
+  --destructive: var(--app-neg);
+  --destructive-foreground: #ffffff;
+  --border: var(--app-line);
+  --input: var(--app-line);
+  --ring: var(--app-accent);
+  --sidebar: var(--app-bg-2);
+  --sidebar-foreground: var(--app-tx);
+  --sidebar-primary: var(--app-accent);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--app-accent-soft);
+  --sidebar-accent-foreground: var(--app-accent);
+  --sidebar-border: var(--app-line);
+  --sidebar-ring: var(--app-accent);
+  --chart-1: var(--app-accent);
+  --chart-2: var(--app-pos);
+  --chart-3: var(--app-warn);
+  --chart-4: var(--app-neg);
+  --chart-5: var(--app-tx-3);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* app palette, usable as Tailwind utilities: bg-panel, text-tx-2, border-line */
+  --color-app-bg: var(--app-bg);
+  --color-app-bg-2: var(--app-bg-2);
+  --color-panel: var(--app-panel);
+  --color-panel-2: var(--app-panel-2);
+  --color-line: var(--app-line);
+  --color-tx: var(--app-tx);
+  --color-tx-2: var(--app-tx-2);
+  --color-tx-3: var(--app-tx-3);
+  --color-accent-app: var(--app-accent);
+  --color-accent-soft: var(--app-accent-soft);
+  --color-accent-line: var(--app-accent-line);
+  --color-neg: var(--app-neg);
+  --color-neg-soft: var(--app-neg-soft);
+  --color-neg-line: var(--app-neg-line);
+  --color-pos: var(--app-pos);
+  --color-pos-soft: var(--app-pos-soft);
+  --color-warn: var(--app-warn);
+  --color-warn-soft: var(--app-warn-soft);
+  --color-warn-line: var(--app-warn-line);
+
+  --font-sans: var(--app-font);
+  --font-heading: var(--app-font-h);
+  --font-mono: var(--app-font-mono);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --shadow-app-1: var(--app-sh-1);
+  --shadow-app-2: var(--app-sh-2);
+  --shadow-app-3: var(--app-sh-3);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--app-bg);
+    color: var(--app-tx);
+    font-family: var(--app-font);
+    font-size: 13.5px;
+    line-height: 1.5;
+    font-feature-settings: "tnum" 1;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--app-tx-3);
+  }
+
+  a {
+    color: var(--app-accent);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--app-tx-3);
+    border-radius: 9px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* Motion from the prototype */
+@keyframes sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+@keyframes fadein {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes popin {
+  from {
+    transform: scale(0.97);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+@keyframes riseup {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.anim-fadein {
+  animation: fadein 0.18s ease both;
+}
+.anim-popin {
+  animation: popin 0.16s ease both;
+}
+.anim-riseup {
+  animation: riseup 0.22s ease both;
+}
+.anim-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 33%;
+  background: linear-gradient(90deg, transparent, var(--app-accent-soft), transparent);
+  animation: sweep 1.4s linear infinite;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}

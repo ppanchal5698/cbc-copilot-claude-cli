@@ -1,0 +1,33 @@
+# Raw bid sets and intermediate extraction artifacts - large, not version controlled
+projects/*/uploads/raw/
+projects/*/uploads/processed/
+
+# Approved quotations ARE version controlled:
+!projects/*/uploads/final/
+# Audit trails ARE version controlled:
+!projects/*/audit_trail.jsonl
+
+# Secrets / local overrides (P21 credentials)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# App
+.env
+web/.env.local
+web/.next/
+web/node_modules/
+storage/

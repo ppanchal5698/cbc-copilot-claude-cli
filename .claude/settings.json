@@ -1,0 +1,103 @@
+{
+  "mcpServers": {
+    "pdf-tools": {
+      "command": "python",
+      "args": [
+        "mcp-servers/pdf-tools/server.py"
+      ]
+    },
+    "pricebook": {
+      "command": "python",
+      "args": [
+        "mcp-servers/pricebook/server.py"
+      ]
+    },
+    "calc-engine": {
+      "command": "python",
+      "args": [
+        "mcp-servers/calc-engine/server.py"
+      ]
+    },
+    "artifact-storage": {
+      "command": "python",
+      "args": [
+        "mcp-servers/artifact-storage/server.py"
+      ]
+    },
+    "p21-connector": {
+      "command": "python",
+      "args": [
+        "mcp-servers/p21-connector/server.py"
+      ]
+    },
+    "catalog": {
+      "command": "python",
+      "args": [
+        "mcp-servers/catalog/server.py"
+      ]
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/pre_send_quote.py"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/pre_delete_guard.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/post_extraction_validate.py"
+          },
+          {
+            "type": "command",
+            "command": "python .claude/hooks/post_quote_format.py"
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/log_audit_trail.py"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "mcp__pdf-tools__*",
+      "mcp__pricebook__*",
+      "mcp__calc-engine__*",
+      "mcp__artifact-storage__*",
+      "mcp__p21-connector__*",
+      "mcp__catalog__*"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git push *)",
+      "Bash(sendmail *)",
+      "Bash(mailx *)",
+      "Bash(curl *mail*)"
+    ]
+  }
+}
