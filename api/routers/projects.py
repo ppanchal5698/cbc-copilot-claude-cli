@@ -48,6 +48,8 @@ async def _decorate(project: dict[str, Any]) -> dict[str, Any]:
             "byHand": counts.get("by_hand", 0),
         },
         "documentCount": await db.documents.count_documents({"projectId": project_id}),
+        "version": project.get("version", 1),
+        "callCount": await db.calls.count_documents({"projectId": project_id}),
         "quoteTotal": (quote or {}).get("grandTotal"),
         "activeJob": serialise(latest) if latest and latest["status"] in ("queued", "running") else None,
     }

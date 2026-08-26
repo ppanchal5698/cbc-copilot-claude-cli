@@ -1,0 +1,224 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import useSWR from "swr";
+import { toast } from "sonner";
+
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { useUiState } from "@/components/shell/ui-state";
+import { formatMoney } from "@/lib/api";
+import type { Product, Project } from "@/lib/types";
+
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
+
+const STAGES = [
+  { key: "intake", label: "Intake" },
+  { key: "extraction", label: "Extraction & entry" },
+  { key: "quote", label: "Quote" },
+  { key: "proposal", label: "Proposal" },
+];
+
+const RUNS = [
+  { path: "line-items/rerun", label: "Re-run extraction", success: "Claude is re-reading the drawings" },
+  { path: "line-items/continue-to-quote", label: "Run pricing", success: "Pricing queued" },
+  { path: "quote/continue-to-proposal", label: "Build the proposal", success: "Proposal queued" },
+];
+
+/** Ctrl+K. Real actions, not decoration. */
+export function CommandPalette({ code }: { code: string | null }) {
+  const router = useRouter();
+  const { paletteOpen, setPaletteOpen, openNotes, toggleFocus } = useUiState();
+  const [query, setQuery] = useState("");
+  const [parts, setParts] = useState<Product[]>([]);
+
+  const { data: projectData } = useSWR<{ projects: Project[] }>(
+    paletteOpen ? "/api/proxy/projects?limit=50" : null,
+    fetcher,
+  );
+
+  // Parts are only searched once the query is specific enough to be useful.
+  useEffect(() => {
+    if (!paletteOpen || query.trim().length < 2) {
+      setParts([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      const response = await fetch(
+        `/api/proxy/catalog/products?q=${encodeURIComponent(query)}&limit=5`,
+      );
+      if (response.ok) setParts((await response.json()).products);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [query, paletteOpen]);
+
+  // Opening has to hand over the caret and start from a blank query. Without
+  // this the palette opens onto the last search with focus still on the page,
+  // so typing goes nowhere and Enter has nothing selected to act on.
+  useEffect(() => {
+    if (!paletteOpen) return;
+    setQuery("");
+    const timer = setTimeout(() => {
+      document.querySelector<HTMLInputElement>("[cmdk-input]")?.focus();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [paletteOpen]);
+
+  // Escape closes, matching every other overlay in the app. It sits on the input
+  // rather than the Command root so cmdk keeps its own arrow/Enter handling.
+  function onKeyDown(event: React.KeyboardEvent) {
+    if (event.key === "Escape") setPaletteOpen(false);
+  }
+
+  function run(action: () => void) {
+    setPaletteOpen(false);
+    setQuery("");
+    action();
+  }
+
+  async function enqueue(path: string, success: string) {
+    if (!code) {
+      toast.error("Open a bid first");
+      return;
+    }
+    const response = await fetch(`/api/proxy/projects/${code}/${path}`, { method: "POST" });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({ detail: response.statusText }));
+      toast.error("That did not go through", { description: String(body.detail) });
+      return;
+    }
+    toast.success(success);
+    router.refresh();
+  }
+
+  if (!paletteOpen) return null;
+
+  // Hand-rolled overlay rather than shadcn's CommandDialog: this build wires the
+  // dialog to Base UI and renders DialogTitle outside the dialog root, which
+  // reads an undefined store and takes the whole tree down on hydration.
+  return (
+    <div
+      className="fixed inset-0 z-50 flex justify-center pt-[14vh]"
+      style={{ background: "rgba(0,0,0,0.55)" }}
+      onClick={(event) => event.target === event.currentTarget && setPaletteOpen(false)}
+    >
+      <div
+        role="dialog"
+        aria-label="Command palette"
+        className="anim-popin h-fit w-full max-w-[620px] overflow-hidden rounded-xl"
+        style={{
+          background: "var(--app-panel)",
+          border: "1px solid var(--app-line)",
+          boxShadow: "var(--app-sh-3)",
+        }}
+      >
+        <Command shouldFilter>
+      <CommandInput
+        placeholder="Ask or run a command…"
+        value={query}
+        onValueChange={setQuery}
+        onKeyDown={onKeyDown}
+      />
+      <CommandList>
+        <CommandEmpty>Nothing matches that.</CommandEmpty>
+
+        <CommandGroup heading="Bids">
+          {(projectData?.projects ?? []).slice(0, 8).map((project) => (
+            <CommandItem
+              key={project.id}
+              value={`${project.code} ${project.name} ${project.brand ?? ""} ${project.gc ?? ""}`}
+              onSelect={() => run(() => router.push(`/bids/${project.code}/${project.stage}`))}
+            >
+              <span className="tnum mr-2" style={{ color: "var(--app-accent)" }}>
+                {project.code}
+              </span>
+              <span className="flex-1 truncate">{project.name}</span>
+              <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                {project.stage}
+              </span>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+
+        {code && (
+          <CommandGroup heading={`Go to · ${code}`}>
+            {STAGES.map((stage) => (
+              <CommandItem
+                key={stage.key}
+                value={`go ${stage.label}`}
+                onSelect={() => run(() => router.push(`/bids/${code}/${stage.key}`))}
+              >
+                {stage.label}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        {parts.length > 0 && (
+          <CommandGroup heading="Catalog">
+            {parts.map((part) => (
+              <CommandItem
+                key={part.id}
+                value={`part ${part.part} ${part.description}`}
+                onSelect={() => run(() => router.push(`/catalog?q=${encodeURIComponent(part.part)}`))}
+              >
+                <span className="mr-2 font-semibold">{part.part}</span>
+                <span className="flex-1 truncate" style={{ color: "var(--app-tx-2)" }}>
+                  {part.description}
+                </span>
+                <span className="tnum text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                  {part.cost === null ? "manual" : `$${formatMoney(part.cost)}`}
+                </span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        {code && (
+          <CommandGroup heading="Run">
+            {RUNS.map((entry) => (
+              <CommandItem
+                key={entry.path}
+                value={`run ${entry.label}`}
+                onSelect={() => run(() => enqueue(entry.path, entry.success))}
+              >
+                {entry.label}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        <CommandGroup heading="Actions">
+          <CommandItem value="log a call note rfi" onSelect={() => run(() => openNotes())}>
+            Log a call or note
+          </CommandItem>
+          <CommandItem value="focus mode" onSelect={() => run(toggleFocus)}>
+            Toggle focus mode
+          </CommandItem>
+          <CommandItem value="theme dark light" onSelect={() => run(() => {
+            const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+            document.documentElement.dataset.theme = next;
+            localStorage.setItem("opshub-theme", next);
+          })}>
+            Toggle theme
+          </CommandItem>
+          <CommandItem value="bid board" onSelect={() => run(() => router.push("/bids"))}>
+            Open the bid board
+          </CommandItem>
+          <CommandItem value="price books" onSelect={() => run(() => router.push("/price-books"))}>
+            Open price books
+          </CommandItem>
+        </CommandGroup>
+      </CommandList>
+        </Command>
+      </div>
+    </div>
+  );
+}

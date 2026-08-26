@@ -20,6 +20,7 @@ JobType = Literal[
     "match_and_price",
     "build_proposal",
     "ingest_pricebook",
+    "ingest_addendum",
 ]
 JobStatus = Literal["queued", "running", "done", "failed", "cancelled"]
 CostSource = Literal[
@@ -119,6 +120,7 @@ class LineItemBase(BaseModel):
 class LineItemCreate(LineItemBase):
     productId: str | None = None
     part: str | None = None
+    alternateGroup: str | None = None
 
 
 class LineItemUpdate(BaseModel):
@@ -133,11 +135,13 @@ class LineItemUpdate(BaseModel):
     fireRating: str | None = None
     status: LineStatus | None = None
     notes: str | None = None
+    alternateGroup: str | None = None
 
 
 class LineItem(LineItemBase):
     id: str
     projectId: str
+    alternateGroup: str | None = None
     status: LineStatus = "needs_look"
     confidence: float | None = None
     flags: list[str] = []
@@ -167,6 +171,7 @@ class QuoteLineBase(BaseModel):
 class QuoteLineCreate(QuoteLineBase):
     lineItemId: str | None = None
     productId: str | None = None
+    alternateGroup: str | None = None
 
 
 class QuoteLineUpdate(BaseModel):
@@ -181,6 +186,7 @@ class QuoteLineUpdate(BaseModel):
 class QuoteLine(QuoteLineBase):
     id: str
     projectId: str
+    alternateGroup: str | None = None
     lineItemId: str | None = None
     sell: float | None = None
     extended: float | None = None
@@ -201,6 +207,7 @@ class QuoteLine(QuoteLineBase):
 class QuoteSettings(BaseModel):
     taxJurisdiction: str | None = Field(default=None, description="Two-letter state, e.g. OH")
     freight: float | None = None
+    freightNote: str | None = None
 
 
 class QuoteTotals(BaseModel):
@@ -342,3 +349,64 @@ class UserPublic(BaseModel):
 class Credentials(BaseModel):
     email: EmailStr
     password: str
+
+
+# ── calls and notes ─────────────────────────────────────────────────────────
+
+CallKind = Literal["call", "note", "rfi"]
+
+
+class CallCreate(BaseModel):
+    kind: CallKind = "call"
+    text: str = Field(min_length=1, max_length=4000)
+    org: str | None = Field(default=None, description="Who it was with - GC, architect, vendor")
+    ref: str | None = Field(default=None, description="The stage or line it was logged against")
+
+
+class Call(CallCreate):
+    id: str
+    projectId: str
+    who: str
+    createdAt: datetime
+
+
+# ── bulk actions ────────────────────────────────────────────────────────────
+
+
+class BulkAction(BaseModel):
+    ids: list[str] = Field(min_length=1, max_length=500)
+    action: Literal["confirm", "delete"]
+
+
+# ── alternates and versions ─────────────────────────────────────────────────
+
+
+class AlternateCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=60, description="e.g. 'Alternate 1'")
+
+
+class VersionCreate(BaseModel):
+    reason: str = Field(min_length=1, max_length=200, description="e.g. 'Addendum 1'")
+    documentId: str | None = None
+
+
+class EstimateVersion(BaseModel):
+    id: str
+    projectId: str
+    version: int
+    reason: str
+    createdAt: datetime
+    createdBy: str
+    lineItemCount: int
+    quoteLineCount: int
+    reconciled: bool = False
+
+
+# ── hand-off ────────────────────────────────────────────────────────────────
+
+
+class HandOff(BaseModel):
+    """Route a finished bid to the sales initiator. Records; never transmits."""
+
+    recipient: str | None = Field(default=None, description="Defaults to the project initiator")
+    note: str | None = None

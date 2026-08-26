@@ -88,6 +88,34 @@ Halt at the end and report exactly: "Draft ready for estimator review"
 
 {preamble}"""
 
+INGEST_ADDENDUM = """You are the CBC Estimating Copilot reading an addendum into project {code}.
+
+An addendum revises a bid that may already be confirmed and priced. The current
+state has already been frozen as a version, so nothing you do can lose prior work
+- and nothing you do should silently overwrite it either.
+
+Read the addendum in {project_dir}/uploads/raw/ and follow
+.claude/agents/takeoff-engineer.md to extract what it specifies.
+
+Then, for every opening the addendum touches, compare it against the existing
+{project_dir}/extracted/door_schedule.json and write the differences to
+{project_dir}/review/addendum_diff.json:
+
+{{
+  "addendum": "<filename>",
+  "added":   [ {{ "mark": "05", "description": "...", "source_page": 3 }} ],
+  "removed": [ {{ "mark": "02", "reason": "deleted by addendum", "source_page": 3 }} ],
+  "changed": [ {{ "mark": "01", "field": "size", "before": "3070", "after": "3670",
+                  "source_page": 3 }} ]
+}}
+
+**Do not merge the addendum into door_schedule.json.** How a reconciliation
+resolves - and whether a confirmed line survives it - has not been answered by
+CBC (Matrix 4.1 / Open Item 11). Report the differences and stop; the estimator
+decides.
+
+{preamble}"""
+
 INGEST_PRICEBOOK = """You are the CBC Estimating Copilot ingesting a price book into the catalog.
 
 File: pricebooks/{filename}
@@ -115,6 +143,7 @@ Do not write to pricebooks/ or reference-library/. Do not send anything."""
 
 TEMPLATES = {
     "extract_bid_set": EXTRACT,
+    "ingest_addendum": INGEST_ADDENDUM,
     "rerun_extraction": RERUN,
     "match_and_price": MATCH_AND_PRICE,
     "build_proposal": BUILD_PROPOSAL,

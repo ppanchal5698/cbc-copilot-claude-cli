@@ -40,6 +40,8 @@ export interface Project {
   bidDue?: string | null;
   stage: Stage;
   progress: number;
+  version?: number;
+  handedOffTo?: string | null;
   counts: Counts;
   documentCount: number;
   quoteTotal?: number | null;
@@ -133,6 +135,8 @@ export interface QuoteLine {
   marginOverridden: boolean;
   overrideReason?: string | null;
   priceStatus?: string | null;
+  /** The price book this cost came from is past its review window. */
+  lapsed?: boolean;
   flags: string[];
 }
 
@@ -156,6 +160,8 @@ export interface QuoteResponse {
   groups: { division: string; lines: QuoteLine[]; subtotal: number }[];
   totals: QuoteTotals;
   lineCount: number;
+  edited?: { count: number; firstId: string | null };
+  lapsedCount?: number;
 }
 
 export interface Product {

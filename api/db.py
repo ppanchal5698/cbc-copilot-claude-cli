@@ -75,6 +75,14 @@ class Collections:
     def audit_log(self):
         return database()["auditLog"]
 
+    @property
+    def calls(self):
+        return database()["calls"]
+
+    @property
+    def versions(self):
+        return database()["estimateVersions"]
+
 
 db = Collections()
 
@@ -102,6 +110,11 @@ async def ensure_indexes() -> None:
     await db.jobs.create_index([("projectId", ASCENDING), ("createdAt", DESCENDING)])
     await db.audit_log.create_index([("at", DESCENDING)])
     await db.audit_log.create_index([("target.projectId", ASCENDING)])
+    await db.calls.create_index([("projectId", ASCENDING), ("createdAt", DESCENDING)])
+    await db.versions.create_index([("projectId", ASCENDING), ("version", DESCENDING)])
+    # Alternates are queried per group on both the extraction and quote screens.
+    await db.line_items.create_index([("projectId", ASCENDING), ("alternateGroup", ASCENDING)])
+    await db.quote_lines.create_index([("projectId", ASCENDING), ("alternateGroup", ASCENDING)])
 
 
 def oid(value: str | ObjectId) -> ObjectId:

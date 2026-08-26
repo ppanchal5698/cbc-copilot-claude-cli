@@ -8,7 +8,6 @@ whatever the code happens to do.
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -18,33 +17,17 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 TEST_DB = "cbc_opshub_test"
-os.environ["MONGODB_DB"] = TEST_DB
-
-from fastapi.testclient import TestClient  # noqa: E402
-from pymongo import MongoClient  # noqa: E402
 
 from api.config import settings  # noqa: E402
-
-settings.mongodb_db = TEST_DB
-
-from api.main import app  # noqa: E402
+from api.tests.conftest import opshub_client  # noqa: E402
 
 FIXTURE = ROOT / "building-plans" / "1_Architectural.pdf"
 
 
 @pytest.fixture(scope="module")
 def client():
-    raw = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
-    try:
-        raw.server_info()
-    except Exception:
-        pytest.skip("MongoDB is not running - start it with `docker compose up -d`")
-    raw.drop_database(TEST_DB)
-
-    with TestClient(app) as test_client:
+    with opshub_client(TEST_DB) as test_client:
         yield test_client
-
-    raw.drop_database(TEST_DB)
 
 
 @pytest.fixture(scope="module")

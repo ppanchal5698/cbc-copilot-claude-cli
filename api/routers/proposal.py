@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, Response
 
 from api.config import settings
 from api.db import db, serialise
-from api.models import ProposalSettings
+from api.models import HandOff, ProposalSettings
 from api.routers.projects import load
 from api.routers.quote import _lines, _recompute
 from api.services import audit
@@ -24,6 +24,7 @@ sys.path.insert(0, str(settings.repo_root / "mcp-servers"))
 router = APIRouter(prefix="/api/projects/{code}/proposal", tags=["proposal"])
 
 VALIDITY_DAYS = 30
+NEWLINE = chr(10)
 SECTION_TITLES = {
     "door": "Doors / Frames / Hardware",
     "accessories": "Restroom Accessories",
@@ -41,6 +42,31 @@ DEFAULT_EXCLUSIONS = [
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _write_email_draft(project: dict[str, Any], recipient: str | None, actor: str) -> str:
+    """Write the drafted body to the project's review folder as an artifact."""
+    from api.services import storage
+
+    target = storage.project_dir(project["slug"]) / "review" / "quotation_email_draft.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        NEWLINE.join(
+            [
+                "# Quotation email - DRAFT",
+                "",
+                "> Written by the Ops-Hub. **Nothing has been sent** (NFR-1).",
+                f"> An estimator ({actor}) signed this off on {date.today().isoformat()}.",
+                "",
+                f"**To:** {recipient or 'no sales initiator recorded on this bid'}",
+                f"**Subject:** CBC Quotation for {project.get('name')}",
+                "",
+                "See the proposal screen for the current body and totals.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return storage.relative(target)
 
 
 def _section_of(division: str | None) -> str:
@@ -152,8 +178,12 @@ async def update_proposal(code: str, body: ProposalSettings, actor: str = "estim
 
 
 @router.get("/render", response_class=HTMLResponse)
-async def render_proposal(code: str) -> HTMLResponse:
-    """Render the customer-facing HTML from the shared Jinja template."""
+async def render_proposal(code: str, autoprint: bool = False) -> HTMLResponse:
+    """Render the customer-facing HTML from the shared Jinja template.
+
+    autoprint opens the browser print dialog, which is the fallback path to a PDF
+    when no local renderer is installed.
+    """
     from jinja2 import Environment, FileSystemLoader, select_autoescape
 
     project = await load(code)
@@ -217,6 +247,8 @@ async def render_proposal(code: str) -> HTMLResponse:
         },
         flag_count=data["readiness"]["flaggedLineItems"],
     )
+    if autoprint:
+        html += "<script>window.addEventListener('load',()=>window.print())</script>"
     return HTMLResponse(html)
 
 
@@ -231,12 +263,15 @@ async def proposal_pdf(code: str) -> Response:
 
     try:
         from weasyprint import HTML  # type: ignore
-    except ImportError:
+    except Exception as exc:
+        # WeasyPrint imports on Windows but fails to load its GTK libraries with
+        # an OSError, so this cannot narrow to ImportError.
         raise HTTPException(
             501,
-            "No local PDF renderer installed. Run `python -m pip install weasyprint` "
-            "or use the browser's Print to PDF on the proposal view.",
-        )
+            "No working local PDF renderer. Use the printable view and print to PDF "
+            "from the browser, or install the WeasyPrint native libraries (GTK "
+            f"runtime on Windows). Underlying error: {exc}",
+        ) from exc
 
     pdf_bytes = HTML(string=html, base_url=str(settings.repo_root)).write_pdf()
     project = await load(code)
@@ -248,22 +283,95 @@ async def proposal_pdf(code: str) -> Response:
 
 
 @router.post("/complete")
-async def mark_complete(code: str, actor: str = "estimator") -> dict:
-    """Record the estimator's sign-off. Deliberately does not send anything (NFR-1)."""
+async def mark_complete(code: str, body: HandOff | None = None, actor: str = "estimator") -> dict:
+    """Sign off and route the bid to the sales initiator - inside this app only.
+
+    NFR-1 is untouched: the estimator approves, the bid appears in the named
+    person's queue, and the drafted body is written to disk for them to send.
+    Nothing is transmitted from here, by any means.
+    """
     project = await load(code)
+    recipient = (body.recipient if body else None) or project.get("initiator")
+
     await db.proposals.update_one(
         {"projectId": project["_id"]},
         {
-            "$set": {"completedAt": _now(), "completedBy": actor},
+            "$set": {
+                "completedAt": _now(),
+                "completedBy": actor,
+                "handedOffTo": recipient,
+                "handOffNote": body.note if body else None,
+            },
             "$push": {
                 "signoff": {"role": "estimator", "by": actor, "at": _now(), "state": "complete"}
             },
         },
         upsert=True,
     )
-    await audit.record("proposal.mark_complete", actor, {"projectId": project["_id"]})
+    await db.projects.update_one(
+        {"_id": project["_id"]},
+        {"$set": {"handedOffTo": recipient, "handedOffAt": _now(), "updatedAt": _now()}},
+    )
+
+    draft_path = _write_email_draft(project, recipient, actor)
+
+    await audit.record(
+        "proposal.hand_off",
+        actor,
+        {"projectId": project["_id"]},
+        after={"recipient": recipient},
+        note="in-app hand-off; nothing transmitted",
+    )
     return {
         "status": "complete",
         "sent": False,
-        "message": "Draft ready for estimator review. Nothing has been sent.",
+        "handedOffTo": recipient,
+        "draftPath": draft_path,
+        # Both branches say it, because "nothing has been sent" is the thing the
+        # estimator needs to read back on every hand-off (NFR-1).
+        "message": (
+            f"Signed off and routed to {recipient}. Nothing has been sent."
+            if recipient
+            else "Signed off, but no sales initiator is recorded on this bid, "
+            "so there is nobody to route it to. Nothing has been sent."
+        ),
+    }
+
+
+@router.get("/email-draft")
+async def email_draft(code: str) -> dict:
+    """The prepared body, for the estimator to copy into their own mail client."""
+    project = await load(code)
+    data = await get_proposal(code)
+    stored = await db.proposals.find_one({"projectId": project["_id"]}) or {}
+
+    flags = []
+    if data["readiness"]["flaggedLineItems"]:
+        flags.append(f"{data['readiness']['flaggedLineItems']} extracted line(s) still flagged")
+    if data["readiness"]["unpricedQuoteLines"]:
+        flags.append(f"{data['readiness']['unpricedQuoteLines']} line(s) need a manual price")
+
+    body = NEWLINE.join(
+        [
+            f"Hi {(stored.get('handedOffTo') or project.get('initiator') or 'there').split()[0]},",
+            "",
+            f"Quotation {data['proposal']['proposalNo']} for {project.get('name')} is ready.",
+            "",
+            f"- Total: ${data['totals']['grandTotal']:,.2f}",
+            f"- Supply-only material. HP purchase order required. Valid {VALIDITY_DAYS} days.",
+            "- Freight: TBD, handled when the quote becomes a job.",
+            *(["", "Needs attention before it goes out:"] if flags else []),
+            *[f"- {flag}" for flag in flags],
+            "",
+            "Thanks,",
+            stored.get("completedBy") or "CBC Estimating",
+        ]
+    )
+
+    return {
+        "to": stored.get("handedOffTo") or project.get("initiator"),
+        "subject": f"CBC Quotation {data['proposal']['proposalNo']} - {project.get('name')}",
+        "body": body,
+        "sent": False,
+        "note": "Copy this into your own mail client. The system does not send (NFR-1).",
     }

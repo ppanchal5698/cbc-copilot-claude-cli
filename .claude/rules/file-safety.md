@@ -4,6 +4,15 @@
 - Write **only** inside projects/{current_project}/ during a pipeline run.
 - **Never write to pricebooks/ or reference-library/ during a run** — they are read-only
   reference data. Updating them is a separate, deliberate, human-initiated act.
+
+### The Ops-Hub API is that deliberate act
+The FastAPI service writes `pricebooks/` when purchasing uploads a sheet, and owns
+the `products` and `priceBooks` collections. That is a human-initiated change made
+outside any pipeline run, which is exactly what this rule permits. The constraint
+on an agent is unchanged: during a job, those paths are read-only.
+
+A pipeline run reads live catalog data through the **catalog MCP server**, which is
+read-only by design and asserts it at import — the same guarantee p21-connector makes.
 - Raw uploads in projects/{project}/uploads/raw/ are **immutable**. Extraction output goes to
   uploads/processed/ or extracted/, never back over the original.
 

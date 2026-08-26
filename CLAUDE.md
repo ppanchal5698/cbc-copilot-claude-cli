@@ -9,13 +9,32 @@ manual workflow a CBC estimator follows (Phase 0–6). It drafts, sources, and c
 **It does not send.**
 
 ## Architecture layers
-1. **Agents** (`.claude/agents/`) — 9 sub-agents, one per process phase
+1. **Agents** (`.claude/agents/`) — 10 sub-agents, one per process phase
 2. **Skills** (`.claude/skills/`) — 9 reusable task workflows with scripts & references
 3. **Rules** (`.claude/rules/`) — 8 project-scoped constraint files
 4. **Guardrails** (`.claude/hooks/`) — 5 executable hooks (PreToolUse / PostToolUse)
 5. **Memory** (`.claude/memory/`) — 13 persistent reference-data files
-6. **MCP Servers** (`mcp-servers/`) — 5 tool providers (pdf, pricebook, calc, storage, P21)
+6. **MCP Servers** (`mcp-servers/`) — 6 tool providers (pdf, pricebook, catalog, calc, storage, P21)
 7. **Workflows** (`workflows/`) — headless orchestration scripts for autopilot
+
+## The Ops-Hub application
+The estimator drives the pipeline through a web app; Claude Code works behind it.
+
+- **`web/`** — Next.js 15 UI (dashboard, bid board, the four bid stages, catalog, price books)
+- **`api/`** — FastAPI. Owns MongoDB and every business rule. Quote arithmetic is
+  delegated to `calc-engine`, so the numbers have one implementation.
+- **`worker/`** — claims queued jobs and runs `claude --print`, then syncs what
+  Claude wrote on disk into MongoDB.
+- **MongoDB** — the system of record between the two actors. PDFs stay on the
+  filesystem under `projects/{slug}/uploads/raw/`, which is what the skills expect.
+
+Setup and the job flow: @docs/opshub_setup.md
+
+**Every user action that needs machine work becomes a job**, never a direct spawn:
+`extract_bid_set`, `rerun_extraction`, `match_and_price`, `build_proposal`,
+`ingest_pricebook`. At each phase boundary the estimator's confirmed state is
+written back down to `extracted/` and `priced/` so Claude's next pass reconciles
+against it rather than overwriting it.
 
 ## Non-negotiable guardrails
 - **NFR-1** — No quote is ever sent without explicit estimator approval.
@@ -31,6 +50,7 @@ manual workflow a CBC estimator follows (Phase 0–6). It drafts, sources, and c
 - MCP contracts: @docs/mcp_server_contracts.md
 - Headless setup: @docs/headless_setup.md
 - Architecture: @docs/architecture.md
+- Ops-Hub setup: @docs/opshub_setup.md
 
 ## Scope
 **In-scope**: metal & wood doors; HM frames (welded/loaded & knock-down); HP-Fabrication

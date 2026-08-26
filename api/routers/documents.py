@@ -68,17 +68,50 @@ async def upload_document(
     document["_id"] = result.inserted_id
 
     # This is the notification to Claude Code.
-    job = await jobs.enqueue(
-        "extract_bid_set",
-        project_id=project["_id"],
-        payload={"documentId": str(result.inserted_id), "filename": target.name},
-        actor=actor,
-    )
+    #
+    # An addendum is different in kind: it revises a bid that may already be
+    # priced, so the current state is frozen into a new version first and the
+    # differences are flagged rather than merged (Matrix 4.1 is still open).
+    version = None
+    if kind == "addendum":
+        from api.routers.versions import snapshot
+
+        version = await snapshot(project, f"Addendum: {target.name}", actor)
+        job = await jobs.enqueue(
+            "ingest_addendum",
+            project_id=project["_id"],
+            payload={
+                "documentId": str(result.inserted_id),
+                "filename": target.name,
+                "version": version["version"],
+            },
+            actor=actor,
+        )
+    else:
+        job = await jobs.enqueue(
+            "extract_bid_set",
+            project_id=project["_id"],
+            payload={"documentId": str(result.inserted_id), "filename": target.name},
+            actor=actor,
+        )
+
     await audit.record(
-        "document.upload", actor, {"projectId": project["_id"], "documentId": result.inserted_id}
+        "document.upload",
+        actor,
+        {"projectId": project["_id"], "documentId": result.inserted_id},
+        after={"kind": kind},
     )
 
-    return {"document": serialise(document), "job": serialise(job)}
+    return {
+        "document": serialise(document),
+        "job": serialise(job),
+        "version": version["version"] if version else None,
+        "note": (
+            "Prior work was snapshotted; differences will be flagged, not merged."
+            if version
+            else None
+        ),
+    }
 
 
 @router.get("/{document_id}/file")

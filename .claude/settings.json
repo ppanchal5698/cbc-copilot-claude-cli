@@ -2,39 +2,27 @@
   "mcpServers": {
     "pdf-tools": {
       "command": "python",
-      "args": [
-        "mcp-servers/pdf-tools/server.py"
-      ]
+      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/pdf-tools/server.py"]
     },
     "pricebook": {
       "command": "python",
-      "args": [
-        "mcp-servers/pricebook/server.py"
-      ]
+      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/pricebook/server.py"]
     },
     "calc-engine": {
       "command": "python",
-      "args": [
-        "mcp-servers/calc-engine/server.py"
-      ]
+      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/calc-engine/server.py"]
     },
     "artifact-storage": {
       "command": "python",
-      "args": [
-        "mcp-servers/artifact-storage/server.py"
-      ]
+      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/artifact-storage/server.py"]
     },
     "p21-connector": {
       "command": "python",
-      "args": [
-        "mcp-servers/p21-connector/server.py"
-      ]
+      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/p21-connector/server.py"]
     },
     "catalog": {
       "command": "python",
-      "args": [
-        "mcp-servers/catalog/server.py"
-      ]
+      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/catalog/server.py"]
     }
   },
   "hooks": {
@@ -44,11 +32,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/pre_send_quote.py"
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_send_quote.py\""
           },
           {
             "type": "command",
-            "command": "python .claude/hooks/pre_delete_guard.py"
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_delete_guard.py\""
           }
         ]
       }
@@ -59,11 +47,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/post_extraction_validate.py"
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/post_extraction_validate.py\""
           },
           {
             "type": "command",
-            "command": "python .claude/hooks/post_quote_format.py"
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/post_quote_format.py\""
           }
         ]
       },
@@ -72,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python .claude/hooks/log_audit_trail.py"
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/log_audit_trail.py\""
           }
         ]
       }

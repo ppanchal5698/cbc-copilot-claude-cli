@@ -19,6 +19,7 @@ from api.config import settings
 from api.db import ensure_indexes
 from api.routers import (
     auth,
+    calls,
     catalog,
     documents,
     jobs,
@@ -27,6 +28,7 @@ from api.routers import (
     projects,
     proposal,
     quote,
+    versions,
 )
 
 log = logging.getLogger("cbc.api")
@@ -71,6 +73,8 @@ for router in (
     catalog.router,
     price_books.router,
     jobs.router,
+    calls.router,
+    versions.router,
 ):
     app.include_router(router)
 

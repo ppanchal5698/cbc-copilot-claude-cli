@@ -31,3 +31,6 @@ web/.env.local
 web/.next/
 web/node_modules/
 storage/
+
+# Rendered PDF page cache
+.cache/

@@ -12,6 +12,19 @@ gap rather than papering over it.
 | Margin sheet | reference-library/margins/ | **UNASSIGNED** | **UNDEFINED** |
 | Top-10 stock list | reference-library/hardware_sets/ | **UNASSIGNED** (CBC to provide, NR-6) | **UNDEFINED** |
 
+## What the Ops-Hub changed
+Staleness is now **visible to the person who can act on it**, not just to a log:
+
+- The price-books screen shows every program with its age, and flags anything past
+  180 days or carrying no effective date at all.
+- The rail badge carries the stale count on every screen.
+- `catalog.list_price_books` returns `ageDays` and `stale`, so a pricing pass sees
+  the same signal the estimator does.
+- Purchasing can record a review date and upload a newer sheet in one place.
+
+**None of this assigns an owner or a cadence.** The gap is unchanged; it is merely
+harder to miss. NFR-10 stays OPEN until CBC names a person and an interval.
+
 ## Interim mitigation
 - Every price-book file carries its **effective date** in pricebooks/index.json and that date
   is echoed onto every priced line (see the auditability rule).

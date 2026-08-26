@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException
 
 from api.db import db, oid, serialise
-from api.models import LineItemCreate, LineItemUpdate
+from api.models import BulkAction, LineItemCreate, LineItemUpdate
 from api.routers.projects import load
 from api.services import audit, jobs, sync
 
@@ -32,12 +32,17 @@ def _now() -> datetime:
 
 
 @router.get("")
-async def list_line_items(code: str, filter: str = "all") -> dict[str, Any]:
+async def list_line_items(
+    code: str, filter: str = "all", alternate: str | None = None
+) -> dict[str, Any]:
     project = await load(code)
     if filter not in FILTERS:
         raise HTTPException(400, f"unknown filter {filter!r}; try {sorted(FILTERS)}")
 
-    query = {"projectId": project["_id"], **FILTERS[filter]}
+    # alternate="" selects the base bid explicitly; omitting it shows everything.
+    query: dict[str, Any] = {"projectId": project["_id"], **FILTERS[filter]}
+    if alternate is not None:
+        query["alternateGroup"] = alternate or None
     items = await db.line_items.find(query).sort([("mark", 1), ("createdAt", 1)]).to_list(1000)
 
     counts_raw = await db.line_items.aggregate(
@@ -152,6 +157,36 @@ async def confirm_all(code: str, actor: str = "estimator") -> dict:
         after={"confirmed": result.modified_count},
     )
     return {"confirmed": result.modified_count}
+
+
+@router.post("/bulk")
+async def bulk_action(code: str, body: BulkAction, actor: str = "estimator") -> dict:
+    """Confirm or remove a selection in one action.
+
+    Same audit shape as the single-item paths, so a bulk confirm is as traceable
+    as an individual one - it records how many, and which.
+    """
+    project = await load(code)
+    ids = [oid(item_id) for item_id in body.ids]
+    query = {"_id": {"$in": ids}, "projectId": project["_id"]}
+
+    if body.action == "confirm":
+        result = await db.line_items.update_many(
+            query,
+            {"$set": {"status": "clear", "confirmedBy": actor, "confirmedAt": _now()}},
+        )
+        affected = result.modified_count
+    else:
+        result = await db.line_items.delete_many(query)
+        affected = result.deleted_count
+
+    await audit.record(
+        f"line_item.bulk_{body.action}",
+        actor,
+        {"projectId": project["_id"]},
+        after={"requested": len(body.ids), "affected": affected},
+    )
+    return {"action": body.action, "requested": len(body.ids), "affected": affected}
 
 
 @router.post("/{item_id}/resolve-duplicate")

@@ -83,7 +83,12 @@ def totals(lines: list[dict[str, Any]], state: str | None, freight: float | None
         }
         for line in lines
     ]
-    result = calc.compute_totals(payload, project_state=state)
+    # NONE is an explicit "no nexus" ruling, not a missing value.
+    explicit_none = state == "NONE"
+    result = calc.compute_totals(payload, project_state=None if explicit_none else state)
+    if explicit_none:
+        result["project_state"] = "NONE"
+        result["tax_note"] = "No nexus - the estimator has ruled this bid untaxed."
 
     if freight:
         result["freight"] = round(float(freight), 2)

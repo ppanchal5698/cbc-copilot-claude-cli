@@ -5,7 +5,7 @@ Nothing in this module does arithmetic on money.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -22,15 +22,36 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+STALE_DAYS = 180
+
+
 async def _lines(project_id) -> list[dict[str, Any]]:
     return await db.quote_lines.find({"projectId": project_id}).sort("division", 1).to_list(2000)
+
+
+def _lapsed(line: dict[str, Any]) -> bool:
+    """True when the sheet this cost came from is past the review window.
+
+    A lapsed price is not wrong, but it is unverified - the estimator decides.
+    """
+    effective = line.get("multiplierEffectiveDate")
+    if not effective:
+        return False
+    try:
+        return (date.today() - date.fromisoformat(str(effective))).days > STALE_DAYS
+    except ValueError:
+        return False
 
 
 async def _recompute(project: dict[str, Any], actor: str = "system") -> dict[str, Any]:
     """Re-price every line and re-total. Called after any edit."""
     project_id = project["_id"]
     quote = await db.quotes.find_one({"projectId": project_id}) or {}
-    state = quote.get("taxJurisdiction") or project.get("state")
+    # "NONE" is the estimator saying there is no nexus. Unset means nobody has
+    # ruled, so the ship-to state decides. Collapsing both into null would let a
+    # deliberate "no tax" silently become "tax per the project state".
+    stored = quote.get("taxJurisdiction")
+    state = stored if stored else project.get("state")
 
     lines = await _lines(project_id)
     for line in lines:
@@ -82,7 +103,8 @@ async def _recompute(project: dict[str, Any], actor: str = "system") -> dict[str
 async def get_quote(code: str) -> dict[str, Any]:
     project = await load(code)
     totals = await _recompute(project)
-    lines = serialise(await _lines(project["_id"]))
+    raw = await _lines(project["_id"])
+    lines = [{**serialise(line), "lapsed": _lapsed(line)} for line in raw]
 
     groups: dict[str, dict[str, Any]] = {}
     for line in lines:
@@ -92,11 +114,18 @@ async def get_quote(code: str) -> dict[str, Any]:
         group["subtotal"] = round(group["subtotal"] + (line.get("extended") or 0), 2)
 
     quote = await db.quotes.find_one({"projectId": project["_id"]})
+    edited = [line for line in lines if line.get("marginOverridden") or line.get("addedByHand")]
+
     return {
         "quote": serialise(quote),
         "groups": sorted(groups.values(), key=lambda g: g["division"]),
         "totals": totals,
         "lineCount": len(lines),
+        "edited": {
+            "count": len(edited),
+            "firstId": edited[0]["id"] if edited else None,
+        },
+        "lapsedCount": sum(1 for line in lines if line["lapsed"]),
     }
 
 
