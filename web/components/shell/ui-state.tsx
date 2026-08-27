@@ -18,6 +18,10 @@ interface UiState {
   paletteOpen: boolean;
   setPaletteOpen: (open: boolean) => void;
 
+  /** The live Claude Code session for the bid on screen. */
+  terminalOpen: boolean;
+  setTerminalOpen: (open: boolean) => void;
+
   focusMode: boolean;
   toggleFocus: () => void;
 
@@ -32,6 +36,7 @@ export function UiStateProvider({ children }: { children: React.ReactNode }) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesRef, setNotesRef] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [notesVersion, setNotesVersion] = useState(0);
 
@@ -94,12 +99,23 @@ export function UiStateProvider({ children }: { children: React.ReactNode }) {
       notesRef,
       paletteOpen,
       setPaletteOpen,
+      terminalOpen,
+      setTerminalOpen,
       focusMode,
       toggleFocus,
       notesVersion,
       bumpNotes: () => setNotesVersion((v) => v + 1),
     }),
-    [notesOpen, notesRef, openNotes, paletteOpen, focusMode, toggleFocus, notesVersion],
+    [
+      notesOpen,
+      notesRef,
+      openNotes,
+      paletteOpen,
+      terminalOpen,
+      focusMode,
+      toggleFocus,
+      notesVersion,
+    ],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

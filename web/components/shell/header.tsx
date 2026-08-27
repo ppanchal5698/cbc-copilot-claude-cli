@@ -25,7 +25,8 @@ export function Header({
   reviewCount?: number;
   code?: string | null;
 }) {
-  const { openNotes, setPaletteOpen, focusMode, notesVersion } = useUiState();
+  const { openNotes, setPaletteOpen, setTerminalOpen, focusMode, notesVersion } =
+    useUiState();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [noteCount, setNoteCount] = useState(0);
 
@@ -101,8 +102,12 @@ export function Header({
       </div>
 
       {runPill && !focusMode && (
-        <div
-          className="anim-fadein flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px]"
+        // The pill is what you look at to ask "what is it doing?", so it is what
+        // opens the real session rather than a separate control somewhere else.
+        <button
+          onClick={() => setTerminalOpen(true)}
+          title="Watch the Claude Code session"
+          className="anim-fadein flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] transition"
           style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
         >
           <span
@@ -110,7 +115,10 @@ export function Header({
             style={{ background: toneColour }}
           />
           <span style={{ color: "var(--app-tx-2)" }}>{runPill.label}</span>
-        </div>
+          <span className="text-[10.5px]" style={{ color: "var(--app-tx-3)" }}>
+            terminal
+          </span>
+        </button>
       )}
 
       <button

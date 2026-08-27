@@ -1,30 +1,4 @@
 {
-  "mcpServers": {
-    "pdf-tools": {
-      "command": "python",
-      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/pdf-tools/server.py"]
-    },
-    "pricebook": {
-      "command": "python",
-      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/pricebook/server.py"]
-    },
-    "calc-engine": {
-      "command": "python",
-      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/calc-engine/server.py"]
-    },
-    "artifact-storage": {
-      "command": "python",
-      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/artifact-storage/server.py"]
-    },
-    "p21-connector": {
-      "command": "python",
-      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/p21-connector/server.py"]
-    },
-    "catalog": {
-      "command": "python",
-      "args": ["$CLAUDE_PROJECT_DIR/mcp-servers/catalog/server.py"]
-    }
-  },
   "hooks": {
     "PreToolUse": [
       {
@@ -87,5 +61,6 @@
       "Bash(mailx *)",
       "Bash(curl *mail*)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true
 }

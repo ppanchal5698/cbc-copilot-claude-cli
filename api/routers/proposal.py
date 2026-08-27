@@ -108,11 +108,19 @@ async def _build(project: dict[str, Any], markup: float = 0.0) -> dict[str, Any]
         section["subtotal"] = round(section["subtotal"] + (extended or 0), 2)
 
     ordered = [sections[k] for k in ("door", "accessories", "frp", "other") if k in sections]
-    grand = round(sum(s["subtotal"] for s in ordered) + (totals.get("tax") or 0), 2)
+    subtotal = round(sum(s["subtotal"] for s in ordered), 2)
+    grand = round(subtotal + (totals.get("tax") or 0), 2)
 
+    # A markup moves every printed figure, so the subtotal has to move with them.
+    # Printing the quote's own subtotal against marked-up section totals puts a
+    # sum on a customer-facing sheet that does not add up.
     return {
         "sections": ordered,
-        "totals": {**totals, "markup": markup, "grandTotal": grand if markup else totals["grandTotal"]},
+        "totals": {
+            **totals,
+            "markup": markup,
+            **({"subtotal": subtotal, "grandTotal": grand} if markup else {}),
+        },
     }
 
 

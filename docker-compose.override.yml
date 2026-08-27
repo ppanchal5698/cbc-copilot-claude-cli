@@ -1,0 +1,34 @@
+# Local development only. Compose loads this automatically; it is never part of
+# a deployed stack.
+#
+# It lends the containers the Claude Code credentials you already have on this
+# machine, so a real run is possible before anyone touches the settings screen.
+#
+# Only `.credentials.json` is mounted, and read-only. Mounting the whole of
+# ~/.claude would put the containers inside your live Claude Code state - 164 MB
+# of session transcripts on this machine, including the session you are reading
+# this in - and let them write to it. The credential is the only part they need.
+#
+# The cost of read-only: Claude Code cannot refresh an expiring token in place.
+# When it expires, sign in again from the settings screen, which writes to the
+# database instead and needs none of this.
+
+services:
+  api:
+    environment:
+      APP_ENV: development
+    volumes:
+      - ./projects:/app/projects
+      - ./pricebooks:/app/pricebooks:ro
+      - ./building-plans:/app/building-plans:ro
+      - claude_home:/home/cbc/.claude
+      - ${CLAUDE_CREDENTIALS:-~/.claude/.credentials.json}:/home/cbc/.claude/.credentials.json:ro
+
+  worker:
+    environment:
+      APP_ENV: development
+    volumes:
+      - ./projects:/app/projects
+      - ./pricebooks:/app/pricebooks:ro
+      - claude_home:/home/cbc/.claude
+      - ${CLAUDE_CREDENTIALS:-~/.claude/.credentials.json}:/home/cbc/.claude/.credentials.json:ro

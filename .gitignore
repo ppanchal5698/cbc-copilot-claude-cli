@@ -34,3 +34,6 @@ storage/
 
 # Rendered PDF page cache
 .cache/
+
+# Terminal recordings of Claude Code runs - large, regenerated per run
+projects/*/.runs/

@@ -8,10 +8,34 @@ from typing import Any
 
 TOOLS: list[dict[str, Any]] = [
     {
+        "name": "find_sheets",
+        "description": (
+            "Page map: which sheets mention which terms, ranked. Start a take-off "
+            "here - it answers 'which sheets matter?' in one call instead of one "
+            "search per term, and returns counts rather than page text."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "Path to the PDF file"},
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Terms to look for. Omit for the Division 8/10 defaults "
+                        "(door schedule, frame, hardware, partition, FRP, ...)."
+                    ),
+                },
+            },
+            "required": ["file_path"],
+        },
+    },
+    {
         "name": "extract_text",
         "description": (
             "Extract text from a PDF, page by page, with 1-indexed page numbers for "
-            "auditability. Falls back to OCR only if a page has no extractable text."
+            "auditability. Falls back to OCR only if a page has no extractable text. "
+            "Repairs glyph-coded fonts and reports it as encoding_repaired."
         ),
         "inputSchema": {
             "type": "object",

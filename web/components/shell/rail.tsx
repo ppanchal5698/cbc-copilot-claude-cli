@@ -9,6 +9,7 @@ import {
   SquaresFour,
   Package,
   Books,
+  SlidersHorizontal,
 } from "@phosphor-icons/react/dist/ssr";
 
 const NAV = [
@@ -16,6 +17,7 @@ const NAV = [
   { href: "/bids", label: "Bid board", Icon: SquaresFour },
   { href: "/catalog", label: "Product catalog", Icon: Package },
   { href: "/price-books", label: "Price books", Icon: Books },
+  { href: "/settings", label: "Settings", Icon: SlidersHorizontal },
 ];
 
 export function Rail({

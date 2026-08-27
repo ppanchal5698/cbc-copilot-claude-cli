@@ -4,12 +4,42 @@ The web application around the estimating pipeline: a Next.js UI, a FastAPI
 service that owns MongoDB and every business rule, and a worker that runs Claude
 Code on the estimator's behalf.
 
-## Four processes
+## Everything in containers
+
+```bash
+docker compose up -d --build
+```
+
+| Service | Port | Notes |
+|---|---|---|
+| `mongo` | 27017 | mongo-express on 8081 |
+| `api` | 8001 | FastAPI; owns Mongo and every business rule |
+| `web` | 3000 | Next.js standalone build |
+| `worker` | — | claims jobs and runs `claude --print` |
+| `litellm` | 4000 | optional, `--profile oss` |
+
+`api` and `worker` are the **same image** - the API needs the Claude Code CLI too,
+for the sign-in flow on the settings screen.
+
+### Two things the image has to get right
+
+**It runs as a non-root user.** Claude Code refuses
+`--dangerously-skip-permissions` under root, so every job would fail at spawn.
+
+**It declares `/app` a trusted workspace** (`docker/entrypoint.sh`). Claude Code
+ignores a project's `permissions.allow` entries until the trust dialog has been
+accepted, and an unattended container has nobody to accept it. Unset, every MCP
+tool call is silently denied - which looks like an extraction that found nothing,
+not like a permissions error.
+
+### Running the processes directly instead
+
+Still supported, and what `docs/headless_setup.md` assumes:
 
 | Process | Command | Port |
 |---|---|---|
-| MongoDB | `docker compose up -d` | 27017 (mongo-express on 8081) |
-| API | `python -m uvicorn api.main:app --reload --port 8000` | 8000 |
+| MongoDB | `docker compose up -d mongo` | 27017 |
+| API | `python -m uvicorn api.main:app --reload --port 8001` | 8001 |
 | Web | `npm --prefix web run dev` | 3000 |
 | Worker | `python worker/main.py` | — |
 
@@ -36,6 +66,128 @@ npm --prefix web install
 Then start the API, the web app and the worker in three terminals.
 
 Sign in with `rgilbert@hamiltonparker.com` / `opshub`.
+
+## Configuring Claude Code
+
+**Settings → Claude Code.** Until this screen existed the worker inherited
+whatever environment its shell had, so authentication was invisible from inside
+the app and unfixable from outside it.
+
+| Mode | Sets | Use it for |
+|---|---|---|
+| Claude subscription | `CLAUDE_CODE_OAUTH_TOKEN` | local development |
+| Anthropic API key | `ANTHROPIC_API_KEY` (x-api-key) | per-token billing |
+| Amazon Bedrock | `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION` | Fargate, via the task role |
+| Gateway | `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` (Bearer) | LiteLLM, self-hosted |
+
+These variables are **not interchangeable**. `ANTHROPIC_AUTH_TOKEN` goes in
+`Authorization: Bearer`, `ANTHROPIC_API_KEY` in `x-api-key`. A credential in the
+wrong one reaches the provider in a header it does not read and fails `401`.
+
+**The environment wins over the screen.** On Fargate the credentials come from
+Secrets Manager, and a field it sets renders read-only with a "set by
+environment" badge rather than being silently ignored.
+
+**Test connection** runs a real one-line pass against what is on screen, not
+what is saved - so a wrong key is caught before it becomes the configuration
+every job uses.
+
+### Signing in through the browser
+
+There is no browser in the container, so `claude setup-token` runs on a pty,
+prints an authorization URL, and waits. Open the URL, approve, paste the code
+back. The resulting one-year token is stored encrypted.
+
+Local development only; it is refused when `APP_ENV=production`.
+
+### Non-Claude models
+
+```bash
+docker compose --profile oss up -d litellm
+```
+
+Claude Code speaks only Anthropic-format APIs. Ollama, NVIDIA NIM and OpenRouter
+are OpenAI-format, so LiteLLM translates, exposing `/v1/messages` for
+`ANTHROPIC_BASE_URL` to point at.
+
+**Anthropic does not support Claude Code against non-Claude models.** Tool-use
+fidelity degrades first, and this pipeline is almost entirely MCP tool calls - a
+loosely formatted call yields an extraction that looks finished and is wrong.
+Check anything these models produce against the drawing.
+
+### Where credentials live
+
+Encrypted with `APP_SECRET_KEY` (Fernet) in the `settings` collection, returned
+to the browser masked, redacted from job logs, and recorded in the audit trail by
+field name only - never by value. Changing `APP_SECRET_KEY` makes stored
+credentials unreadable; they are reported as unconfigured, and re-entering them
+is the fix.
+
+## Watching a run
+
+Every job runs the CLI on a pty and records it to
+`projects/{slug}/.runs/{job_id}.log`. The header run pill opens that recording in
+a real terminal (xterm.js), live while the job runs and replayable afterwards.
+
+`--print` on a pty emits only the final answer - a whole extraction produced 14
+bytes - so a recorded run uses `--output-format stream-json --verbose`, where the
+CLI reports each tool call as it makes it. Each line in the terminal is one of
+those events; `raw` shows the untouched stream. The interactive TUI would be
+richer, but it stops on the login-method screen and cannot be driven unattended.
+
+The terminal is read-only. Credentials are stripped as the recording is written,
+including one split across two reads.
+
+## What a run costs
+
+The first real bid set spent a million-token budget without producing a
+schedule. Four things were paying for that, and each is now bounded:
+
+| Where it went | Before | Now |
+|---|---|---|
+| `CLAUDE.md` and its `@` includes, in context every turn | 72 KB (~18,000 tokens) | 13.7 KB (~3,400) |
+| One `extract_tables(page_range="all")` | 1.54 M chars (~385,000 tokens) | bounded to 4 pages, rest named |
+| Finding which sheets matter | 6 searches, ~2,300 tokens | one `find_sheets`, ~450 |
+| Tools in context during a take-off | 6 MCP servers, 39 tools | 2 servers, 33 tools |
+
+`@` inlines a file into every session and every turn, so a doc referenced that
+way is paid for on every job forever. Only `cbc_process_flow.md` earns it. The
+rest are plain paths, readable on demand. `tests/test_workflow_cost.py` fails if
+that creeps back.
+
+Each job also gets only the servers its phase uses (`worker/toolsets.py`), passed
+with `--strict-mcp-config`. An extraction sees pdf-tools and artifact-storage and
+nothing else - which is a quality lever before it is a cost one, because the only
+tools on offer are the right ones. `WebSearch` and `WebFetch` are removed
+outright: a pass over a customer's drawings has no reason to reach the network.
+
+`WORKER_MAX_TURNS` (default 60) bounds how far a pass can wander.
+
+## MCP servers
+
+They are declared in **`.mcp.json` at the repo root**. `.claude/settings.json`
+has no `mcpServers` key and never had - a block there is silently ignored, which
+is how the first real run ended up with no MCP tools at all and reimplemented PDF
+extraction in Bash 52 times.
+
+`enableAllProjectMcpServers: true` in `.claude/settings.json` is what lets an
+unattended container use them: a project-scoped `.mcp.json` otherwise waits for
+an approval nobody is there to give.
+
+Check them with:
+
+```bash
+docker compose exec worker bash -lc "cd /app && claude mcp list"
+```
+
+## Reading a mis-encoded bid set
+
+Some CAD exports embed fonts with no usable ToUnicode map, so `page.get_text()`
+returns glyph codes: "DO NOT SCALE DRAWINGS" arrives as `'21276&$/(`.
+`pdf-tools` detects a document-wide offset, repairs it, and reports
+`encoding_repaired` and `encoding_shift` on every result - it is never applied
+silently, because a transformed drawing value nobody can see was transformed is
+what NFR-2 exists to prevent. A sound document is left untouched.
 
 ## How a bid flows
 
@@ -65,6 +217,31 @@ download the PDF
 The estimator's decisions are written **down to disk** at each phase boundary, so
 Claude's next pass reconciles against what the human confirmed rather than
 overwriting it. Confirmed and hand-added lines survive a re-run.
+
+## Alternates and addenda
+
+Only the interim rule the workbook records is built. How a reconciliation
+actually resolves is still open (Matrix 4.1 / FR-14 / Open Item 11), and the
+screens say so rather than implying an answer.
+
+- The base bid and each alternate are **distinct, comparable line groups** with
+  independent totals. `alternateGroup: null` is the base bid; declared alternates
+  are stored on the project so an empty one still appears in the switcher.
+- Uploading a document of kind `addendum` **snapshots the whole current state**
+  into a new version, then enqueues `ingest_addendum`. The prior version is kept
+  entire, not diffed.
+- That job writes `review/addendum_diff.json` and stops. It never merges the
+  addendum into `door_schedule.json`, because the merge rule has not been agreed.
+
+## Hand-off to sales
+
+`Mark complete` records the estimator's sign-off, sets `handedOffTo`, puts the bid
+in that person's queue, and writes the drafted body to
+`review/quotation_email_draft.md`.
+
+**Nothing is transmitted.** The response always carries `sent: false` and says so
+in words, on both the routed and the no-initiator path. `pre_send_quote.py`, the
+deny list and `test_no_auto_send.sh` are untouched (NFR-1).
 
 ## Why a worker rather than a direct spawn
 
@@ -102,6 +279,10 @@ Processes at most one job, which is the quickest way to see a real run end to en
 | `WORKER_JOB_TIMEOUT_SECONDS` | worker | default 1800 |
 | `PRICEBOOK_DIR` | API, pricebook MCP | default `pricebooks/` |
 
+The API runs on **8001**, not 8000. A dead process was holding 8000 on the build
+machine and Windows no longer reported the owning PID, so the port moved rather
+than being fought over.
+
 ## Where the data lives
 
 **MongoDB** holds the structured record: projects, documents, line items, quote
@@ -138,8 +319,14 @@ rather than a 500.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Every page shows "Cannot reach the API" | API not running | `python -m uvicorn api.main:app --port 8000` |
-| Jobs sit at `queued` | Worker not running, or Claude cannot authenticate | `python worker/main.py --preflight` |
+| Every page shows "Cannot reach the API" | API not running | `python -m uvicorn api.main:app --port 8001` |
+| Jobs sit at `queued` | Worker not running, or Claude cannot authenticate | `docker compose exec worker python worker/main.py --preflight` |
+| `cannot be used with root/sudo privileges` | Container running as root | the image sets `USER cbc`; do not override it |
+| `Ignoring N permissions.allow entries` | Workspace not trusted | `docker/entrypoint.sh` sets it; check it ran in the logs |
+| `OAuth session expired` | No credential reached the container | configure a provider on the settings screen |
 | Viewer says the worker version does not match | pdf.js worker drifted | `node web/scripts/copy-pdf-worker.mjs` |
 | `DOMMatrix is not defined` | pdf.js evaluated on the server | the viewer is loaded with `ssr: false`; keep it that way |
 | Download PDF opens a print dialog | No WeasyPrint native libraries | expected on Windows; print to PDF, or install the GTK runtime |
+| A run reads the whole set and burns the context | MCP servers not registered | `claude mcp list` should show six connected |
+| Extracted text is punctuation soup | Fonts carry no ToUnicode map | `pdf-tools` repairs it; check `encoding_repaired` on the result |
+| The terminal says "no recording" | Job predates recording, or ran on a host with no pty | re-run it |

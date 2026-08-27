@@ -14,7 +14,9 @@ manual workflow a CBC estimator follows (Phase 0–6). It drafts, sources, and c
 3. **Rules** (`.claude/rules/`) — 8 project-scoped constraint files
 4. **Guardrails** (`.claude/hooks/`) — 5 executable hooks (PreToolUse / PostToolUse)
 5. **Memory** (`.claude/memory/`) — 13 persistent reference-data files
-6. **MCP Servers** (`mcp-servers/`) — 6 tool providers (pdf, pricebook, catalog, calc, storage, P21)
+6. **MCP Servers** (`mcp-servers/`) — 6 tool providers (pdf, pricebook, catalog, calc, storage, P21),
+   registered in **`.mcp.json`** at the repo root. `.claude/settings.json` has no
+   `mcpServers` key — a block there is ignored, and the run silently gets no tools.
 7. **Workflows** (`workflows/`) — headless orchestration scripts for autopilot
 
 ## The Ops-Hub application
@@ -28,11 +30,19 @@ The estimator drives the pipeline through a web app; Claude Code works behind it
 - **MongoDB** — the system of record between the two actors. PDFs stay on the
   filesystem under `projects/{slug}/uploads/raw/`, which is what the skills expect.
 
-Setup and the job flow: @docs/opshub_setup.md
+- **Containers** — `docker compose up -d --build` runs all five. `api` and
+  `worker` share one image; it runs as a **non-root** user because Claude Code
+  refuses `--dangerously-skip-permissions` under root, and its entrypoint marks
+  `/app` trusted because an untrusted workspace silently denies every MCP call.
+- **Provider** — which Claude Code runs the passes is configured on the settings
+  screen and resolved in one place, `api/services/provider.py`. The environment
+  wins over the database, so Secrets Manager stays authoritative in production.
+
+Setup and the job flow: `docs/opshub_setup.md`
 
 **Every user action that needs machine work becomes a job**, never a direct spawn:
 `extract_bid_set`, `rerun_extraction`, `match_and_price`, `build_proposal`,
-`ingest_pricebook`. At each phase boundary the estimator's confirmed state is
+`ingest_pricebook`, `ingest_addendum`. At each phase boundary the estimator's confirmed state is
 written back down to `extracted/` and `priced/` so Claude's next pass reconciles
 against it rather than overwriting it.
 
@@ -44,13 +54,23 @@ against it rather than overwriting it.
 - **NFR-8** — Margin floor per product type; below-band lines are flagged (governance deferred).
 
 ## Key reference paths
-- Process flow: @docs/cbc_process_flow.md
-- Requirements matrix: @docs/requirements_matrix.md
-- Guardrail mappings: @docs/guardrails.md
-- MCP contracts: @docs/mcp_server_contracts.md
-- Headless setup: @docs/headless_setup.md
-- Architecture: @docs/architecture.md
-- Ops-Hub setup: @docs/opshub_setup.md
+
+`@` inlines a file into every session, on every turn. Only the process flow earns
+that: it is the thing a run is actually following. The rest are here as paths, to
+be read when a question needs them.
+
+Inlining all of these cost ~18,000 tokens of context before a single sheet was
+read - and `opshub_setup.md`, 13 KB about Docker ports and web-app
+troubleshooting, was inlined twice.
+
+- Process flow (Phase 0-6): @docs/cbc_process_flow.md
+- Guardrail mappings: `docs/guardrails.md`
+- Requirements matrix: `docs/requirements_matrix.md`
+- MCP contracts: `docs/mcp_server_contracts.md` (the tool schemas are already in
+  context from the servers themselves; this is the prose version)
+- Headless setup: `docs/headless_setup.md`
+- Architecture: `docs/architecture.md`
+- Ops-Hub setup: `docs/opshub_setup.md`
 
 ## Scope
 **In-scope**: metal & wood doors; HM frames (welded/loaded & knock-down); HP-Fabrication
@@ -73,6 +93,12 @@ Automate the stock / top-N items only. Beyond that there is a hard **MANUAL** cu
 custom sizes (e.g. 9-ft doors), unusual preps, options not sold in years, distributor-bought
 lines. Do **not** attempt to price every option permutation — the estimator handles the long
 tail. See @.claude/memory/manual_cutoff.md.
+
+## Alternates and addenda (FR-14) — interim only
+The base bid and each alternate are **distinct, comparable line groups**, and an
+addendum **snapshots** prior work rather than overwriting it — differences are
+flagged, never merged. How a reconciliation resolves is still open (Matrix 4.1 /
+Open Item 11), and every response and screen says so.
 
 ## The pipeline halts at Phase 6
 Every run ends with `quotation.html` written and the message

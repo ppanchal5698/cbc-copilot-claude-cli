@@ -5,12 +5,16 @@ callers read as prose: `db.line_items.find({...})`.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
+
+from urllib.parse import quote_plus, urlsplit
 
 from bson import ObjectId
 from bson.errors import InvalidId
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, TEXT
+from pymongo.errors import OperationFailure, PyMongoError
 
 from api.config import settings
 
@@ -83,6 +87,11 @@ class Collections:
     def versions(self):
         return database()["estimateVersions"]
 
+    @property
+    def settings(self):
+        """Installation settings - one document per concern, `_id` is the name."""
+        return database()["settings"]
+
 
 db = Collections()
 
@@ -138,3 +147,75 @@ def serialise(document: Any) -> Any:
     if isinstance(document, ObjectId):
         return str(document)
     return document
+
+
+# ── read-only access for the catalog MCP server ─────────────────────────────
+#
+# `MONGODB_URI` authenticates as root@admin. That is right for the API, which
+# owns every collection, and wrong for the one thing Claude Code is allowed to
+# reach: the catalog server reads products and price books and asserts at import
+# that it exposes no write tools.
+#
+# That assertion only governs the tools. It says nothing about the credentials
+# the server holds, and until this existed the server held the superuser's - so
+# "the catalog is read-only" was a convention rather than something the database
+# would enforce.
+
+READONLY_USER = "cbc_catalog_ro"
+
+
+def _readonly_password() -> str:
+    return os.environ.get("MONGODB_READONLY_PASSWORD", "cbc_catalog_ro_local_dev")
+
+
+def readonly_uri() -> str | None:
+    """A connection string that cannot write, or None when there isn't one.
+
+    `MONGODB_READONLY_URI` wins: in production the user is provisioned by whoever
+    owns the cluster and handed over as a secret, not created by an application
+    at startup.
+    """
+    explicit = os.environ.get("MONGODB_READONLY_URI")
+    if explicit:
+        return explicit
+
+    parsed = urlsplit(settings.mongodb_uri)
+    if not parsed.hostname:
+        return None
+
+    host = parsed.hostname + (f":{parsed.port}" if parsed.port else "")
+    credentials = f"{quote_plus(READONLY_USER)}:{quote_plus(_readonly_password())}"
+    query = parsed.query or f"authSource={settings.mongodb_db}"
+    return f"{parsed.scheme}://{credentials}@{host}{parsed.path or ''}?{query}"
+
+
+async def ensure_readonly_user() -> bool:
+    """Create or refresh the read-only user. True when one is usable.
+
+    Idempotent, and a no-op when the cluster already provides the credentials.
+    Failure is reported rather than raised: a pricing pass falling back to the
+    writable URI is worse than ideal, but a pipeline that will not start at all
+    because of a privilege refinement is worse still. The caller says which
+    happened.
+    """
+    if os.environ.get("MONGODB_READONLY_URI"):
+        return True
+
+    database_name = settings.mongodb_db
+    roles = [{"role": "read", "db": database_name}]
+    try:
+        target = client()[database_name]
+        try:
+            await target.command(
+                "createUser", READONLY_USER, pwd=_readonly_password(), roles=roles
+            )
+        except OperationFailure as exc:
+            if exc.code != 51003:  # already exists
+                raise
+            # Keep it aligned with the configured password and role on every boot.
+            await target.command(
+                "updateUser", READONLY_USER, pwd=_readonly_password(), roles=roles
+            )
+        return True
+    except (OperationFailure, PyMongoError):
+        return False

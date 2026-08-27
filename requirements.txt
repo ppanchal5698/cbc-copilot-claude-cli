@@ -1,0 +1,26 @@
+# API and worker runtime.
+#
+# These were installed by hand from a line in docs/opshub_setup.md, which meant
+# the versions that actually worked existed only on one machine. Pinned here so
+# the image and the host agree.
+
+fastapi>=0.115,<1.0
+# EmailStr in api/models.py needs this. It was present on the build machine and
+# absent from the image, which is the drift this file exists to stop.
+pydantic[email]>=2.9
+uvicorn[standard]>=0.32,<1.0
+motor>=3.6,<4.0
+pymongo>=4.9,<5.0
+bcrypt>=4.2,<5.0
+python-multipart>=0.0.17
+jinja2>=3.1,<4.0
+cryptography>=43.0
+
+# PDF rendering for the proposal. WeasyPrint needs native GTK libraries that are
+# present in the image but usually absent on Windows, which is why the download
+# endpoint degrades to browser print rather than assuming it.
+weasyprint>=63.0
+
+# Test runner (the image runs the suite, so it is not optional here).
+pytest>=8.3
+httpx>=0.27

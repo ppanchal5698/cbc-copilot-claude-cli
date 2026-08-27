@@ -357,3 +357,45 @@ def test_email_draft_is_built_but_not_sent(client, project):
     assert "CBC Quotation" in draft["subject"]
     assert "does not send" in draft["note"]
     assert "purchase order required" in draft["body"].lower()
+
+
+def test_a_presentation_markup_keeps_the_sheet_adding_up(client, project):
+    """The customer reads this sheet. Its own numbers have to reconcile.
+
+    The markup moves every printed unit price, so the subtotal has to move with
+    them - printing the quote's raw subtotal above marked-up section totals puts
+    a sum on a customer-facing document that is visibly wrong.
+    """
+    code = project["code"]
+
+    for markup in (0.0, 0.02, 0.05):
+        client.patch(f"/api/projects/{code}/proposal", json={"markup": markup})
+        body = client.get(f"/api/projects/{code}/proposal").json()
+        totals = body["totals"]
+
+        sections = round(sum(s["subtotal"] for s in body["sections"]), 2)
+        assert abs(sections - totals["subtotal"]) < 0.01, markup
+        assert abs(totals["subtotal"] + (totals.get("tax") or 0) - totals["grandTotal"]) < 0.01
+
+
+def test_a_confirmed_hand_added_line_counts_as_cleared(client, project):
+    """`status` holds provenance and review state in one field.
+
+    A line added by hand is stored as `by_hand`, so counting the `clear` bucket
+    dropped it even after the estimator confirmed it - the board and the home
+    screen then under-reported how much of the bid was actually checked.
+    """
+    code = project["code"]
+
+    added = client.post(
+        f"/api/projects/{code}/line-items",
+        json={"description": "Hand-added closer", "qty": 1},
+    ).json()
+    client.post(f"/api/projects/{code}/line-items/{added['id']}/confirm")
+
+    counts = client.get(f"/api/projects/{code}").json()["counts"]
+    items = client.get(f"/api/projects/{code}/line-items").json()["lineItems"]
+    confirmed = sum(1 for i in items if i.get("confirmedAt"))
+
+    assert counts["clear"] == confirmed
+    assert counts["byHand"] >= 1

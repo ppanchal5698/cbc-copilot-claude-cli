@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 
 import { CommandPalette } from "@/components/shell/command-palette";
 import { NotesDrawer } from "@/components/shell/notes-drawer";
+import { TerminalDrawer } from "@/components/terminal/terminal-drawer";
 
 /**
  * The drawer and the palette, mounted once for the whole app.
@@ -20,6 +21,7 @@ export function ShellOverlays() {
     <>
       <NotesDrawer code={code} />
       <CommandPalette code={code} />
+      <TerminalDrawer code={code} />
     </>
   );
 }

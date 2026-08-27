@@ -28,6 +28,8 @@ from api.routers import (
     projects,
     proposal,
     quote,
+    settings as settings_router,
+    terminal,
     versions,
 )
 
@@ -75,6 +77,8 @@ for router in (
     jobs.router,
     calls.router,
     versions.router,
+    settings_router.router,
+    terminal.router,
 ):
     app.include_router(router)
 

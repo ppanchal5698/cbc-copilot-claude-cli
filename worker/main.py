@@ -23,9 +23,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from api import db as db_module  # noqa: E402
 from api.db import db  # noqa: E402
-from api.services import audit, storage, sync  # noqa: E402
-from worker import prompts, runner  # noqa: E402
+from api.services import audit, provider, storage, sync  # noqa: E402
+from worker import prompts, runner, streaming  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S"
@@ -35,6 +36,9 @@ log = logging.getLogger("cbc.worker")
 POLL_SECONDS = int(os.environ.get("WORKER_POLL_SECONDS", "5"))
 JOB_TIMEOUT = int(os.environ.get("WORKER_JOB_TIMEOUT_SECONDS", "1800"))
 MAX_ATTEMPTS = int(os.environ.get("WORKER_MAX_ATTEMPTS", "3"))
+# A bound on how far a pass can wander. A run that needs more than this has
+# lost the thread, and stopping it is cheaper than letting it finish.
+MAX_TURNS = int(os.environ.get("WORKER_MAX_TURNS", "60"))
 
 _stop = asyncio.Event()
 
@@ -177,9 +181,46 @@ async def process(job: dict) -> None:
     if job["type"] == "ingest_pricebook":
         payload.setdefault("outputPath", f".cache/pricebook-{job['_id']}.json")
 
-    log.info("running %s%s", job["type"], f" for {project['code']}" if project else "")
+    # Read the provider on every job, so changing it on the settings screen takes
+    # effect on the next job rather than on the next worker restart.
+    config = await db.settings.find_one({"_id": "claude"}) or provider.default_config()
+    env, _ = provider.build_env(config)
+    described = provider.describe(config)
+
+    log.info(
+        "running %s%s via %s (%s)",
+        job["type"],
+        f" for {project['code']}" if project else "",
+        described["mode"],
+        described["model"],
+    )
     prompt = prompts.build(job, project)
-    result = await asyncio.to_thread(runner.run_claude, prompt, JOB_TIMEOUT)
+
+    # Where the estimator watches this happen. Recorded per job under the project
+    # so the session can be replayed after the fact, not only while it runs.
+    recording = streaming.recording_path(
+        project["slug"] if project else None, str(job["_id"]), REPO_ROOT
+    )
+    await db.jobs.update_one(
+        {"_id": job["_id"]},
+        {"$set": {"recording": str(recording.relative_to(REPO_ROOT)).replace("\\", "/")}},
+    )
+
+    result = await asyncio.to_thread(
+        runner.run_claude,
+        prompt,
+        JOB_TIMEOUT,
+        env,
+        provider.secret_values(config),
+        recording,
+        job["type"],
+        MAX_TURNS,
+        _CATALOG_URI,
+    )
+
+    # Recorded so "which provider produced this line?" is answerable months later,
+    # the same question NFR-3 asks of every price.
+    await db.jobs.update_one({"_id": job["_id"]}, {"$set": {"provider": described}})
 
     if not result.ok:
         await finish(job, False, result.error, result.output)
@@ -198,7 +239,24 @@ async def process(job: dict) -> None:
     await finish(job, True, None, result.output, note)
 
 
+# Resolved once at startup; the catalog server is the only thing in a run that
+# gets database credentials, and they are read-only.
+_CATALOG_URI: str | None = None
+
+
 async def loop(once: bool = False) -> int:
+    global _CATALOG_URI
+    if await db_module.ensure_readonly_user():
+        _CATALOG_URI = db_module.readonly_uri()
+        log.info("catalog server will read as %s", db_module.READONLY_USER)
+    else:
+        _CATALOG_URI = None
+        log.warning(
+            "could not provision the read-only database user; the catalog server "
+            "will inherit nothing and pricing lookups will fail. Set "
+            "MONGODB_READONLY_URI, or grant the API rights to create a user."
+        )
+
     log.info("worker up - polling every %ss (timeout %ss)", POLL_SECONDS, JOB_TIMEOUT)
     while not _stop.is_set():
         job = await claim()
@@ -225,11 +283,25 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.preflight:
-        problem = runner.preflight()
+        # Against the configured provider, not the shell that happens to be
+        # running this. Checking the inherited environment reports a failure on a
+        # correctly configured system, which is worse than not checking at all.
+        async def check() -> tuple[str | None, dict]:
+            config = await db.settings.find_one({"_id": "claude"}) or provider.default_config()
+            env, _ = provider.build_env(config)
+            problem = await asyncio.to_thread(
+                runner.preflight, env, provider.secret_values(config)
+            )
+            return problem, provider.describe(config)
+
+        problem, described = asyncio.run(check())
         if problem:
-            print(f"PREFLIGHT FAILED: {problem}")
+            print(f"PREFLIGHT FAILED ({described['mode']}): {problem}")
             return 1
-        print("PREFLIGHT OK - Claude Code CLI is reachable and authenticated.")
+        print(
+            f"PREFLIGHT OK - {described['mode']} / {described['model']}; "
+            "Claude Code is reachable and authenticated."
+        )
         return 0
 
     for sig in (signal.SIGINT, signal.SIGTERM):

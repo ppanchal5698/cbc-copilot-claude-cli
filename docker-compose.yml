@@ -1,3 +1,24 @@
+# No `name:` here on purpose. Compose derives the project name from this
+# directory, which is what the existing mongo container and its data volume were
+# created under - renaming the project would silently start against an empty
+# database while the real one sat there untouched.
+
+# The four processes from docs/opshub_setup.md, now as services. The one thing
+# that matters structurally: api and worker share /app/projects. The API writes
+# an upload to projects/{slug}/uploads/raw/ and Claude reads it from the worker,
+# so if that mount is not shared the pipeline fails in a way that looks like an
+# extraction bug.
+
+x-app-env: &app-env
+  MONGODB_URI: mongodb://cbc:cbc_local_dev@mongo:27017/cbc_opshub?authSource=admin
+  MONGODB_DB: cbc_opshub
+  STORAGE_ROOT: /app/projects
+  PRICEBOOK_DIR: /app/pricebooks
+  # Encrypts provider credentials at rest. Override it anywhere real - losing it
+  # only means re-entering the credentials, but sharing it means they are not secret.
+  APP_SECRET_KEY: ${APP_SECRET_KEY:-cbc-local-dev-key-change-me}
+  APP_ENV: ${APP_ENV:-development}
+
 services:
   mongo:
     image: mongo:7
@@ -30,5 +51,106 @@ services:
       mongo:
         condition: service_healthy
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cbc-opshub-app:latest
+    container_name: cbc-api
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      <<: *app-env
+      CORS_ORIGINS: http://localhost:3000
+    volumes:
+      - ./projects:/app/projects
+      - ./pricebooks:/app/pricebooks:ro
+      # The bid-set fixtures the test suite reads. Mounted rather than baked so
+      # the in-image test run is the same run as on the host - four PDF tests
+      # skip silently without it, which is the worst way for a gap to appear.
+      - ./building-plans:/app/building-plans:ro
+      - claude_home:/home/cbc/.claude
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8001/api/health', timeout=4).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cbc-opshub-app:latest
+    container_name: cbc-worker
+    restart: unless-stopped
+    command: ["python", "worker/main.py"]
+    environment:
+      <<: *app-env
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
+      # A 30-page CAD set is minutes of LLM work; raise this before blaming the model.
+      WORKER_JOB_TIMEOUT_SECONDS: ${WORKER_JOB_TIMEOUT_SECONDS:-3600}
+      WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-3}
+    volumes:
+      - ./projects:/app/projects
+      - ./pricebooks:/app/pricebooks:ro
+      - claude_home:/home/cbc/.claude
+    depends_on:
+      mongo:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    image: cbc-opshub-web:latest
+    container_name: cbc-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Server-side calls stay on the compose network; the browser only ever
+      # talks to Next, which proxies through to here.
+      API_BASE_URL: http://api:8001
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      AUTH_SECRET: ${AUTH_SECRET:-cbc-opshub-local-dev-secret-change-in-production}
+      AUTH_TRUST_HOST: "true"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Off by default. Claude Code speaks only Anthropic-format APIs, so reaching an
+  # Ollama, NIM or OpenRouter model needs something that translates. Anthropic
+  # does not support Claude Code against non-Claude models - this is opt-in and
+  # best-effort.
+  #     docker compose --profile oss up -d litellm
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: cbc-litellm
+    profiles: ["oss"]
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-cbc-local-dev}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      NVIDIA_NIM_API_KEY: ${NVIDIA_NIM_API_KEY:-}
+      OLLAMA_API_BASE: ${OLLAMA_API_BASE:-http://host.docker.internal:11434}
+    volumes:
+      - ./docker/litellm.config.yaml:/app/config.yaml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
 volumes:
   mongo_data:
+  # Claude Code's credentials, shared so a sign-in on the settings page (served
+  # by the API) is the same sign-in the worker runs jobs with.
+  claude_home:

@@ -1,0 +1,167 @@
+"""What a run is allowed to cost before it has read a single drawing.
+
+The first real bid set spent a million-token budget without producing a
+schedule. Most of that was avoidable in ways that are easy to reintroduce: a doc
+inlined into every session, a tool that returns a whole set in one call, a phase
+that can see tools belonging to another phase.
+
+These pin the things that were expensive, so the next person to add an `@` to
+CLAUDE.md finds out here rather than three runs later.
+"""
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "mcp-servers"))
+
+from _runtime import load_server  # noqa: E402
+from worker import toolsets  # noqa: E402
+
+pdf = load_server("pdf-tools")
+MIS_ENCODED = ROOT / "projects" / "bid_set_first_real_run" / "uploads" / "raw" / "Bid Set .pdf"
+needs_set = pytest.mark.skipif(not MIS_ENCODED.exists(), reason="fixture not present")
+
+
+# ── what every session carries before it starts ─────────────────────────────
+
+
+def inlined_size() -> int:
+    """CLAUDE.md plus everything it pulls in with `@`."""
+    text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    total = len(text)
+    for reference in re.findall(r"@([\w/.\-]+\.md)", text):
+        target = ROOT / reference
+        if target.exists():
+            total += len(target.read_text(encoding="utf-8"))
+    return total
+
+
+def test_the_always_loaded_context_stays_small():
+    """This was 72 KB - about 18,000 tokens spent before reading a sheet.
+
+    `@` inlines a file into every session and every turn, so a doc added here is
+    paid for on every job forever. Reference it by path instead unless a run is
+    genuinely following it.
+    """
+    assert inlined_size() < 20_000, (
+        f"CLAUDE.md now inlines {inlined_size():,} chars. Use a plain path, not @."
+    )
+
+
+def test_no_document_is_inlined_twice():
+    """`opshub_setup.md` was inlined twice - 26 KB of Docker troubleshooting."""
+    text = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
+    references = re.findall(r"@([\w/.\-]+\.md)", text)
+    duplicates = {r for r in references if references.count(r) > 1}
+    assert not duplicates, f"inlined more than once: {duplicates}"
+
+
+# ── each phase sees only its own tools ──────────────────────────────────────
+
+
+def test_a_take_off_cannot_see_the_pricing_tools():
+    """Nothing is priced during extraction, so nothing pricing-shaped should be
+    on offer. Fewer wrong tools is a quality lever, not only a cost one."""
+    servers = json.loads(toolsets.config_for("extract_bid_set"))["mcpServers"]
+
+    assert set(servers) == {"pdf-tools", "artifact-storage"}
+    for absent in ("pricebook", "catalog", "calc-engine", "p21-connector"):
+        assert absent not in servers
+
+
+def test_pricing_gets_the_tools_it_needs():
+    servers = json.loads(toolsets.config_for("match_and_price"))["mcpServers"]
+
+    for needed in ("catalog", "pricebook", "calc-engine", "p21-connector"):
+        assert needed in servers
+    assert "pdf-tools" not in servers  # the schedule is already extracted
+
+
+def test_an_unknown_job_type_still_gets_every_server():
+    """A new job type must not silently run with no tools at all."""
+    servers = json.loads(toolsets.config_for("something_new"))["mcpServers"]
+    assert set(servers) == set(toolsets.SERVERS)
+
+
+def test_the_run_is_scoped_and_strict():
+    flags = toolsets.flags_for("extract_bid_set")
+
+    assert "--strict-mcp-config" in flags, "otherwise .mcp.json adds the rest back"
+    assert "--disallowed-tools" in flags
+    assert "WebSearch" in flags and "WebFetch" in flags
+
+
+def test_every_profile_names_real_servers():
+    for job_type, names in toolsets.PROFILES.items():
+        unknown = set(names) - set(toolsets.SERVERS)
+        assert not unknown, f"{job_type} names servers that do not exist: {unknown}"
+
+
+# ── no single call may swallow the context ──────────────────────────────────
+
+
+@needs_set
+def test_finding_the_right_sheets_is_cheap():
+    """Six searches cost six turns and ~2,300 tokens to answer one question."""
+    result = pdf.find_sheets(str(MIS_ENCODED))
+    size = len(json.dumps(result))
+
+    assert size < 6_000, f"page map cost {size:,} chars"
+    assert result["pages"], "found no candidate sheets at all"
+    assert result["pages"][0]["score"] >= result["pages"][-1]["score"], "not ranked"
+
+
+@needs_set
+def test_the_page_map_reports_terms_it_could_not_find():
+    """A term that is absent is an answer, not a gap to be guessed around."""
+    result = pdf.find_sheets(str(MIS_ENCODED), queries=["door", "zzzz-not-present"])
+    assert "zzzz-not-present" in result["not_found"]
+
+
+@needs_set
+def test_reading_a_whole_set_in_one_call_is_bounded():
+    """This returned 1.5 million characters - roughly 385,000 tokens."""
+    result = pdf.extract_tables(str(MIS_ENCODED), page_range="all")
+    size = len(json.dumps(result))
+
+    assert size < 400_000, f"one call returned {size:,} chars"
+    assert result["pages_deferred"], "a 28-page set should have deferred pages"
+    assert result["note"], "deferred pages must be named, not silently dropped"
+
+
+@needs_set
+def test_search_returns_locations_not_documents():
+    result = pdf.search_pdf(str(MIS_ENCODED), "DOOR")
+    size = len(json.dumps(result))
+
+    assert size < 15_000, f"search returned {size:,} chars"
+
+
+# ── the prompt does not invite the expensive patterns ───────────────────────
+
+
+def test_the_prompt_names_subagents_rather_than_files():
+    """Naming a path invites `cat`, which puts the whole file in the context.
+
+    The first run read five of its own instruction files that way, ~22 KB.
+    """
+    from worker import prompts
+
+    extract = prompts.EXTRACT
+    assert ".claude/agents/" not in extract, "a path here gets cat'd"
+    assert "takeoff-engineer" in extract
+    assert "find_sheets" in extract
+
+
+def test_the_preamble_forbids_reimplementing_the_tools():
+    from worker import prompts
+
+    assert "reimplement" in prompts.PREAMBLE.lower()
+    assert "cat" in prompts.PREAMBLE.lower()

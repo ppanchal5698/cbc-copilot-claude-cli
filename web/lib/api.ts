@@ -6,7 +6,7 @@
  * calc-engine, behind the API, so the numbers on a quote have one implementation.
  */
 
-export const API_BASE = process.env.API_BASE_URL ?? "http://127.0.0.1:8000";
+export const API_BASE = process.env.API_BASE_URL ?? "http://127.0.0.1:8001";
 
 export class ApiError extends Error {
   constructor(
@@ -38,7 +38,7 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
   } catch {
     // A dead API is the single most likely local failure; say so plainly.
     throw new ApiError(
-      `Cannot reach the API at ${API_BASE}. Start it with: python -m uvicorn api.main:app --port 8000`,
+      `Cannot reach the API at ${API_BASE}. Start it with: python -m uvicorn api.main:app --port 8001`,
       503,
     );
   }

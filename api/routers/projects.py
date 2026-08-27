@@ -38,11 +38,18 @@ async def _decorate(project: dict[str, Any]) -> dict[str, Any]:
     quote = await db.quotes.find_one({"projectId": project_id})
     latest = await jobs.latest_for_project(project_id)
 
+    # `status` carries provenance (`by_hand`) in the same field as review state,
+    # so a confirmed hand-added line is not in the `clear` bucket. Confirmation is
+    # what "cleared" means to an estimator, so count the thing that records it.
+    confirmed = await db.line_items.count_documents(
+        {"projectId": project_id, "confirmedAt": {"$ne": None}}
+    )
+
     return {
         **serialise(project),
         "counts": {
             "total": sum(counts.values()),
-            "clear": counts.get("clear", 0),
+            "clear": confirmed,
             "needsLook": counts.get("needs_look", 0),
             "duplicate": counts.get("duplicate", 0),
             "byHand": counts.get("by_hand", 0),

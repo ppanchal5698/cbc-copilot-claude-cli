@@ -242,3 +242,36 @@ export interface ProposalResponse {
     note: string;
   };
 }
+
+export interface ProviderField {
+  value: string | null;
+  variable: string;
+  secret: boolean;
+  /** Set from the environment, so the settings screen cannot change it. */
+  locked: boolean;
+  configured: boolean;
+}
+
+export interface ClaudeSettings {
+  mode: "subscription" | "anthropic_api" | "bedrock" | "gateway";
+  modes: string[];
+  fields: Record<string, ProviderField>;
+  /** Field shape for every mode, so an unsaved provider still renders a form. */
+  schema: Record<string, Record<string, ProviderField>>;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+  localDev: boolean;
+  cliAvailable: boolean;
+}
+
+export interface ProviderTest {
+  ok: boolean;
+  error: string | null;
+  provider: {
+    mode: string;
+    model: string;
+    baseUrl: string | null;
+    region: string | null;
+    credentialSource: Record<string, string>;
+  };
+}
