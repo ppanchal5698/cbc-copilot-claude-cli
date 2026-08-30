@@ -17,6 +17,7 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+*.egg-info/
 
 # Node
 node_modules/
@@ -48,3 +49,11 @@ projects/*/.versions/
 # Test scratch workspaces
 tests/fixtures/scratch/
 tests/fixtures/projects/.runs/
+
+# Local/dev bid workspaces (committed fixtures live under tests/fixtures/projects/)
+projects/adv_test_*/
+projects/assign_test*/
+projects/bid_*/
+projects/ordinary_work/
+projects/test/
+projects/verify/
