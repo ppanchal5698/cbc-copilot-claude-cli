@@ -42,7 +42,7 @@ export default async function ExtractionPage({
           { label: "Workspace", href: "/dashboard" },
           { label: `${project.code} · Extraction & entry` },
         ]}
-        runPill={runPillFor(jobs[0], project.counts.total)}
+        runPill={runPillFor(jobs[0], project.counts.total, project.phase)}
         reviewCount={project.counts.needsLook}
         code={project.code}
       />

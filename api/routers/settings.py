@@ -121,6 +121,43 @@ def _close(key: str) -> None:
         pass
 
 
+class PipelineSettings(BaseModel):
+    """How a new bid behaves when a drawing lands on it."""
+
+    autopilotDefault: bool = False
+
+
+@router.get("/pipeline")
+async def get_pipeline_settings() -> dict[str, Any]:
+    stored = await db.settings.find_one({"_id": "pipeline"}) or {}
+    return {
+        "autopilotDefault": bool(stored.get("autopilotDefault", False)),
+        "note": (
+            "Autopilot runs Phase 0-6 in one pass when a drawing is uploaded. The "
+            "openings are priced before anyone checks them and everything uncertain "
+            "is flagged for review at the end. Nothing is ever sent (NFR-1). Each "
+            "bid can override this."
+        ),
+        "updatedAt": stored.get("updatedAt"),
+        "updatedBy": stored.get("updatedBy"),
+    }
+
+
+@router.put("/pipeline")
+async def save_pipeline_settings(body: PipelineSettings, actor: Actor) -> dict[str, Any]:
+    await db.settings.update_one(
+        {"_id": "pipeline"},
+        {"$set": {"autopilotDefault": body.autopilotDefault,
+                  "updatedAt": _now(), "updatedBy": actor}},
+        upsert=True,
+    )
+    await audit.record(
+        "settings.pipeline.update", actor, {},
+        after={"autopilotDefault": body.autopilotDefault},
+    )
+    return await get_pipeline_settings()
+
+
 @router.get("/claude")
 async def get_claude_settings() -> dict[str, Any]:
     config = await load_config()

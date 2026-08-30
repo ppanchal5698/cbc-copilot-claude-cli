@@ -10,14 +10,13 @@ import {
   Circle,
   SealCheck,
   Copy,
-  PhoneCall,
 } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
 import { formatMoney } from "@/lib/format";
-import type { ProposalResponse } from "@/lib/types";
+import type { EmailDraft, HandOffResult, ProposalResponse } from "@/lib/types";
 
-import { proxyFetcher } from "@/lib/proxy-fetcher";
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 
 const MARKUPS = [
   { value: 0, label: "None" },
@@ -25,20 +24,45 @@ const MARKUPS = [
   { value: 0.05, label: "5%" },
 ];
 
-interface HandOffResult {
-  handedOffTo: string | null;
-  message: string;
-  draftPath: string;
-  sent: boolean;
-}
-
 export function ProposalClient({ code }: { code: string }) {
   const [busy, setBusy] = useState(false);
   const [handOff, setHandOff] = useState<HandOffResult | null>(null);
-  const { data, mutate } = useSWR<ProposalResponse>(
+  const { data, error, mutate } = useSWR<ProposalResponse>(
     `/api/proxy/projects/${code}/proposal`,
     proxyFetcher,
   );
+
+  // A failed fetch used to fall into the same branch as a pending one, so any
+  // API problem showed "Building the proposal…" for ever with no way out.
+  if (error) {
+    return (
+      <main className="grid flex-1 place-items-center p-6">
+        <div className="grid max-w-[440px] justify-items-center gap-2 text-center">
+          <WarningCircle size={24} weight="duotone" style={{ color: "var(--app-neg)" }} />
+          <span className="text-[14px] font-semibold">Could not build the proposal</span>
+          <span className="text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+            {errorMessage(error)}
+          </span>
+          <div className="mt-2 flex gap-2">
+            <button
+              onClick={() => mutate()}
+              className="rounded-md px-3 py-1.5 text-[12.5px] font-semibold"
+              style={{ background: "var(--app-accent)", color: "#fff" }}
+            >
+              Try again
+            </button>
+            <a
+              href={`/bids/${code}/quote`}
+              className="rounded-md px-3 py-1.5 text-[12.5px] no-underline"
+              style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+            >
+              Back to the quote
+            </a>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   if (!data) {
     return (
@@ -53,12 +77,15 @@ export function ProposalClient({ code }: { code: string }) {
   const { proposal, project, sections, totals, readiness } = data;
 
   async function setMarkup(markup: number) {
-    await fetch(`/api/proxy/projects/${code}/proposal`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ markup }),
-    });
-    mutate();
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/proposal`, {
+        method: "PATCH",
+        body: { markup },
+      });
+      mutate();
+    } catch (problem) {
+      toast.error("Could not change the markup", { description: errorMessage(problem) });
+    }
   }
 
   /** Try the server renderer; fall back to the browser's own print-to-PDF. */
@@ -71,8 +98,16 @@ export function ProposalClient({ code }: { code: string }) {
       const link = document.createElement("a");
       link.href = url;
       link.download = `${code}-proposal.pdf`;
+      // Firefox and Safari ignore a click on a link that is not in the document,
+      // and revoking the URL in the same tick cancels the download that did
+      // start. Attach, click, then clean up once the browser has taken it.
+      link.style.display = "none";
+      document.body.appendChild(link);
       link.click();
-      URL.revokeObjectURL(url);
+      setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }, 0);
       return;
     }
 
@@ -86,37 +121,37 @@ export function ProposalClient({ code }: { code: string }) {
 
   async function markComplete() {
     setBusy(true);
-    const response = await fetch(`/api/proxy/projects/${code}/proposal/complete`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    setBusy(false);
-    if (!response.ok) {
-      toast.error("Could not record the sign-off");
-      return;
+    try {
+      const result = await proxyMutate<HandOffResult>(
+        `/api/proxy/projects/${code}/proposal/complete`,
+        { body: {} },
+      );
+      setHandOff(result);
+      toast.success("Signed off", { description: result.message });
+      mutate();
+    } catch (problem) {
+      toast.error("Could not record the sign-off", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    const result = await response.json();
-    setHandOff(result);
-    toast.success("Signed off", { description: result.message });
-    mutate();
   }
 
   /** Copy the drafted body. The estimator sends it from their own mail client. */
   async function copyBody() {
-    const response = await fetch(`/api/proxy/projects/${code}/proposal/email-draft`);
-    if (!response.ok) {
-      toast.error("Could not build the email body");
+    let draft: EmailDraft;
+    try {
+      draft = await proxyFetcher<EmailDraft>(`/api/proxy/projects/${code}/proposal/email-draft`);
+    } catch (problem) {
+      toast.error("Could not build the email body", { description: errorMessage(problem) });
       return;
     }
-    const draft = await response.json();
     const text = `To: ${draft.to ?? "(no initiator recorded)"}
 Subject: ${draft.subject}
 
 ${draft.body}`;
     try {
       await navigator.clipboard.writeText(text);
-      toast.success("Email body copied", { description: draft.note });
+      toast.success("Email body copied", { description: draft.note ?? undefined });
     } catch {
       toast.error("Clipboard blocked", { description: "Select the text in the printable view instead." });
     }
@@ -157,8 +192,8 @@ ${draft.body}`;
 
   return (
     <>
-      <main className="flex min-h-0 flex-1 gap-4 overflow-hidden p-4">
-        <section className="min-h-0 flex-1 overflow-auto">
+      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 xl:flex-row xl:overflow-hidden">
+        <section className="min-h-0 min-w-0 flex-1 xl:overflow-auto">
           {handOff && (
             <div
               className="anim-fadein mx-auto mb-3 flex max-w-[820px] items-start gap-3 rounded-xl px-4 py-3"
@@ -191,7 +226,7 @@ ${draft.body}`;
           )}
 
           <article
-            className="mx-auto max-w-[820px] rounded-xl px-10 py-9"
+            className="mx-auto max-w-[820px] overflow-x-auto rounded-xl px-5 py-6 sm:px-10 sm:py-9"
             style={{ background: "#ffffff", color: "#15151f", boxShadow: "var(--app-sh-2)" }}
           >
             <header className="flex items-start justify-between">
@@ -389,7 +424,7 @@ ${draft.body}`;
           </article>
         </section>
 
-        <aside className="flex w-[320px] shrink-0 flex-col gap-3 overflow-auto">
+        <aside className="flex shrink-0 flex-col gap-3 xl:w-[320px] xl:overflow-auto">
           <div
             className="rounded-xl p-4"
             style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
@@ -492,7 +527,7 @@ ${draft.body}`;
       </main>
 
       <footer
-        className="flex shrink-0 items-center gap-3 border-t px-5 py-3"
+        className="flex shrink-0 flex-wrap items-center gap-3 border-t px-5 py-3"
         style={{ borderColor: "var(--app-line)", background: "var(--app-bg)" }}
       >
         <a
@@ -503,7 +538,10 @@ ${draft.body}`;
           <ArrowLeft size={14} weight="bold" />
           Back
         </a>
-        <span className="flex-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+        <span
+          className="min-w-[200px] flex-1 text-[12.5px]"
+          style={{ color: "var(--app-tx-2)" }}
+        >
           The customer sees the marked-up total only. Nothing is sent from here.
         </span>
         <a

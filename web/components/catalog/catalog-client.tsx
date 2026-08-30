@@ -1,21 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import useSWR from "swr";
-import { Package, Plus, Trash, FloppyDisk, MagnifyingGlass } from "@phosphor-icons/react/dist/ssr";
+import {
+  Package,
+  Plus,
+  Trash,
+  FloppyDisk,
+  MagnifyingGlass,
+  Lock,
+} from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
 import { AddToBid } from "@/components/catalog/add-to-bid";
+import { useDebounced } from "@/hooks/use-debounced";
 import { formatMoney } from "@/lib/format";
-import type { Product } from "@/lib/types";
-
-import { proxyFetcher } from "@/lib/proxy-fetcher";
-
-interface Response {
-  products: Product[];
-  total: number;
-  divisions: { division: string; count: number }[];
-}
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import type { Product, ProductSearchResponse } from "@/lib/types";
 
 const EDIT_FIELDS = [
   { key: "description", label: "Description", type: "text" },
@@ -27,111 +28,144 @@ const EDIT_FIELDS = [
   { key: "availability", label: "Availability", type: "text" },
 ] as const;
 
+const COLUMNS = "190px minmax(220px,1fr) 130px 90px 100px 110px";
+
+function draftFor(product: Product): Record<string, string> {
+  return {
+    description: product.description ?? "",
+    manufacturer: product.manufacturer ?? "",
+    division: product.division ?? "",
+    cost: product.cost === null ? "" : String(product.cost),
+    listPrice: product.listPrice === null ? "" : String(product.listPrice),
+    multiplier: product.multiplier === null ? "" : String(product.multiplier),
+    availability: product.availability ?? "",
+  };
+}
+
 export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) {
   const [query, setQuery] = useState(initialQuery);
-
-  useEffect(() => {
-    if (initialQuery) setQuery(initialQuery);
-  }, [initialQuery]);
   const [division, setDivision] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Record<string, string>>({});
   const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [edits, setEdits] = useState<{ id: string; values: Record<string, string> } | null>(null);
+
+  // One request once typing settles, not one per keystroke.
+  const settledQuery = useDebounced(query.trim());
 
   const params = new URLSearchParams();
-  if (query) params.set("q", query);
+  if (settledQuery) params.set("q", settledQuery);
   if (division) params.set("division", division);
 
-  const { data, mutate } = useSWR<Response>(
+  const { data, error, isLoading, mutate } = useSWR<ProductSearchResponse>(
     `/api/proxy/catalog/products?${params.toString()}`,
     proxyFetcher,
+    { keepPreviousData: true },
   );
 
   const products = data?.products ?? [];
   const selected = products.find((product) => product.id === selectedId) ?? null;
+  // Indexed rows are rebuilt from the vendor PDF on every reindex and carry an
+  // `idx:` id the API cannot resolve, so they are shown read-only rather than
+  // offering a Save that returns 400.
+  const editable = selected?.editable !== false;
 
-  useEffect(() => {
+  // The panel follows the selected row without an effect: a different part is a
+  // different draft, so the identity of the row is what resets it.
+  const draft = selected
+    ? edits?.id === selected.id
+      ? edits.values
+      : draftFor(selected)
+    : {};
+
+  function setField(key: string, value: string) {
     if (!selected) return;
-    setDraft({
-      description: selected.description ?? "",
-      manufacturer: selected.manufacturer ?? "",
-      division: selected.division ?? "",
-      cost: selected.cost === null ? "" : String(selected.cost),
-      listPrice: selected.listPrice === null ? "" : String(selected.listPrice),
-      multiplier: selected.multiplier === null ? "" : String(selected.multiplier),
-      availability: selected.availability ?? "",
-    });
-  }, [selectedId, selected]);
+    setEdits({ id: selected.id, values: { ...draft, [key]: value } });
+  }
 
   async function save() {
-    if (!selected) return;
+    if (!selected || !editable) return;
     const body: Record<string, unknown> = {};
     for (const field of EDIT_FIELDS) {
       const value = draft[field.key]?.trim() ?? "";
-      body[field.key] = field.type === "number" ? (value === "" ? null : Number(value)) : value || null;
+      body[field.key] =
+        field.type === "number" ? (value === "" ? null : Number(value)) : value || null;
     }
 
-    const response = await fetch(`/api/proxy/catalog/products/${selected.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      toast.error("Could not save that part");
-      return;
+    setBusy(true);
+    try {
+      await proxyMutate(`/api/proxy/catalog/products/${selected.id}`, {
+        method: "PATCH",
+        body,
+      });
+      toast.success(`${selected.part} saved`);
+      setEdits(null);
+      mutate();
+    } catch (problem) {
+      toast.error("Could not save that part", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    toast.success(`${selected.part} saved`);
-    mutate();
   }
 
   async function remove() {
-    if (!selected) return;
-    const response = await fetch(`/api/proxy/catalog/products/${selected.id}`, {
-      method: "DELETE",
-    });
-    if (!response.ok) {
-      toast.error("Could not remove that part");
+    if (!selected || !editable) return;
+    if (
+      !window.confirm(
+        `Remove ${selected.part} from the catalog? Quote lines already priced from it keep their price.`,
+      )
+    ) {
       return;
     }
-    toast.success(`${selected.part} removed`);
-    setSelectedId(null);
-    mutate();
+
+    setBusy(true);
+    try {
+      await proxyMutate(`/api/proxy/catalog/products/${selected.id}`, { method: "DELETE" });
+      toast.success(`${selected.part} removed`);
+      setSelectedId(null);
+      setEdits(null);
+      mutate();
+    } catch (problem) {
+      toast.error("Could not remove that part", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function create(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const body = {
-      part: String(form.get("part") ?? "").trim(),
-      description: String(form.get("description") ?? "").trim(),
-      manufacturer: String(form.get("manufacturer") ?? "").trim() || null,
-      division: String(form.get("division") ?? "").trim() || null,
-      cost: form.get("cost") ? Number(form.get("cost")) : null,
-    };
+    const part = String(form.get("part") ?? "").trim();
 
-    const response = await fetch("/api/proxy/catalog/products", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("Could not add that part", { description: String(detail.detail) });
-      return;
+    setBusy(true);
+    try {
+      await proxyMutate("/api/proxy/catalog/products", {
+        body: {
+          part,
+          description: String(form.get("description") ?? "").trim(),
+          manufacturer: String(form.get("manufacturer") ?? "").trim() || null,
+          division: String(form.get("division") ?? "").trim() || null,
+          cost: form.get("cost") ? Number(form.get("cost")) : null,
+        },
+      });
+      toast.success(`${part} added to the catalog`);
+      setCreating(false);
+      mutate();
+    } catch (problem) {
+      toast.error("Could not add that part", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    toast.success(`${body.part} added to the catalog`);
-    setCreating(false);
-    mutate();
   }
 
   return (
-    <main className="flex min-h-0 flex-1 gap-4 overflow-hidden p-4">
-      <section className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex items-end justify-between">
+    <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 lg:flex-row lg:overflow-hidden">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-[20px] font-semibold">Product catalog</h1>
             <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
-              {data?.total ?? 0} parts · maintained by Claude from the price books, editable here
+              {data?.total ?? 0} parts · read from the price books, editable where they are yours
             </p>
           </div>
           <button
@@ -147,12 +181,8 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
         {creating && (
           <form
             onSubmit={create}
-            className="anim-fadein grid gap-2 rounded-xl p-3"
-            style={{
-              gridTemplateColumns: "170px 1fr 130px 110px 100px 90px",
-              background: "var(--app-panel)",
-              border: "1px solid var(--app-line)",
-            }}
+            className="anim-fadein grid gap-2 rounded-xl p-3 sm:grid-cols-2 xl:grid-cols-[170px_1fr_130px_110px_100px_90px]"
+            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
           >
             {[
               { name: "part", placeholder: "Part number", required: true },
@@ -165,9 +195,10 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
                 key={field.name}
                 name={field.name}
                 type={field.type ?? "text"}
-                step="0.01"
+                step={field.type === "number" ? "0.01" : undefined}
                 required={field.required}
                 placeholder={field.placeholder}
+                aria-label={field.placeholder}
                 className="rounded-md px-2.5 py-2 text-[12.5px] outline-none focus:ring-2"
                 style={{
                   background: "var(--app-panel-2)",
@@ -178,7 +209,8 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
             ))}
             <button
               type="submit"
-              className="rounded-md text-[12.5px] font-semibold"
+              disabled={busy}
+              className="rounded-md py-2 text-[12.5px] font-semibold disabled:opacity-60"
               style={{ background: "var(--app-pos)", color: "#fff" }}
             >
               Save
@@ -195,10 +227,11 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Part number, description, manufacturer"
-            className="flex-1 bg-transparent text-[13px] outline-none"
+            aria-label="Search the catalog"
+            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
             style={{ color: "var(--app-tx)" }}
           />
-          <span className="tnum text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+          <span className="tnum shrink-0 text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
             {products.length} of {data?.total ?? 0}
           </span>
         </div>
@@ -221,7 +254,8 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
               onClick={() => setDivision(entry.division)}
               className="rounded-md px-3 py-1.5 text-[12px]"
               style={{
-                background: division === entry.division ? "var(--app-accent-soft)" : "var(--app-panel)",
+                background:
+                  division === entry.division ? "var(--app-accent-soft)" : "var(--app-panel)",
                 color: division === entry.division ? "var(--app-accent)" : "var(--app-tx-2)",
                 border: `1px solid ${division === entry.division ? "var(--app-accent-line)" : "var(--app-line)"}`,
               }}
@@ -232,86 +266,133 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
         </div>
 
         <div
-          className="min-h-0 flex-1 overflow-auto rounded-xl"
+          className="min-h-[240px] flex-1 overflow-auto rounded-xl lg:min-h-0"
           style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
         >
-          <div
-            className="sticky top-0 grid gap-3 border-b px-4 py-2.5 text-[10.5px] uppercase tracking-[0.07em]"
-            style={{
-              gridTemplateColumns: "190px 1fr 130px 90px 100px 110px",
-              borderColor: "var(--app-line)",
-              background: "var(--app-panel)",
-              color: "var(--app-tx-3)",
-            }}
-          >
-            <span>Part</span>
-            <span>Description</span>
-            <span>Manufacturer</span>
-            <span className="text-right">Cost</span>
-            <span>Division</span>
-            <span>Availability</span>
-          </div>
-
-          {products.length === 0 ? (
-            <div className="grid place-items-center px-6 py-16 text-center">
-              <span className="text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
-                No parts match. Upload a price book and Claude will fill the catalog in.
-              </span>
+          <div style={{ minWidth: 840 }}>
+            <div
+              className="sticky top-0 z-10 grid gap-3 border-b px-4 py-2.5 text-[10.5px] uppercase tracking-[0.07em]"
+              style={{
+                gridTemplateColumns: COLUMNS,
+                borderColor: "var(--app-line)",
+                background: "var(--app-panel)",
+                color: "var(--app-tx-3)",
+              }}
+            >
+              <span>Part</span>
+              <span>Description</span>
+              <span>Manufacturer</span>
+              <span className="text-right">Cost</span>
+              <span>Division</span>
+              <span>Availability</span>
             </div>
-          ) : (
-            products.map((product) => (
-              <button
-                key={product.id}
-                onClick={() => setSelectedId(product.id)}
-                className="grid w-full items-center gap-3 border-b px-4 py-2.5 text-left last:border-b-0"
-                style={{
-                  gridTemplateColumns: "190px 1fr 130px 90px 100px 110px",
-                  borderColor: "var(--app-line)",
-                  background:
-                    selectedId === product.id ? "var(--app-panel-2)" : "transparent",
-                  borderLeft:
-                    selectedId === product.id
-                      ? "3px solid var(--app-accent)"
-                      : "3px solid transparent",
-                }}
-              >
-                <span className="truncate text-[12.5px] font-semibold">{product.part}</span>
-                <span className="truncate text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
-                  {product.description}
+
+            {error ? (
+              <div className="grid place-items-center gap-2 px-6 py-16 text-center">
+                <span className="text-[13.5px] font-semibold" style={{ color: "var(--app-neg)" }}>
+                  Could not load the catalog
                 </span>
-                <span className="truncate text-[12px]" style={{ color: "var(--app-tx-2)" }}>
-                  {product.manufacturer ?? "—"}
+                <span className="max-w-[420px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                  {errorMessage(error)}
                 </span>
-                <span className="tnum text-right text-[12.5px]">
-                  {product.cost === null ? "—" : `$${formatMoney(product.cost)}`}
+                <button
+                  onClick={() => mutate()}
+                  className="mt-1 rounded-md px-3 py-1.5 text-[12px]"
+                  style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+                >
+                  Try again
+                </button>
+              </div>
+            ) : isLoading && products.length === 0 ? (
+              <div className="grid place-items-center px-6 py-16 text-center">
+                <span className="text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+                  Searching the catalog…
                 </span>
-                <span className="tnum text-[12px]" style={{ color: "var(--app-tx-3)" }}>
-                  {product.division ?? "—"}
+              </div>
+            ) : products.length === 0 ? (
+              <div className="grid place-items-center gap-1.5 px-6 py-16 text-center">
+                <span className="text-[13.5px] font-semibold">
+                  {data?.indexAvailable === false
+                    ? "The catalog index has not been built"
+                    : "No parts match"}
                 </span>
-                <span
-                  className="truncate text-[12px]"
+                <span className="max-w-[460px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                  {/* The API says exactly why it is empty. Showing "no matches"
+                      for an unbuilt index sent people looking for the wrong problem. */}
+                  {data?.note ??
+                    (settledQuery || division
+                      ? "Nothing here matches that search. Clear the filters, or add the part by hand."
+                      : "Upload a price book and Claude fills the catalog in.")}
+                </span>
+              </div>
+            ) : (
+              products.map((product) => (
+                <button
+                  key={product.id}
+                  onClick={() => setSelectedId(product.id)}
+                  aria-current={selectedId === product.id}
+                  className="grid w-full items-center gap-3 border-b px-4 py-2.5 text-left last:border-b-0"
                   style={{
-                    color:
-                      product.availability?.toLowerCase().includes("long") ||
-                      product.availability?.toLowerCase().includes("custom")
-                        ? "var(--app-neg)"
-                        : "var(--app-tx-2)",
+                    gridTemplateColumns: COLUMNS,
+                    borderColor: "var(--app-line)",
+                    background: selectedId === product.id ? "var(--app-panel-2)" : "transparent",
+                    borderLeft:
+                      selectedId === product.id
+                        ? "3px solid var(--app-accent)"
+                        : "3px solid transparent",
                   }}
                 >
-                  {product.availability ?? "—"}
-                </span>
-              </button>
-            ))
-          )}
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-[12.5px] font-semibold">{product.part}</span>
+                    {product.editable === false && (
+                      <Lock
+                        size={11}
+                        weight="bold"
+                        style={{ color: "var(--app-tx-3)", flexShrink: 0 }}
+                      />
+                    )}
+                  </span>
+                  <span className="truncate text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+                    {product.description}
+                  </span>
+                  <span className="truncate text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                    {product.manufacturer ?? "—"}
+                  </span>
+                  <span className="tnum text-right text-[12.5px]">
+                    {product.cost === null
+                      ? product.listPrice === null
+                        ? "—"
+                        : `list $${formatMoney(product.listPrice)}`
+                      : `$${formatMoney(product.cost)}`}
+                  </span>
+                  <span className="tnum truncate text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+                    {product.division ?? "—"}
+                  </span>
+                  <span
+                    className="truncate text-[12px]"
+                    style={{
+                      color:
+                        product.availability?.toLowerCase().includes("long") ||
+                        product.availability?.toLowerCase().includes("custom")
+                          ? "var(--app-neg)"
+                          : "var(--app-tx-2)",
+                    }}
+                  >
+                    {product.availability ?? "—"}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
         </div>
       </section>
 
       <aside
-        className="flex w-[330px] shrink-0 flex-col overflow-auto rounded-xl"
+        className="flex shrink-0 flex-col overflow-auto rounded-xl lg:w-[330px]"
         style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
       >
         {!selected ? (
-          <div className="grid flex-1 place-items-center gap-2 px-6 text-center">
+          <div className="grid flex-1 place-items-center gap-2 px-6 py-10 text-center">
             <Package size={26} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
             <span className="text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
               Pick a part to see and edit its pricing.
@@ -344,32 +425,73 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
               </p>
             )}
 
-            <div className="mt-4 flex flex-col gap-2.5">
-              {EDIT_FIELDS.map((field) => (
-                <label key={field.key} className="block">
-                  <span
-                    className="block text-[10.5px] uppercase tracking-[0.06em]"
-                    style={{ color: "var(--app-tx-3)" }}
-                  >
-                    {field.label}
+            {!editable ? (
+              <>
+                <p
+                  className="mt-3 flex items-start gap-2 rounded-md px-2.5 py-2 text-[11px]"
+                  style={{
+                    background: "var(--app-panel-2)",
+                    border: "1px solid var(--app-line)",
+                    color: "var(--app-tx-2)",
+                  }}
+                >
+                  <Lock size={13} weight="duotone" className="mt-px shrink-0" />
+                  <span>
+                    Read from the vendor price book, so it is not edited here — the next reindex
+                    rewrites it from the PDF. Correct the sheet, or add your own part.
                   </span>
-                  <input
-                    type={field.type}
-                    step="0.001"
-                    value={draft[field.key] ?? ""}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, [field.key]: event.target.value }))
-                    }
-                    className="mt-1 w-full rounded-md px-2.5 py-1.5 text-[12.5px] outline-none focus:ring-2"
-                    style={{
-                      background: "var(--app-panel-2)",
-                      border: "1px solid var(--app-line)",
-                      color: "var(--app-tx)",
-                    }}
-                  />
-                </label>
-              ))}
-            </div>
+                </p>
+
+                <div className="mt-4 flex flex-col gap-2">
+                  {[
+                    [
+                      "List price",
+                      selected.listPrice === null ? "—" : `$${formatMoney(selected.listPrice)}`,
+                    ],
+                    ["Unit", selected.unit ?? "—"],
+                    ["Price book", selected.priceBook ?? "—"],
+                    ["Page", selected.sourcePage ? String(selected.sourcePage) : "—"],
+                    ["Effective", selected.effective ?? "not recorded"],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="flex items-baseline justify-between gap-3 border-b pb-1.5 last:border-b-0"
+                      style={{ borderColor: "var(--app-line)" }}
+                    >
+                      <span className="shrink-0 text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                        {label}
+                      </span>
+                      <span className="truncate text-right text-[12px]">{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="mt-4 flex flex-col gap-2.5">
+                {EDIT_FIELDS.map((field) => (
+                  <label key={field.key} className="block">
+                    <span
+                      className="block text-[10.5px] uppercase tracking-[0.06em]"
+                      style={{ color: "var(--app-tx-3)" }}
+                    >
+                      {field.label}
+                    </span>
+                    <input
+                      type={field.type}
+                      step={field.type === "number" ? "0.001" : undefined}
+                      value={draft[field.key] ?? ""}
+                      onChange={(event) => setField(field.key, event.target.value)}
+                      className="mt-1 w-full rounded-md px-2.5 py-1.5 text-[12.5px] outline-none focus:ring-2"
+                      style={{
+                        background: "var(--app-panel-2)",
+                        border: "1px solid var(--app-line)",
+                        color: "var(--app-tx)",
+                      }}
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
 
             <div
               className="mt-4 flex items-baseline justify-between rounded-md px-3 py-2"
@@ -378,8 +500,11 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
               <span className="text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
                 Sell at
               </span>
-              <span className="tnum text-[14px] font-semibold" style={{ color: "var(--app-accent)" }}>
-                {selected.sellAt === null ? "—" : `$${formatMoney(selected.sellAt)}`}
+              <span
+                className="tnum text-[14px] font-semibold"
+                style={{ color: "var(--app-accent)" }}
+              >
+                {selected.sellAt == null ? "—" : `$${formatMoney(selected.sellAt)}`}
               </span>
             </div>
             <p className="mt-1.5 text-[11px]" style={{ color: "var(--app-tx-3)" }}>
@@ -387,7 +512,7 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
               logged against your name.
             </p>
 
-            {selected.xref.length > 0 && (
+            {(selected.xref?.length ?? 0) > 0 && (
               <div className="mt-4">
                 <span
                   className="block text-[10.5px] uppercase tracking-[0.07em]"
@@ -395,7 +520,7 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
                 >
                   Cross-reference
                 </span>
-                {selected.xref.map((entry) => (
+                {selected.xref?.map((entry) => (
                   <div
                     key={`${entry.manufacturer}-${entry.part}`}
                     className="flex justify-between border-b py-1.5 last:border-b-0"
@@ -412,23 +537,28 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
 
             <AddToBid product={selected} />
 
-            <div className="mt-5 flex gap-2">
-              <button
-                onClick={save}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-[12.5px] font-semibold"
-                style={{ background: "var(--app-accent)", color: "#fff" }}
-              >
-                <FloppyDisk size={14} weight="duotone" />
-                Save
-              </button>
-              <button
-                onClick={remove}
-                className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px]"
-                style={{ border: "1px solid var(--app-neg-line)", color: "var(--app-neg)" }}
-              >
-                <Trash size={14} weight="duotone" />
-              </button>
-            </div>
+            {editable && (
+              <div className="mt-5 flex gap-2">
+                <button
+                  onClick={save}
+                  disabled={busy}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-[12.5px] font-semibold disabled:opacity-60"
+                  style={{ background: "var(--app-accent)", color: "#fff" }}
+                >
+                  <FloppyDisk size={14} weight="duotone" />
+                  Save
+                </button>
+                <button
+                  onClick={remove}
+                  disabled={busy}
+                  aria-label={`Remove ${selected.part}`}
+                  className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] disabled:opacity-60"
+                  style={{ border: "1px solid var(--app-neg-line)", color: "var(--app-neg)" }}
+                >
+                  <Trash size={14} weight="duotone" />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </aside>

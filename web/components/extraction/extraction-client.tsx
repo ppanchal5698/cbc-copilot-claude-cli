@@ -20,12 +20,20 @@ import dynamic from "next/dynamic";
 
 import { AlternateBar } from "@/components/bids/alternate-bar";
 import { BulkBar } from "@/components/extraction/bulk-bar";
-import { LineItemRow } from "@/components/extraction/line-item-row";
+import { LineItemRow, ROW_COLUMNS } from "@/components/extraction/line-item-row";
 import { PartComposer } from "@/components/extraction/part-composer";
 import { useRowKeys } from "@/hooks/use-row-keys";
 import { useUiState } from "@/components/shell/ui-state";
-import { proxyFetcher } from "@/lib/proxy-fetcher";
-import type { BidDocument, Job, LineItem, LineItemsResponse } from "@/lib/types";
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import type {
+  AlternateAssignResult,
+  AlternatesResponse,
+  BidDocument,
+  BulkResult,
+  Job,
+  LineItem,
+  LineItemsResponse,
+} from "@/lib/types";
 
 // pdf.js touches DOMMatrix at module scope, so the viewer cannot be evaluated
 // during server rendering.
@@ -35,7 +43,7 @@ const SheetViewer = dynamic(
     ssr: false,
     loading: () => (
       <aside
-        className="grid w-[560px] shrink-0 place-items-center rounded-xl"
+        className="grid h-[320px] w-full shrink-0 place-items-center rounded-xl xl:h-auto xl:w-[clamp(380px,34vw,560px)]"
         style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
       >
         <span className="text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
@@ -91,13 +99,13 @@ export function ExtractionClient({
   const alternateQuery =
     alternate === undefined ? "" : `&alternate=${encodeURIComponent(alternate ?? "")}`;
 
-  const { data, mutate } = useSWR<LineItemsResponse>(
+  const { data, error, isLoading, mutate } = useSWR<LineItemsResponse>(
     `/api/proxy/projects/${code}/line-items?filter=${filter}${alternateQuery}`,
     proxyFetcher,
     { refreshInterval: running ? 4000 : 0 },
   );
 
-  const { data: alternateData, mutate: mutateAlternates } = useSWR<{ alternates: { name: string | null; label: string }[] }>(
+  const { data: alternateData, mutate: mutateAlternates } = useSWR<AlternatesResponse>(
     `/api/proxy/projects/${code}/alternates`,
     proxyFetcher,
   );
@@ -123,14 +131,12 @@ export function ExtractionClient({
 
   const confirmOne = useCallback(
     async (item: LineItem) => {
-      const response = await fetch(`/api/proxy/projects/${code}/line-items/${item.id}/confirm`, {
-        method: "POST",
-      });
-      if (!response.ok) {
-        toast.error("Could not confirm that line");
-        return;
+      try {
+        await proxyMutate(`/api/proxy/projects/${code}/line-items/${item.id}/confirm`);
+        mutate();
+      } catch (problem) {
+        toast.error("Could not confirm that line", { description: errorMessage(problem) });
       }
-      mutate();
     },
     [code, mutate],
   );
@@ -148,48 +154,48 @@ export function ExtractionClient({
   async function assignAlternate(alternateName: string | null) {
     if (picked.size === 0) return;
     setBusy(true);
-    const response = await fetch(`/api/proxy/projects/${code}/alternates/assign`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ids: [...picked],
-        alternate: alternateName,
-        scope: "line-items",
-      }),
-    });
-    setBusy(false);
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("Could not move those lines", { description: String(body.detail) });
-      return;
+    try {
+      const result = await proxyMutate<AlternateAssignResult>(
+        `/api/proxy/projects/${code}/alternates/assign`,
+        { body: { ids: [...picked], alternate: alternateName, scope: "line-items" } },
+      );
+      toast.success(`Moved ${result.moved} line${result.moved === 1 ? "" : "s"}`);
+      setPicked(new Set());
+      refresh();
+    } catch (problem) {
+      toast.error("Could not move those lines", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    const result = await response.json();
-    toast.success(`Moved ${result.moved} line${result.moved === 1 ? "" : "s"}`);
-    setPicked(new Set());
-    refresh();
   }
 
   async function bulk(action: "confirm" | "delete") {
-    setBusy(true);
-    const response = await fetch(`/api/proxy/projects/${code}/line-items/bulk`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: [...picked], action }),
-    });
-    setBusy(false);
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("That did not go through", { description: String(body.detail) });
+    // Removing a batch of lines is not undoable from this screen.
+    if (
+      action === "delete" &&
+      !window.confirm(
+        `Remove ${picked.size} line${picked.size === 1 ? "" : "s"} from this bid? This cannot be undone here.`,
+      )
+    ) {
       return;
     }
-    const result = await response.json();
-    toast.success(
-      action === "confirm" ? `${result.affected} confirmed` : `${result.affected} removed`,
-    );
-    setPicked(new Set());
-    refresh();
+
+    setBusy(true);
+    try {
+      const result = await proxyMutate<BulkResult>(
+        `/api/proxy/projects/${code}/line-items/bulk`,
+        { body: { ids: [...picked], action } },
+      );
+      toast.success(
+        action === "confirm" ? `${result.affected} confirmed` : `${result.affected} removed`,
+      );
+      setPicked(new Set());
+      refresh();
+    } catch (problem) {
+      toast.error("That did not go through", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
+    }
   }
 
   const progressLabel = useMemo(() => {
@@ -199,33 +205,32 @@ export function ExtractionClient({
 
   async function post(path: string, success: string, then?: () => void) {
     setBusy(true);
-    const response = await fetch(`/api/proxy/projects/${code}${path}`, { method: "POST" });
-    setBusy(false);
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("That did not go through", { description: String(body.detail) });
-      return;
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}${path}`);
+      toast.success(success);
+      refresh();
+      then?.();
+    } catch (problem) {
+      toast.error("That did not go through", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    toast.success(success);
-    refresh();
-    then?.();
   }
 
   return (
     <>
-      <main className="flex min-h-0 flex-1 gap-4 overflow-hidden p-4">
-        <section className="flex min-w-0 flex-1 flex-col gap-3">
+      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 xl:flex-row">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
           <div
             className="flex flex-col rounded-xl"
             style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
           >
             <div
-              className="flex items-center gap-3 border-b px-4 py-3.5"
+              className="flex flex-wrap items-center gap-3 border-b px-4 py-3.5"
               style={{ borderColor: "var(--app-line)" }}
             >
               <span
-                className="grid h-8 w-8 place-items-center rounded-lg"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
                 style={{ background: "var(--app-accent-soft)", color: "var(--app-accent)" }}
               >
                 <ListChecks size={17} weight="duotone" />
@@ -272,7 +277,7 @@ export function ExtractionClient({
               </button>
             </div>
 
-            <div className="flex gap-1 px-3 py-2">
+            <div className="flex flex-wrap gap-1 px-3 py-2">
               {FILTERS.map((entry) => {
                 const active = filter === entry.key;
                 const count = counts?.[entry.countKey as keyof typeof counts] ?? 0;
@@ -347,13 +352,14 @@ export function ExtractionClient({
           )}
 
           <div
-            className="min-h-0 flex-1 overflow-auto rounded-xl"
+            className="min-h-[200px] flex-1 overflow-auto rounded-xl"
             style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
           >
+            <div style={{ minWidth: 760 }}>
             <div
               className="sticky top-0 z-10 grid gap-3 border-b px-4 py-2.5 text-[10.5px] uppercase tracking-[0.07em]"
               style={{
-                gridTemplateColumns: "28px 34px 60px 1fr 110px 60px 100px 120px",
+                gridTemplateColumns: ROW_COLUMNS,
                 borderColor: "var(--app-line)",
                 background: "var(--app-panel)",
                 color: "var(--app-tx-3)",
@@ -380,7 +386,29 @@ export function ExtractionClient({
               <span className="text-right">Status</span>
             </div>
 
-            {items.length === 0 ? (
+            {error ? (
+              <div className="grid place-items-center gap-2 px-6 py-16 text-center">
+                <span className="text-[13.5px] font-semibold" style={{ color: "var(--app-neg)" }}>
+                  Could not load the line items
+                </span>
+                <span className="max-w-[420px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                  {errorMessage(error)}
+                </span>
+                <button
+                  onClick={() => mutate()}
+                  className="mt-1 rounded-md px-3 py-1.5 text-[12px]"
+                  style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+                >
+                  Try again
+                </button>
+              </div>
+            ) : isLoading && !data ? (
+              <div className="grid place-items-center px-6 py-16 text-center">
+                <span className="text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+                  Loading the openings…
+                </span>
+              </div>
+            ) : items.length === 0 ? (
               <div className="grid place-items-center gap-1.5 px-6 py-16 text-center">
                 <span className="text-[13.5px] font-semibold">
                   {running ? "Reading the bid set…" : "Nothing here yet"}
@@ -411,6 +439,7 @@ export function ExtractionClient({
                 />
               ))
             )}
+            </div>
             <BulkBar
               selected={picked.size}
               total={items.length}
@@ -438,7 +467,7 @@ export function ExtractionClient({
       </main>
 
       <footer
-        className="flex shrink-0 items-center gap-3 border-t px-5 py-3"
+        className="flex shrink-0 flex-wrap items-center gap-3 border-t px-5 py-3"
         style={{ borderColor: "var(--app-line)", background: "var(--app-bg)" }}
       >
         <a
@@ -459,7 +488,10 @@ export function ExtractionClient({
           Log a call
         </button>
 
-        <span className="flex-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+        <span
+          className="min-w-[200px] flex-1 text-[12.5px]"
+          style={{ color: "var(--app-tx-2)" }}
+        >
           {needsLook > 0
             ? `${needsLook} item${needsLook === 1 ? "" : "s"} need a look. Open one, check it against the sheet, confirm.`
             : counts?.all

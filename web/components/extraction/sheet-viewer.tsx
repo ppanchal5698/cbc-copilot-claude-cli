@@ -7,7 +7,7 @@ import { FilePdf, Minus, Plus, X, ArrowsOut } from "@phosphor-icons/react/dist/s
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
-import { documentUrl } from "@/lib/api";
+import { documentUrl } from "@/lib/proxy-fetcher";
 import type { BidDocument, LineItem } from "@/lib/types";
 
 // The version query busts a cached worker from a previous pdfjs; a mismatched
@@ -63,38 +63,46 @@ export function SheetViewer({
   const [pageCount, setPageCount] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [renderedWidth, setRenderedWidth] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  // Keyed by document: an unreadable PDF must not blank the viewer for the
+  // others. Previously the failure branch replaced <Document> entirely, so the
+  // onLoadSuccess that would have cleared it could never fire again.
+  const [failures, setFailures] = useState<Record<string, string>>({});
   const frameRef = useRef<HTMLDivElement>(null);
   const highlightRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
 
   const evidence = selected?.evidence;
+  const bbox = evidence?.bbox ?? null;
+  const pageSize = evidence?.pageSize ?? null;
 
   const fitZoomToHighlight = useCallback(() => {
-    if (!evidence?.bbox || !evidence.pageSize || !frameRef.current) return;
+    if (!bbox || !pageSize || !frameRef.current) return;
     const pad = 24;
     const vw = Math.max(frameRef.current.clientWidth - pad, 1);
     const vh = Math.max(frameRef.current.clientHeight - pad, 1);
-    setZoom(zoomToFitHighlight(evidence.bbox, evidence.pageSize, vw, vh));
-  }, [evidence?.bbox, evidence?.pageSize]);
+    setZoom(zoomToFitHighlight(bbox, pageSize, vw, vh));
+  }, [bbox, pageSize]);
 
-  // Follow the selected line to its page and document.
-  useEffect(() => {
-    if (!evidence?.sourcePage) return;
-    setPageNumber(evidence.sourcePage);
-
-    if (evidence.sourceFile) {
-      const match = documents.find((doc) => evidence.sourceFile?.includes(doc.filename));
-      if (match) setActiveDocId(match.id);
+  // Follow the selected line to its page and document. Derived from which line
+  // is selected rather than pushed from an effect, so the first render after a
+  // selection already shows the right page.
+  const [followed, setFollowed] = useState<string | null>(null);
+  const selectionKey = selected ? `${selected.id}:${evidence?.sourcePage ?? ""}` : null;
+  if (selectionKey && followed !== selectionKey) {
+    setFollowed(selectionKey);
+    if (evidence?.sourcePage) {
+      setPageNumber(evidence.sourcePage);
+      if (evidence.sourceFile) {
+        const match = documents.find((doc) => evidence.sourceFile?.includes(doc.filename));
+        if (match) setActiveDocId(match.id);
+      }
     }
-  }, [evidence?.sourcePage, evidence?.sourceFile, documents]);
+    if (!bbox || !pageSize) setZoom(1);
+  }
 
   // Zoom in on the linked region whenever a line item with a bbox is selected.
   useEffect(() => {
-    if (!evidence?.bbox || !evidence.pageSize) {
-      setZoom(1);
-      return;
-    }
+    if (!bbox || !pageSize) return;
     // Wait for layout so viewport measurements reflect the open pane.
     let inner = 0;
     const outer = requestAnimationFrame(() => {
@@ -104,15 +112,16 @@ export function SheetViewer({
       cancelAnimationFrame(outer);
       cancelAnimationFrame(inner);
     };
-  }, [selected?.id, evidence?.bbox, evidence?.pageSize, fitZoomToHighlight]);
+  }, [selected?.id, bbox, pageSize, fitZoomToHighlight]);
 
   // Bring the highlight into view once it exists.
   useEffect(() => {
     if (!highlightRef.current) return;
     highlightRef.current.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-  }, [evidence?.bbox, renderedWidth, pageNumber, zoom]);
+  }, [bbox, renderedWidth, pageNumber, zoom]);
 
   const activeDoc = documents.find((doc) => doc.id === activeDocId) ?? documents[0];
+  const failure = activeDoc ? failures[activeDoc.id] : undefined;
 
   const fileUrl = useMemo(
     () => (activeDoc ? documentUrl(code, activeDoc.id) : null),
@@ -141,11 +150,11 @@ export function SheetViewer({
 
   // The highlight only makes sense on the page the value was read from.
   const highlight = useMemo(() => {
-    if (!evidence?.bbox || !evidence.pageSize || !renderedWidth) return null;
-    if (evidence.sourcePage !== pageNumber) return null;
+    if (!bbox || !pageSize || !renderedWidth) return null;
+    if (evidence?.sourcePage !== pageNumber) return null;
 
-    const scale = renderedWidth / evidence.pageSize.width;
-    const [x0, y0, x1, y1] = evidence.bbox;
+    const scale = renderedWidth / pageSize.width;
+    const [x0, y0, x1, y1] = bbox;
     const padding = 3;
 
     return {
@@ -154,12 +163,12 @@ export function SheetViewer({
       width: (x1 - x0) * scale + padding * 2,
       height: (y1 - y0) * scale + padding * 2,
     };
-  }, [evidence, renderedWidth, pageNumber]);
+  }, [bbox, pageSize, evidence?.sourcePage, renderedWidth, pageNumber]);
 
   if (!activeDoc || !fileUrl) {
     return (
       <aside
-        className="flex w-[560px] shrink-0 flex-col rounded-xl"
+        className="flex w-full shrink-0 flex-col rounded-xl xl:w-[clamp(380px,34vw,560px)]"
         style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
       >
         <div className="grid flex-1 place-items-center px-6 text-center">
@@ -173,7 +182,7 @@ export function SheetViewer({
 
   return (
     <aside
-      className="anim-fadein flex w-[560px] shrink-0 flex-col overflow-hidden rounded-xl"
+      className="anim-fadein flex h-[420px] w-full shrink-0 flex-col overflow-hidden rounded-xl xl:h-auto xl:w-[clamp(380px,34vw,560px)]"
       style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
     >
       <div
@@ -262,7 +271,7 @@ export function SheetViewer({
       )}
 
       <div ref={frameRef} className="min-h-0 flex-1 overflow-auto p-3">
-        {error ? (
+        {failure ? (
           <div
             className="rounded-lg px-4 py-3 text-[12.5px]"
             style={{
@@ -271,16 +280,31 @@ export function SheetViewer({
               color: "var(--app-neg)",
             }}
           >
-            {error}
+            {failure}
+            <button
+              onClick={() =>
+                setFailures((current) => {
+                  const next = { ...current };
+                  delete next[activeDoc.id];
+                  return next;
+                })
+              }
+              className="ml-2 underline underline-offset-2"
+            >
+              Try again
+            </button>
           </div>
         ) : (
           <Document
             file={fileUrl}
-            onLoadSuccess={({ numPages }) => {
-              setPageCount(numPages);
-              setError(null);
-            }}
-            onLoadError={(err) => setError(`Could not open the PDF: ${err.message}`)}
+            key={activeDoc.id}
+            onLoadSuccess={({ numPages }) => setPageCount(numPages)}
+            onLoadError={(err) =>
+              setFailures((current) => ({
+                ...current,
+                [activeDoc.id]: `Could not open ${activeDoc.filename}: ${err.message}`,
+              }))
+            }
             loading={
               <div className="p-8 text-center text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
                 Opening the drawing…

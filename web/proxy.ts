@@ -19,5 +19,11 @@ export default auth((request) => {
 });
 
 export const config = {
-  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico|pdf.worker.min.mjs|.*\.svg).*)"],
+  // `api/proxy` is excluded deliberately. It runs its own auth() check and
+  // answers 401, which the browser can act on; redirecting it instead handed
+  // every SWR call a 200 carrying the sign-in HTML, so each screen failed with
+  // "Unexpected token '<'" the moment a session expired.
+  matcher: [
+    "/((?!api/auth|api/proxy|_next/static|_next/image|favicon\.ico|pdf\.worker\.min\.mjs|.*\.svg).*)",
+  ],
 };

@@ -29,7 +29,7 @@ export default async function ProposalPage({ params }: { params: Promise<{ code:
     <>
       <PageHeader
         crumbs={[{ label: "Workspace", href: "/dashboard" }, { label: `${project.code} · Proposal` }]}
-        runPill={runPillFor(jobs[0], project.counts.total)}
+        runPill={runPillFor(jobs[0], project.counts.total, project.phase)}
         reviewCount={project.counts.needsLook}
         code={project.code}
       />

@@ -7,6 +7,7 @@ lands in `projects/{slug}/uploads/raw/`, a document row is written, and an
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -22,6 +23,10 @@ from api.services import audit, jobs, pdf, storage
 router = APIRouter(prefix="/api/projects/{code}/documents", tags=["documents"])
 
 PDF_MAGIC = b"%PDF-"
+
+# How long an autopilot run waits after an upload, so several PDFs dropped
+# together are read as one bid set rather than starting a run that misses them.
+PIPELINE_DEBOUNCE_SECONDS = int(os.environ.get("PIPELINE_DEBOUNCE_SECONDS", "60"))
 
 
 @router.get("")
@@ -90,6 +95,17 @@ async def upload_document(
             },
             actor=actor,
         )
+    elif project.get("autopilot"):
+        # Phase 0-6 in one session. Delayed a little so the rest of a multi-file
+        # bid set lands first - the run reads the whole of uploads/raw/, and one
+        # that started on this file alone would not see the others.
+        job = await jobs.enqueue(
+            "run_full_pipeline",
+            project_id=project["_id"],
+            payload={"documentId": str(result.inserted_id), "filename": target.name},
+            actor=actor,
+            delay_seconds=PIPELINE_DEBOUNCE_SECONDS,
+        )
     else:
         job = await jobs.enqueue(
             "extract_bid_set",
@@ -108,6 +124,7 @@ async def upload_document(
     return {
         "document": serialise(document),
         "job": serialise(job),
+        "autopilot": bool(project.get("autopilot")) and kind != "addendum",
         "version": version["version"] if version else None,
         "note": (
             "Prior work was snapshotted; differences will be flagged, not merged."

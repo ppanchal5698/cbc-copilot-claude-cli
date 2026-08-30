@@ -6,9 +6,8 @@ import useSWR from "swr";
 import { Tray, FilePdf, UploadSimple, Trash } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
-import type { BidDocument, Job } from "@/lib/types";
-import { formatApiDetail } from "@/lib/format";
-import { proxyFetcher } from "@/lib/proxy-fetcher";
+import type { BidDocument, Job, UploadResult } from "@/lib/types";
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 const KINDS = [
   { key: "plan", label: "Plan set" },
   { key: "spec", label: "Specification" },
@@ -28,6 +27,9 @@ export function UploadPanel({
   const [kind, setKind] = useState<string>("plan");
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [progress, setProgress] = useState<{ name: string; index: number; total: number } | null>(
+    null,
+  );
 
   const { data, mutate } = useSWR<{ documents: BidDocument[] }>(
     `/api/proxy/projects/${code}/documents`,
@@ -50,31 +52,32 @@ export function UploadPanel({
 
   async function upload(files: FileList | null) {
     if (!files?.length) return;
+    const queue = Array.from(files);
     setBusy(true);
 
-    for (const file of Array.from(files)) {
+    for (const [index, file] of queue.entries()) {
+      // Bid sets run to hundreds of megabytes; naming the file and its place in
+      // the queue is the difference between "working" and "frozen".
+      setProgress({ name: file.name, index: index + 1, total: queue.length });
+
       const form = new FormData();
       form.append("file", file);
       form.append("kind", kind);
 
-      const response = await fetch(`/api/proxy/projects/${code}/documents`, {
-        method: "POST",
-        body: form,
-      });
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({ detail: response.statusText }));
-        toast.error(`${file.name} was not accepted`, {
-          description: formatApiDetail(body.detail, response.statusText),
-        });        continue;
+      try {
+        const result = await proxyMutate<UploadResult>(
+          `/api/proxy/projects/${code}/documents`,
+          { form },
+        );
+        toast.success(`${file.name} received`, {
+          description: `${result.document.pages ?? "?"} pages · Claude has been queued to read it.`,
+        });
+      } catch (problem) {
+        toast.error(`${file.name} was not accepted`, { description: errorMessage(problem) });
       }
-
-      const result = await response.json();
-      toast.success(`${file.name} received`, {
-        description: `${result.document.pages} pages · Claude has been queued to read it.`,
-      });
     }
 
+    setProgress(null);
     setBusy(false);
     if (inputRef.current) inputRef.current.value = "";
     mutate();
@@ -82,18 +85,25 @@ export function UploadPanel({
   }
 
   async function remove(document: BidDocument) {
-    const response = await fetch(`/api/proxy/projects/${code}/documents/${document.id}`, {
-      method: "DELETE",
-    });
-    if (!response.ok) {
-      toast.error("Could not detach that document");
+    if (
+      !window.confirm(
+        `Detach ${document.filename} from this bid? The file itself is kept — raw uploads are immutable.`,
+      )
+    ) {
       return;
     }
-    toast.success(`${document.filename} detached`, {
-      description: "The file itself is kept — raw uploads are immutable.",
-    });
-    mutate();
-    router.refresh();
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/documents/${document.id}`, {
+        method: "DELETE",
+      });
+      toast.success(`${document.filename} detached`, {
+        description: "The file itself is kept — raw uploads are immutable.",
+      });
+      mutate();
+      router.refresh();
+    } catch (problem) {
+      toast.error("Could not detach that document", { description: errorMessage(problem) });
+    }
   }
 
   return (
@@ -102,7 +112,7 @@ export function UploadPanel({
       style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
     >
       <div
-        className="flex items-center gap-3 border-b px-4 py-3.5"
+        className="flex flex-wrap items-center gap-3 border-b px-4 py-3.5"
         style={{ borderColor: "var(--app-line)" }}
       >
         <span className="text-[15px] font-semibold">Bid documents</span>
@@ -113,7 +123,7 @@ export function UploadPanel({
             : ""}
         </span>
         <span className="flex-1" />
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           {KINDS.map((entry) => (
             <button
               key={entry.key}
@@ -132,11 +142,12 @@ export function UploadPanel({
       </div>
 
       {documents.length > 0 && (
-        <div>
+        <div className="overflow-x-auto">
           <div
             className="grid gap-3 border-b px-4 py-2 text-[10.5px] uppercase tracking-[0.07em]"
             style={{
-              gridTemplateColumns: "1fr 90px 110px 110px 40px",
+              minWidth: 560,
+              gridTemplateColumns: "minmax(200px,1fr) 90px 110px 110px 40px",
               borderColor: "var(--app-line)",
               color: "var(--app-tx-3)",
             }}
@@ -151,7 +162,11 @@ export function UploadPanel({
             <div
               key={document.id}
               className="grid items-center gap-3 border-b px-4 py-2.5 last:border-b-0"
-              style={{ gridTemplateColumns: "1fr 90px 110px 110px 40px", borderColor: "var(--app-line)" }}
+              style={{
+                minWidth: 560,
+                gridTemplateColumns: "minmax(200px,1fr) 90px 110px 110px 40px",
+                borderColor: "var(--app-line)",
+              }}
             >
               <span className="flex min-w-0 items-center gap-2">
                 <FilePdf size={16} weight="duotone" style={{ color: "#22d3ee" }} />
@@ -193,7 +208,11 @@ export function UploadPanel({
           event.preventDefault();
           setDragging(true);
         }}
-        onDragLeave={() => setDragging(false)}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setDragging(false);
+          }
+        }}
         onDrop={(event) => {
           event.preventDefault();
           setDragging(false);
@@ -231,6 +250,17 @@ export function UploadPanel({
           <UploadSimple size={14} weight="bold" />
           {busy ? "Uploading…" : "Choose PDFs"}
         </button>
+
+        {progress && (
+          <span
+            className="mt-1 text-[11.5px]"
+            aria-live="polite"
+            style={{ color: "var(--app-tx-2)" }}
+          >
+            Sending {progress.name}
+            {progress.total > 1 ? ` (${progress.index} of ${progress.total})` : ""}…
+          </span>
+        )}
       </div>
     </div>
   );

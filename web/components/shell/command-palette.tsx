@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { toast } from "sonner";
@@ -14,10 +14,12 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useUiState } from "@/components/shell/ui-state";
+import { useDebounced } from "@/hooks/use-debounced";
+import { useDialog } from "@/hooks/use-dialog";
 import { formatMoney } from "@/lib/format";
-import type { Product, Project } from "@/lib/types";
+import type { Product, ProductSearchResponse, Project } from "@/lib/types";
 
-import { proxyFetcher } from "@/lib/proxy-fetcher";
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 
 const STAGES = [
   { key: "intake", label: "Intake" },
@@ -35,47 +37,60 @@ const RUNS = [
 /** Ctrl+K. Real actions, not decoration. */
 export function CommandPalette({ code }: { code: string | null }) {
   const router = useRouter();
-  const { paletteOpen, setPaletteOpen, openNotes, toggleFocus } = useUiState();
+  const { paletteOpen, setPaletteOpen, openNotes, toggleFocus, toggleTheme } = useUiState();
   const [query, setQuery] = useState("");
   const [parts, setParts] = useState<Product[]>([]);
+
+  const close = useCallback(() => setPaletteOpen(false), [setPaletteOpen]);
+  const dialogRef = useDialog<HTMLDivElement>(paletteOpen, close);
 
   const { data: projectData } = useSWR<{ projects: Project[] }>(
     paletteOpen ? "/api/proxy/projects?limit=50" : null,
     proxyFetcher,
   );
 
+  const settled = useDebounced(query.trim());
   // Parts are only searched once the query is specific enough to be useful.
+  const searchable = paletteOpen && settled.length >= 2;
+
   useEffect(() => {
-    if (!paletteOpen || query.trim().length < 2) {
-      setParts([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      const response = await fetch(
-        `/api/proxy/catalog/products?q=${encodeURIComponent(query)}&limit=5`,
-      );
-      if (response.ok) setParts((await response.json()).products);
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [query, paletteOpen]);
+    if (!searchable) return;
+
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const found = await proxyFetcher<ProductSearchResponse>(
+          `/api/proxy/catalog/products?q=${encodeURIComponent(settled)}&limit=5`,
+          controller.signal,
+        );
+        setParts(found.products);
+      } catch {
+        /* aborted, or the catalog is unreachable - the other groups still work */
+      }
+    })();
+
+    return () => controller.abort();
+  }, [settled, searchable]);
+
+  // Derived, so an emptied query never renders the last search's hits.
+  const visibleParts = searchable ? parts : [];
 
   // Opening has to hand over the caret and start from a blank query. Without
   // this the palette opens onto the last search with focus still on the page,
   // so typing goes nowhere and Enter has nothing selected to act on.
+  const [wasOpen, setWasOpen] = useState(paletteOpen);
+  if (wasOpen !== paletteOpen) {
+    setWasOpen(paletteOpen);
+    if (paletteOpen) setQuery("");
+  }
+
   useEffect(() => {
     if (!paletteOpen) return;
-    setQuery("");
     const timer = setTimeout(() => {
       document.querySelector<HTMLInputElement>("[cmdk-input]")?.focus();
     }, 0);
     return () => clearTimeout(timer);
   }, [paletteOpen]);
-
-  // Escape closes, matching every other overlay in the app. It sits on the input
-  // rather than the Command root so cmdk keeps its own arrow/Enter handling.
-  function onKeyDown(event: React.KeyboardEvent) {
-    if (event.key === "Escape") setPaletteOpen(false);
-  }
 
   function run(action: () => void) {
     setPaletteOpen(false);
@@ -88,14 +103,13 @@ export function CommandPalette({ code }: { code: string | null }) {
       toast.error("Open a bid first");
       return;
     }
-    const response = await fetch(`/api/proxy/projects/${code}/${path}`, { method: "POST" });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("That did not go through", { description: String(body.detail) });
-      return;
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/${path}`);
+      toast.success(success);
+      router.refresh();
+    } catch (problem) {
+      toast.error("That did not go through", { description: errorMessage(problem) });
     }
-    toast.success(success);
-    router.refresh();
   }
 
   if (!paletteOpen) return null;
@@ -105,12 +119,14 @@ export function CommandPalette({ code }: { code: string | null }) {
   // reads an undefined store and takes the whole tree down on hydration.
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-center pt-[14vh]"
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[10vh] sm:pt-[14vh]"
       style={{ background: "rgba(0,0,0,0.55)" }}
       onClick={(event) => event.target === event.currentTarget && setPaletteOpen(false)}
     >
       <div
+        ref={dialogRef}
         role="dialog"
+        aria-modal="true"
         aria-label="Command palette"
         className="anim-popin h-fit w-full max-w-[620px] overflow-hidden rounded-xl"
         style={{
@@ -124,7 +140,6 @@ export function CommandPalette({ code }: { code: string | null }) {
         placeholder="Ask or run a command…"
         value={query}
         onValueChange={setQuery}
-        onKeyDown={onKeyDown}
       />
       <CommandList>
         <CommandEmpty>Nothing matches that.</CommandEmpty>
@@ -161,9 +176,9 @@ export function CommandPalette({ code }: { code: string | null }) {
           </CommandGroup>
         )}
 
-        {parts.length > 0 && (
+        {visibleParts.length > 0 && (
           <CommandGroup heading="Catalog">
-            {parts.map((part) => (
+            {visibleParts.map((part) => (
               <CommandItem
                 key={part.id}
                 value={`part ${part.part} ${part.description}`}
@@ -202,11 +217,7 @@ export function CommandPalette({ code }: { code: string | null }) {
           <CommandItem value="focus mode" onSelect={() => run(toggleFocus)}>
             Toggle focus mode
           </CommandItem>
-          <CommandItem value="theme dark light" onSelect={() => run(() => {
-            const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-            document.documentElement.dataset.theme = next;
-            localStorage.setItem("opshub-theme", next);
-          })}>
+          <CommandItem value="theme dark light" onSelect={() => run(toggleTheme)}>
             Toggle theme
           </CommandItem>
           <CommandItem value="bid board" onSelect={() => run(() => router.push("/bids"))}>

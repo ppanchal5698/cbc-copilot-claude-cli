@@ -6,6 +6,8 @@ import { signOut } from "next-auth/react";
 import { MagnifyingGlass, Sun, Moon, Bell, PhoneCall } from "@phosphor-icons/react/dist/ssr";
 
 import { useUiState } from "@/components/shell/ui-state";
+import { proxyFetcher } from "@/lib/proxy-fetcher";
+import type { CallsResponse } from "@/lib/types";
 
 export interface Crumb {
   label: string;
@@ -25,31 +27,18 @@ export function Header({
   reviewCount?: number;
   code?: string | null;
 }) {
-  const { openNotes, setPaletteOpen, setTerminalOpen, focusMode, notesVersion } =
+  const { openNotes, setPaletteOpen, setTerminalOpen, focusMode, notesVersion, theme, toggleTheme } =
     useUiState();
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [noteCount, setNoteCount] = useState(0);
 
   useEffect(() => {
-    const stored = (localStorage.getItem("opshub-theme") as "dark" | "light") || "dark";
-    setTheme(stored);
-    document.documentElement.dataset.theme = stored;
-  }, []);
-
-  useEffect(() => {
     if (!code) return;
-    fetch(`/api/proxy/projects/${code}/calls`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => d && setNoteCount(d.count))
+    const controller = new AbortController();
+    proxyFetcher<CallsResponse>(`/api/proxy/projects/${code}/calls`, controller.signal)
+      .then((data) => setNoteCount(data.count))
       .catch(() => undefined);
+    return () => controller.abort();
   }, [code, notesVersion]);
-
-  function toggleTheme() {
-    const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    document.documentElement.dataset.theme = next;
-    localStorage.setItem("opshub-theme", next);
-  }
 
   const toneColour =
     runPill?.tone === "failed"
@@ -80,26 +69,23 @@ export function Header({
 
       <div className="flex-1" />
 
-      <div
-        className="flex h-[34px] w-[330px] cursor-pointer items-center gap-2 rounded-lg px-3"
-        style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
+      <button
         onClick={() => setPaletteOpen(true)}
+        aria-keyshortcuts="Control+K"
+        className="hidden h-[34px] w-[200px] items-center gap-2 rounded-lg px-3 md:flex xl:w-[330px]"
+        style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
       >
         <MagnifyingGlass size={15} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
-        <button
-          onClick={() => setPaletteOpen(true)}
-          className="flex-1 text-left text-[13px]"
-          style={{ color: "var(--app-tx-3)" }}
-        >
+        <span className="flex-1 truncate text-left text-[13px]" style={{ color: "var(--app-tx-3)" }}>
           Ask or run a command…
-        </button>
+        </span>
         <span
-          className="rounded px-1.5 py-0.5 text-[10.5px]"
+          className="hidden rounded px-1.5 py-0.5 text-[10.5px] xl:inline"
           style={{ background: "var(--app-panel-2)", color: "var(--app-tx-3)" }}
         >
           Ctrl + K
         </span>
-      </div>
+      </button>
 
       {runPill && !focusMode && (
         // The pill is what you look at to ask "what is it doing?", so it is what
@@ -147,9 +133,17 @@ export function Header({
         {theme === "dark" ? <Sun size={16} weight="duotone" /> : <Moon size={16} weight="duotone" />}
       </button>
 
-      <button
-        aria-label="Notifications"
-        className="relative grid h-8 w-8 place-items-center rounded-md"
+      {/* The badge counts flagged lines, so the bell goes to them. It used to be
+          a button with no handler: the one control on the page that did nothing. */}
+      <Link
+        href={code ? `/bids/${code}/extraction` : "/bids?stage=extraction"}
+        aria-label={
+          reviewCount
+            ? `${reviewCount} line${reviewCount === 1 ? "" : "s"} need a look`
+            : "Nothing flagged for review"
+        }
+        title={reviewCount ? "Go to the flagged lines" : "Nothing flagged"}
+        className="relative grid h-8 w-8 place-items-center rounded-md no-underline"
         style={{ color: "var(--app-tx-2)" }}
       >
         <Bell size={16} weight="duotone" />
@@ -161,7 +155,7 @@ export function Header({
             {reviewCount}
           </span>
         )}
-      </button>
+      </Link>
 
       <div className="flex items-center gap-2.5">
         <span

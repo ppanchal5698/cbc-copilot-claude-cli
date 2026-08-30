@@ -34,6 +34,10 @@ async function proxy(request: NextRequest, path: string[]) {
     method: request.method,
     headers,
     cache: "no-store",
+    // A navigation away, or a search superseded by the next keystroke, aborts
+    // the browser's request; without this the upstream call kept running and
+    // the API kept working on an answer nobody was waiting for.
+    signal: request.signal,
   };
 
   if (!["GET", "HEAD"].includes(request.method)) {
@@ -51,9 +55,14 @@ async function proxy(request: NextRequest, path: string[]) {
     }
   }
 
-  const upstream = await fetch(target, init).catch(() => null);
-
-  if (!upstream) {
+  let upstream: Response;
+  try {
+    upstream = await fetch(target, init);
+  } catch (error) {
+    // An aborted request is the caller giving up, not a failure worth reporting.
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return new Response(null, { status: 499 });
+    }
     return Response.json(
       { detail: `Cannot reach the API at ${API_BASE}.` },
       { status: 503 },

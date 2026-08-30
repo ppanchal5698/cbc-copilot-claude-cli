@@ -29,7 +29,7 @@ export default async function QuotePage({ params }: { params: Promise<{ code: st
     <>
       <PageHeader
         crumbs={[{ label: "Workspace", href: "/dashboard" }, { label: `${project.code} · Quote` }]}
-        runPill={runPillFor(jobs[0], project.counts.total)}
+        runPill={runPillFor(jobs[0], project.counts.total, project.phase)}
         reviewCount={project.counts.needsLook}
         code={project.code}
       />

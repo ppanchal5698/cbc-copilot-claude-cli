@@ -17,7 +17,7 @@ from typing import Any
 from api.config import settings
 from cbc_core import pdfpages
 
-RENDER_CACHE = settings.repo_root / ".cache" / "pdf-pages"
+RENDER_CACHE = pdfpages.RENDER_CACHE  # one cache, shared with the MCP server
 MAX_DPI = 300
 MIN_DPI = 36
 

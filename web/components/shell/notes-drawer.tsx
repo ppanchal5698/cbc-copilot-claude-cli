@@ -14,25 +14,16 @@ import {
 import { toast } from "sonner";
 
 import { useUiState } from "@/components/shell/ui-state";
+import { useDialog } from "@/hooks/use-dialog";
 
-import { proxyFetcher } from "@/lib/proxy-fetcher";
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import type { CallEntry, CallsResponse } from "@/lib/types";
 
 const KINDS = [
   { key: "call", label: "Call", Icon: PhoneCall, placeholder: "Who did you speak to, and what was agreed?" },
   { key: "note", label: "Note", Icon: NotePencil, placeholder: "Anything the next person needs to know." },
   { key: "rfi", label: "RFI", Icon: Question, placeholder: "What is unclear, and who has to answer it?" },
 ] as const;
-
-interface CallEntry {
-  id: string;
-  kind: "call" | "note" | "rfi";
-  text: string;
-  who: string;
-  org?: string | null;
-  ref?: string | null;
-  createdAt: string;
-  resolvedAt?: string | null;
-}
 
 /** Which stage the note was logged from, so it carries its own context. */
 function stageFromPath(pathname: string): string {
@@ -53,8 +44,9 @@ export function NotesDrawer({ code }: { code: string | null }) {
   const [text, setText] = useState("");
   const [org, setOrg] = useState("");
   const [busy, setBusy] = useState(false);
+  const dialogRef = useDialog<HTMLDivElement>(notesOpen, closeNotes);
 
-  const { data, mutate } = useSWR<{ calls: CallEntry[]; count: number; openRfis: number }>(
+  const { data, error, mutate } = useSWR<CallsResponse>(
     notesOpen && code ? `/api/proxy/projects/${code}/calls` : null,
     proxyFetcher,
   );
@@ -71,42 +63,51 @@ export function NotesDrawer({ code }: { code: string | null }) {
     if (!text.trim()) return;
 
     setBusy(true);
-    const response = await fetch(`/api/proxy/projects/${code}/calls`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        kind,
-        text: text.trim(),
-        org: org.trim() || null,
-        ref: notesRef ?? stageFromPath(pathname),
-      }),
-    });
-    setBusy(false);
-
-    if (!response.ok) {
-      toast.error("Could not log that");
-      return;
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/calls`, {
+        body: {
+          kind,
+          text: text.trim(),
+          org: org.trim() || null,
+          ref: notesRef ?? stageFromPath(pathname),
+        },
+      });
+      toast.success(`${active.label} logged`, { description: "It travels with the estimate." });
+      setText("");
+      setOrg("");
+      mutate();
+      bumpNotes();
+    } catch (problem) {
+      toast.error("Could not log that", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    toast.success(`${active.label} logged`, { description: "It travels with the estimate." });
-    setText("");
-    setOrg("");
-    mutate();
-    bumpNotes();
   }
 
   async function resolve(entry: CallEntry) {
-    await fetch(`/api/proxy/projects/${code}/calls/${entry.id}/resolve`, { method: "POST" });
-    toast.success("RFI closed");
-    mutate();
-    bumpNotes();
+    try {
+      // This used to report success without ever checking the response.
+      await proxyMutate(`/api/proxy/projects/${code}/calls/${entry.id}/resolve`);
+      toast.success("RFI closed");
+      mutate();
+      bumpNotes();
+    } catch (problem) {
+      toast.error("Could not close that RFI", { description: errorMessage(problem) });
+    }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <div
+      ref={dialogRef}
+      className="fixed inset-0 z-50 flex justify-end"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Log a call or note"
+    >
       <div className="flex-1" style={{ background: "rgba(0,0,0,0.5)" }} onClick={closeNotes} />
 
       <aside
-        className="flex w-[460px] flex-col"
+        className="flex w-full max-w-[460px] flex-col"
         style={{
           background: "var(--app-bg-2)",
           borderLeft: "1px solid var(--app-line)",
@@ -163,6 +164,7 @@ export function NotesDrawer({ code }: { code: string | null }) {
             value={org}
             onChange={(event) => setOrg(event.target.value)}
             placeholder="Who it was with — GC, architect, vendor"
+            aria-label="Who it was with"
             className="mt-2.5 w-full rounded-md px-2.5 py-2 text-[12.5px] outline-none focus:ring-2"
             style={{
               background: "var(--app-panel-2)",
@@ -175,6 +177,7 @@ export function NotesDrawer({ code }: { code: string | null }) {
             value={text}
             onChange={(event) => setText(event.target.value)}
             placeholder={active.placeholder}
+            aria-label={`${active.label} text`}
             rows={4}
             className="mt-2 w-full resize-none rounded-md px-2.5 py-2 text-[12.5px] outline-none focus:ring-2"
             style={{
@@ -208,7 +211,11 @@ export function NotesDrawer({ code }: { code: string | null }) {
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto px-5 py-3">
-          {(data?.calls ?? []).length === 0 ? (
+          {error ? (
+            <p className="py-8 text-center text-[12px]" style={{ color: "var(--app-neg)" }}>
+              Could not load what has been logged: {errorMessage(error)}
+            </p>
+          ) : (data?.calls ?? []).length === 0 ? (
             <p className="py-8 text-center text-[12px]" style={{ color: "var(--app-tx-3)" }}>
               Nothing logged on this bid yet.
             </p>
@@ -253,6 +260,7 @@ export function NotesDrawer({ code }: { code: string | null }) {
                       <button
                         onClick={() => resolve(entry)}
                         title="Mark this RFI answered"
+                        aria-label={`Mark the RFI from ${entry.who} answered`}
                         style={{ color: "var(--app-pos)" }}
                       >
                         <CheckCircle size={15} weight="duotone" />

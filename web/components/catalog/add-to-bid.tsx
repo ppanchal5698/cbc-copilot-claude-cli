@@ -5,9 +5,9 @@ import useSWR from "swr";
 import { Plus } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
-import type { Product, Project } from "@/lib/types";
+import type { LineItem, Product, Project } from "@/lib/types";
 
-import { proxyFetcher } from "@/lib/proxy-fetcher";
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 
 /**
  * Put a catalog part straight onto an open bid.
@@ -30,27 +30,24 @@ export function AddToBid({ product }: { product: Product }) {
 
   async function add(project: Project) {
     setBusy(true);
-    const response = await fetch(`/api/proxy/projects/${project.code}/line-items`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        description: product.description,
-        part: product.part,
-        division: product.division,
-        qty: 1,
-      }),
-    });
-    setBusy(false);
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("Could not add it", { description: String(body.detail) });
-      return;
+    try {
+      await proxyMutate<LineItem>(`/api/proxy/projects/${project.code}/line-items`, {
+        body: {
+          description: product.description,
+          part: product.part,
+          division: product.division,
+          qty: 1,
+        },
+      });
+      toast.success(`${product.part} added to ${project.code}`, {
+        description: "Marked as added by hand, and already confirmed.",
+      });
+      setOpen(false);
+    } catch (problem) {
+      toast.error("Could not add it", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    toast.success(`${product.part} added to ${project.code}`, {
-      description: "Marked as added by hand, and already confirmed.",
-    });
-    setOpen(false);
   }
 
   if (!open) {

@@ -162,6 +162,18 @@ async def _proposal_payload(project: dict[str, Any]) -> dict[str, Any]:
             "unpricedQuoteLines": unpriced,
             "blocking": False,
             "note": "Flagged and unpriced lines are shown, not blocked - the estimator decides.",
+            # A draft produced on a provider Claude Code warns about can be wrong
+            # as a whole document, not just in one field - and it will not look it.
+            "degraded": bool(project.get("degraded")),
+            "producedBy": project.get("producedBy"),
+            "degradedNote": (
+                "Produced on {model} ({mode}), which Claude Code reports problems with: "
+                "{why} Re-run on a supported model before trusting these numbers."
+            ).format(
+                model=(project.get("producedBy") or {}).get("model", "an unknown model"),
+                mode=(project.get("producedBy") or {}).get("mode", "?"),
+                why=" ".join((project.get("producedBy") or {}).get("warnings") or []),
+            ) if project.get("degraded") else None,
         },
     }
 

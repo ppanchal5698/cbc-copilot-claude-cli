@@ -40,6 +40,10 @@ export interface Project {
   bidDue?: string | null;
   stage: Stage;
   progress: number;
+  /** Which phase an autopilot run has reached, while it is running. */
+  phase?: string | null;
+  /** Run Phase 0-6 in one pass when a drawing is uploaded. */
+  autopilot?: boolean;
   version?: number;
   handedOffTo?: string | null;
   counts: Counts;
@@ -178,10 +182,35 @@ export interface Product {
   availability?: string | null;
   priceBookId?: string | null;
   priceBook?: string | null;
-  xref: { manufacturer: string; part: string }[];
+  xref?: { manufacturer: string; part: string }[];
   seedSource?: string | null;
   updatedAt?: string | null;
   updatedBy?: string | null;
+  /**
+   * Where the row came from. "catalog" rows are read out of the SQLite FTS
+   * index built from the vendor PDFs and carry an `idx:` id, not a Mongo one;
+   * "manual" rows are the estimator's own, in Mongo.
+   */
+  source?: "manual" | "catalog";
+  /**
+   * False for indexed rows: the next reindex rewrites them from the PDF, so an
+   * edit here would silently disappear. The API refuses them outright - their
+   * `idx:` id is not a valid ObjectId.
+   */
+  editable?: boolean;
+  unit?: string | null;
+  sourcePage?: number | null;
+  effective?: string | null;
+}
+
+export interface ProductSearchResponse {
+  products: Product[];
+  total: number;
+  counts?: { manual: number; catalog: number };
+  divisions: { division: string; count: number }[];
+  /** False until `python -m catalog_index.rebuild` has been run. */
+  indexAvailable?: boolean;
+  note?: string | null;
 }
 
 export interface PriceBook {
@@ -286,4 +315,138 @@ export interface OllamaModel {
 export interface OllamaModelsResponse {
   baseUrl: string;
   models: OllamaModel[];
+}
+
+
+/* --- Mutation responses -------------------------------------------------- */
+/* Shapes the screens used to read straight off an untyped `response.json()`. */
+
+export interface BulkResult {
+  affected: number;
+}
+
+export interface AlternateAssignResult {
+  moved: number;
+}
+
+export interface UploadResult {
+  document: BidDocument;
+}
+
+export interface HandOffResult {
+  handedOffTo: string | null;
+  message: string;
+  draftPath: string;
+  sent: boolean;
+}
+
+export interface EmailDraft {
+  to: string | null;
+  subject: string;
+  body: string;
+  note?: string | null;
+}
+
+export interface OauthStart {
+  session: string;
+  url: string;
+}
+
+/** A rejected code makes the CLI start a fresh authorization, hence the new url. */
+export interface OauthCodeError {
+  message?: string;
+  hint?: string;
+  url?: string;
+}
+
+export interface CallEntry {
+  id: string;
+  kind: "call" | "note" | "rfi";
+  text: string;
+  who: string;
+  org?: string | null;
+  ref?: string | null;
+  createdAt: string;
+  resolvedAt?: string | null;
+}
+
+export interface CallsResponse {
+  calls: CallEntry[];
+  count: number;
+  openRfis: number;
+}
+
+export interface VersionSummary {
+  id: string;
+  version: number;
+  reason: string;
+  createdAt: string;
+  createdBy: string;
+  reconciled: boolean;
+  lineItemCount: number;
+  quoteLineCount: number;
+}
+
+export interface VersionDiff {
+  version: number;
+  added: string[];
+  removed: string[];
+  changed: {
+    mark: string;
+    fields: string[];
+    before: Record<string, unknown>;
+    after: Record<string, unknown>;
+  }[];
+  pending: string;
+}
+
+export interface VersionsResponse {
+  versions: VersionSummary[];
+  current: number;
+  unreconciled: number;
+  pending: string;
+}
+
+export interface Alternate {
+  name: string | null;
+  label: string;
+  isBase: boolean;
+  lineItemCount: number;
+  quoteLineCount: number;
+  subtotal: number;
+  grandTotal: number;
+  unpricedLines: number;
+}
+
+export interface AlternatesResponse {
+  alternates: Alternate[];
+  pending: string;
+}
+
+export interface PriceBooksResponse {
+  priceBooks: PriceBook[];
+  counts: { total: number; stale: number; undated: number };
+  stewardship: { owner: string | null; cadence: string | null; note: string };
+}
+
+export interface PriceBookDetail {
+  priceBook: PriceBook;
+  parts: Product[];
+  partCount: number;
+}
+
+export interface AuditEntry {
+  id: string;
+  at: string;
+  actor: string;
+  action: string;
+  note?: string | null;
+}
+
+export interface UserRow {
+  id: string;
+  email: string;
+  name: string;
+  initials: string;
+  role: string;
 }

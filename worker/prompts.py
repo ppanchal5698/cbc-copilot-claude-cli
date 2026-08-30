@@ -138,7 +138,12 @@ cost_source_detail, multiplier, multiplier_tier, multiplier_effective_date,
 price_book_version, source_page, flags.
 
 An item you cannot price gets cost: null and cost_source: "MANUAL" with a
-plain-language reason. Never extrapolate a price from a similar SKU.
+plain-language reason in cost_source_detail. Never extrapolate a price from a
+similar SKU.
+
+Every line names what it is: carry `part_number` and `description` across from
+extracted/hardware_sets.json (`specified`) even when nothing matched. A MANUAL
+line is an instruction to an estimator, and a blank one tells them nothing.
 When cost is set, sale_ea and ext_price must also be set (use calc-engine).
 
 {preamble}"""
@@ -191,6 +196,57 @@ decides.
 
 {preamble}"""
 
+RUN_FULL_PIPELINE = """You are the CBC Estimating Copilot orchestrator, running the whole
+estimate for project {code} in one pass.
+
+The bid set is in {project_dir}/uploads/raw/. Carry it through Phase 0 to Phase 6
+of docs/cbc_process_flow.md and stop with a draft. Nobody will confirm anything
+between the phases - this bid is on autopilot - so the estimator reads the result
+at the end and everything uncertain has to be visible there.
+
+**Find the sheets once.** Start with `find_sheets` on each file in uploads/raw/.
+One call returns which sheets carry doors, hardware, partitions and FRP, ranked.
+Hand those page numbers down to every subagent below. Four subagents each
+searching the same set is the same work four times, and on a full run it is the
+difference between finishing and exhausting the budget.
+
+**Resume, do not redo.** If a phase's output below already exists in this project,
+that phase ran on an earlier attempt: read the file, tell the next subagent what
+is in it, and move on. Re-reading a 744-page set that was already read is the most
+expensive thing you can do here. Ignore this only if told to force a clean run.
+
+Delegate each phase with the Agent tool - these are registered subagent types, not
+files to read:
+
+  Phase 0/1  intake-coordinator  -> extracted/scope_metadata.json
+  Phase 2    spec-scope-analyst  -> extracted/scope_summary.json
+  Phase 3    takeoff-engineer    -> extracted/door_schedule.json
+  Phase 3b   frp-specialist      -> extracted/frp_takeoff.json  (only if FRP is in scope)
+  Phase 4    product-matcher     -> extracted/hardware_sets.json
+  Phase 4    pricing-engineer    -> priced/line_items.json, priced/margin_applied.json
+  Phase 4/6  quote-builder       -> quotation.html
+  Phase 5    quality-reviewer    -> review/review_flags.json, review/review_summary.html
+  Phase 6    delivery-agent      -> uploads/final/, review/quotation_email_draft.md
+
+Run them in that order. A phase that fails stops the run - do not carry on and
+quote off a take-off that did not finish.
+
+**What to do with a line you are unsure of.** Price it, and flag it. Do not guess a
+fire rating, handing, finish, size or price to make a line look complete, and do
+not drop it to keep the quote tidy - an opening that vanishes is worse than one
+that is marked. Every flagged line goes in review/review_flags.json with the
+reason, and the quality-reviewer's summary must lead with them: on this path the
+review at the end is the only review there is.
+
+Beyond the top-10 stock items take the MANUAL path (NR-13): cost null,
+cost_source "MANUAL", a plain-language reason, and - just as important - the
+specified item in `part_number`/`description`, copied from hardware_sets.json. A
+manual line an estimator cannot read is worse than no line.
+
+Halt at the end and report exactly: "Draft ready for estimator review"
+
+{preamble}"""
+
 INGEST_PRICEBOOK = """You are the CBC Estimating Copilot ingesting a price book into the catalog.
 
 File: pricebooks/{filename}
@@ -223,6 +279,7 @@ TEMPLATES = {
     "match_and_price": MATCH_AND_PRICE,
     "build_proposal": BUILD_PROPOSAL,
     "ingest_pricebook": INGEST_PRICEBOOK,
+    "run_full_pipeline": RUN_FULL_PIPELINE,
 }
 
 
@@ -255,7 +312,20 @@ def build(job: dict[str, Any], project: dict[str, Any] | None) -> str:
     )
 
 
-if __name__ == "__main__":  # `python -m worker.prompts <project_dir>`
+def pipeline_for(project_dir: str, code: str | None = None) -> str:
+    """The full-pipeline orchestration prompt, for any entry point that needs it."""
+    return RUN_FULL_PIPELINE.format(
+        code=code or project_dir.rsplit("/", 1)[-1],
+        project_dir=project_dir,
+        preamble=preamble_for(project_dir),
+    )
+
+
+if __name__ == "__main__":  # `python -m worker.prompts [--pipeline] <project_dir>`
     import sys
 
-    print(preamble_for(sys.argv[1] if len(sys.argv) > 1 else "projects/{project}"))
+    argv = sys.argv[1:]
+    full = "--pipeline" in argv
+    argv = [a for a in argv if not a.startswith("--")]
+    target = argv[0] if argv else "projects/{project}"
+    print(pipeline_for(target) if full else preamble_for(target))

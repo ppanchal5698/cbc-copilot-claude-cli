@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { PlusCircle } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
+import { useDebounced } from "@/hooks/use-debounced";
 import { formatMoney } from "@/lib/format";
-import type { Product } from "@/lib/types";
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import type { LineItem, Product, ProductSearchResponse } from "@/lib/types";
 
 /**
  * "Add anything the drawings do not carry."
@@ -19,55 +21,60 @@ export function PartComposer({ code, onAdded }: { code: string; onAdded: () => v
   const [hits, setHits] = useState<Product[]>([]);
   const [busy, setBusy] = useState(false);
   const [focused, setFocused] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const settled = useDebounced(query.trim());
+  const tooShort = settled.length < 2;
 
   useEffect(() => {
-    if (timer.current) clearTimeout(timer.current);
-    if (query.trim().length < 2) {
-      setHits([]);
-      return;
-    }
-    timer.current = setTimeout(async () => {
-      const response = await fetch(
-        `/api/proxy/catalog/products?q=${encodeURIComponent(query)}&limit=6`,
-      );
-      if (response.ok) setHits((await response.json()).products);
-    }, 220);
+    if (tooShort) return;
 
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  }, [query]);
+    // Aborting the superseded request is what stops a slow early response from
+    // landing on top of a fast later one.
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const found = await proxyFetcher<ProductSearchResponse>(
+          `/api/proxy/catalog/products?q=${encodeURIComponent(settled)}&limit=6`,
+          controller.signal,
+        );
+        setHits(found.products);
+      } catch {
+        /* aborted, or the search failed - the composer still accepts free text */
+      }
+    })();
+
+    return () => controller.abort();
+  }, [settled, tooShort]);
+
+  // Derived rather than cleared in an effect, so a stale list is never rendered
+  // for one frame after the query is emptied.
+  const visible = tooShort ? [] : hits;
 
   async function add(product?: Product) {
     const description = product?.description ?? query.trim();
     if (!description) return;
 
     setBusy(true);
-    const response = await fetch(`/api/proxy/projects/${code}/line-items`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        description,
-        part: product?.part,
-        division: product?.division,
-        qty: 1,
-      }),
-    });
-    setBusy(false);
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("Could not add that line", { description: String(body.detail) });
-      return;
+    try {
+      await proxyMutate<LineItem>(`/api/proxy/projects/${code}/line-items`, {
+        body: {
+          description,
+          part: product?.part,
+          division: product?.division,
+          qty: 1,
+        },
+      });
+      toast.success(product ? `${product.part} added` : "Line added", {
+        description: "Marked as added by hand, and already confirmed.",
+      });
+      setQuery("");
+      setHits([]);
+      onAdded();
+    } catch (problem) {
+      toast.error("Could not add that line", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-
-    toast.success(product ? `${product.part} added` : "Line added", {
-      description: "Marked as added by hand, and already confirmed.",
-    });
-    setQuery("");
-    setHits([]);
-    onAdded();
   }
 
   return (
@@ -86,23 +93,24 @@ export function PartComposer({ code, onAdded }: { code: string; onAdded: () => v
             if (event.key === "Enter") add();
           }}
           placeholder="Add anything the drawings do not carry — search a part number or type a description"
-          className="flex-1 bg-transparent text-[13px] outline-none"
+          aria-label="Add a line by hand"
+          className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
           style={{ color: "var(--app-tx)" }}
         />
-        <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+        <span className="hidden text-[11px] sm:inline" style={{ color: "var(--app-tx-3)" }}>
           ↵ add
         </span>
         <button
           onClick={() => add()}
           disabled={busy || query.trim().length === 0}
-          className="rounded-md px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50"
+          className="shrink-0 rounded-md px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50"
           style={{ background: "var(--app-neg)", color: "#fff" }}
         >
           Add line
         </button>
       </div>
 
-      {focused && hits.length > 0 && (
+      {focused && visible.length > 0 && (
         <div
           className="anim-fadein absolute bottom-full left-0 right-0 z-20 mb-2 overflow-hidden rounded-xl"
           style={{
@@ -111,15 +119,21 @@ export function PartComposer({ code, onAdded }: { code: string; onAdded: () => v
             boxShadow: "var(--app-sh-2)",
           }}
         >
-          {hits.map((product) => (
+          {visible.map((product) => (
             <button
               key={product.id}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => add(product)}
               className="grid w-full items-center gap-3 border-b px-4 py-2.5 text-left last:border-b-0 hover:bg-[var(--app-panel-2)]"
-              style={{ gridTemplateColumns: "170px 1fr 110px 90px", borderColor: "var(--app-line)" }}
+              style={{
+                gridTemplateColumns: "minmax(120px,170px) 1fr 110px 90px",
+                borderColor: "var(--app-line)",
+              }}
             >
-              <span className="truncate text-[12.5px] font-semibold" style={{ color: "var(--app-accent)" }}>
+              <span
+                className="truncate text-[12.5px] font-semibold"
+                style={{ color: "var(--app-accent)" }}
+              >
                 {product.part}
               </span>
               <span className="truncate text-[12.5px]">{product.description}</span>

@@ -1,14 +1,18 @@
+import { Suspense } from "react";
+
 import { SignInForm } from "@/components/auth/sign-in-form";
-import { isDevQuickLoginEnabled } from "@/lib/dev-auth";
+import { devAccounts } from "@/lib/dev-auth";
 
 export default function SignInPage() {
-  const showDevLogin = isDevQuickLoginEnabled();
+  // Resolved on the server. Outside local development this is an empty list, so
+  // the seed credentials never reach the browser at all.
+  const quickAccounts = devAccounts();
 
   return (
-    <div className="grid h-screen" style={{ gridTemplateColumns: "1.15fr 0.85fr" }}>
+    <div className="grid min-h-screen lg:h-screen lg:grid-cols-[1.15fr_0.85fr]">
       <div
-        className="flex flex-col justify-between border-r"
-        style={{ borderColor: "var(--app-line)", padding: "54px 60px 44px" }}
+        className="hidden flex-col justify-between border-r p-10 lg:flex lg:p-[54px_60px_44px]"
+        style={{ borderColor: "var(--app-line)" }}
       >
         <div className="flex items-baseline gap-3">
           <span className="text-[19px] font-semibold tracking-[-0.01em]">Hamilton Parker</span>
@@ -23,10 +27,10 @@ export default function SignInPage() {
         <div className="max-w-[620px]">
           <div className="h-[5px]" style={{ background: "var(--app-tx)" }} />
           <div className="mt-1 h-px" style={{ background: "var(--app-tx)" }} />
-          <h1 className="mt-[26px] text-[74px] font-semibold leading-[0.98] tracking-[-0.025em]">
+          <h1 className="mt-[26px] text-[54px] font-semibold leading-[0.98] tracking-[-0.025em] xl:text-[74px]">
             Ops&#8209;Hub
           </h1>
-          <p className="mt-3.5 max-w-[520px] text-[22px] leading-[1.4] text-pretty">
+          <p className="mt-3.5 max-w-[520px] text-[18px] leading-[1.4] text-pretty xl:text-[22px]">
             The estimating and pricing desk for CBC — bid documents in, priced proposal out.
           </p>
 
@@ -59,10 +63,13 @@ export default function SignInPage() {
       </div>
 
       <div
-        className="flex flex-col justify-center px-[60px]"
+        className="flex flex-col justify-center px-8 py-10 lg:px-[60px]"
         style={{ background: "var(--app-bg-2)" }}
       >
-        <SignInForm showDevLogin={showDevLogin} />
+        {/* useSearchParams needs a boundary; the form is the only dynamic part. */}
+        <Suspense fallback={null}>
+          <SignInForm quickAccounts={quickAccounts} />
+        </Suspense>
       </div>
     </div>
   );

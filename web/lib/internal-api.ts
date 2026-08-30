@@ -1,4 +1,13 @@
-/** Shared secret between the Next.js server and the FastAPI service. */
+/**
+ * Shared secret between the Next.js server and the FastAPI service.
+ *
+ * SERVER ONLY - the guard is not decoration. This module holds the fallback
+ * internal token and the fallback AUTH_SECRET, and it was reaching the browser
+ * bundle through lib/api.ts, which a client component imported for one URL
+ * helper.
+ */
+import "server-only";
+
 const DEV_SECRET = "cbc-local-dev-key-change-me";
 const DEV_AUTH_SECRET = "cbc-opshub-local-dev-secret-change-in-production";
 

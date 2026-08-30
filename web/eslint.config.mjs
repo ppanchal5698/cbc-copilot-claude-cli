@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Vendored, minified, and not ours to lint. pdf.worker.min.mjs alone
+    // reported ~1,473 warnings, which buried every real finding in this repo.
+    "public/**",
+    "**/*.min.mjs",
   ]),
 ]);
 

@@ -1,31 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 
-import { renderStream } from "@/lib/claude-stream";
+import { useJobRecording, type RecordingState } from "@/hooks/use-job-recording";
+
+import { LogViewer } from "./log-viewer";
 
 import "@xterm/xterm/css/xterm.css";
 
 /**
- * The real Claude Code session, rendered by a real terminal emulator.
+ * The real Claude Code session — structured log viewer by default, xterm for raw.
  *
- * The worker runs the CLI on a pty and records every byte it writes; this
- * replays those bytes through xterm.js.
+ * The worker runs the CLI and records every byte; this replays the stream-json
+ * events as they happen. Structured mode renders agent text, tool calls, and
+ * errors as readable UI; raw mode shows the untouched JSON lines in xterm.
  *
- * `--print` on a pty turns out to emit only the final answer — a whole
- * extraction produced 14 bytes — so there is nothing to watch during the minutes
- * that matter. The run therefore uses `--output-format stream-json --verbose`,
- * where the CLI reports each tool call as it makes it, and every line below is
- * one of those events. The mapping is one-to-one with something the process
- * actually did; nothing is inferred, and `raw` shows the untouched stream.
- *
- * The interactive TUI would be more faithful still, but it stops on the
- * login-method screen and cannot be driven unattended.
- *
- * It is read-only. There is no path from this component back into the process,
- * because a browser that can type into a `--dangerously-skip-permissions`
- * session is a considerably worse idea than a browser that can only watch.
+ * It is read-only. There is no path from this component back into the process.
  */
 export function RunTerminal({
   jobId,
@@ -39,23 +30,126 @@ export function RunTerminal({
   /** Show the CLI's event stream unfiltered, exactly as it arrived. */
   raw?: boolean;
 }) {
+  const rawWriter = useRef<((lines: string) => void) | null>(null);
+  const rawBuffer = useRef("");
+  const onRawChunk = useCallback((lines: string) => {
+    if (rawWriter.current) {
+      rawWriter.current(lines);
+    } else {
+      rawBuffer.current += lines;
+    }
+  }, []);
+
+  const { entries, state, reason } = useJobRecording(jobId, {
+    onFinished,
+    onRawChunk: raw ? onRawChunk : undefined,
+    parseEntries: !raw,
+  });
+
+  return (
+    <div className="flex h-full flex-col">
+      <StatusStrip state={state} status={status} reason={reason} raw={raw} />
+      <div className="min-h-0 flex-1" style={{ background: "var(--app-bg-2)" }}>
+        {raw ? (
+          state === "unavailable" ? (
+            <div className="px-3 py-4 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+              {reason ?? "No recording available for this job."}
+            </div>
+          ) : (
+            <RawXtermViewer
+              registerWriter={(writer) => {
+                rawWriter.current = writer;
+                if (rawBuffer.current) {
+                  writer(rawBuffer.current);
+                  rawBuffer.current = "";
+                }
+              }}
+            />
+          )
+        ) : state === "unavailable" ? (
+          <div className="px-3 py-4 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+            {reason ?? "No recording available for this job."}
+          </div>
+        ) : (
+          <LogViewer entries={entries} state={state} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatusStrip({
+  state,
+  status,
+  reason,
+  raw,
+}: {
+  state: RecordingState;
+  status?: string;
+  reason: string | null;
+  raw: boolean;
+}) {
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
+      style={{ borderBottom: "1px solid var(--app-line)", color: "var(--app-tx-3)" }}
+    >
+      <span
+        className="h-1.5 w-1.5 rounded-full"
+        style={{
+          background:
+            state === "live"
+              ? "var(--app-accent)"
+              : state === "ended"
+                ? "var(--app-tx-3)"
+                : "var(--app-warn)",
+        }}
+      />
+      <span>
+        {raw
+          ? state === "live"
+            ? "claude · raw json · live"
+            : state === "ended"
+              ? `claude · raw · ${status ?? "finished"}`
+              : state === "unavailable"
+                ? (reason ?? "no recording")
+                : "connecting…"
+          : state === "live"
+            ? "claude · structured · live"
+            : state === "ended"
+              ? `claude · ${status ?? "finished"}`
+              : state === "unavailable"
+                ? (reason ?? "no recording")
+                : "connecting…"}
+      </span>
+      <span className="flex-1" />
+      <span>read-only</span>
+    </div>
+  );
+}
+
+function RawXtermViewer({
+  registerWriter,
+}: {
+  registerWriter: (writer: (lines: string) => void) => void;
+}) {
   const holder = useRef<HTMLDivElement | null>(null);
   const term = useRef<Terminal | null>(null);
-  const offset = useRef(0);
-  const carried = useRef("");
-  const [state, setState] = useState<"connecting" | "live" | "ended" | "unavailable">(
-    "connecting",
-  );
-  const [reason, setReason] = useState<string | null>(null);
+  const pending = useRef("");
 
   useEffect(() => {
     let disposed = false;
-    let source: EventSource | null = null;
     let fit: { fit: () => void; dispose: () => void } | null = null;
     let observer: ResizeObserver | null = null;
 
-    // xterm touches `window` and `document` on construction, so it can only be
-    // loaded in the browser.
+    registerWriter((lines) => {
+      if (term.current) {
+        term.current.write(lines);
+      } else {
+        pending.current += lines;
+      }
+    });
+
     (async () => {
       const [{ Terminal: XTerm }, { FitAddon }] = await Promise.all([
         import("@xterm/xterm"),
@@ -87,6 +181,10 @@ export function RunTerminal({
       terminal.open(holder.current);
       fitAddon.fit();
       term.current = terminal;
+      if (pending.current) {
+        terminal.write(pending.current);
+        pending.current = "";
+      }
       fit = fitAddon;
 
       observer = new ResizeObserver(() => {
@@ -97,105 +195,17 @@ export function RunTerminal({
         }
       });
       observer.observe(holder.current);
-
-      // Whatever already happened, before subscribing to what happens next.
-      const replay = await fetch(`/api/proxy/jobs/${jobId}/terminal`).then((r) => r.json());
-      if (disposed) return;
-
-      if (!replay.available) {
-        setState("unavailable");
-        setReason(replay.reason ?? null);
-      } else if (replay.data) {
-        const first = renderStream(decode(replay.data), "", raw);
-        terminal.write(first.lines);
-        carried.current = first.remainder;
-        offset.current = replay.bytes ?? 0;
-      }
-
-      if (replay.status && ["done", "failed", "cancelled"].includes(replay.status)) {
-        setState("ended");
-        return;
-      }
-
-      source = new EventSource(
-        `/api/proxy/jobs/${jobId}/terminal/stream?offset=${offset.current}`,
-      );
-      setState("live");
-
-      source.addEventListener("output", (event) => {
-        const chunk = decode((event as MessageEvent).data);
-        offset.current += chunk.length;
-        // An event can arrive split across two reads, so the tail is carried.
-        const next = renderStream(chunk, carried.current, raw);
-        carried.current = next.remainder;
-        if (next.lines) terminal.write(next.lines);
-      });
-      source.addEventListener("end", (event) => {
-        setState("ended");
-        source?.close();
-        onFinished?.((event as MessageEvent).data);
-      });
-      source.onerror = () => {
-        // The browser reconnects on its own; only a finished run closes it.
-        if (source?.readyState === EventSource.CLOSED) setState("ended");
-      };
     })();
 
     return () => {
       disposed = true;
-      source?.close();
+      registerWriter(() => {});
       observer?.disconnect();
       fit?.dispose();
       term.current?.dispose();
       term.current = null;
     };
-  }, [jobId, raw]);
+  }, [registerWriter]);
 
-  return (
-    <div className="flex h-full flex-col">
-      <div
-        className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
-        style={{ borderBottom: "1px solid var(--app-line)", color: "var(--app-tx-3)" }}
-      >
-        <span
-          className="h-1.5 w-1.5 rounded-full"
-          style={{
-            background:
-              state === "live"
-                ? "var(--app-accent)"
-                : state === "ended"
-                  ? "var(--app-tx-3)"
-                  : "var(--app-warn)",
-          }}
-        />
-        <span>
-          {state === "live"
-            ? "claude · stream-json · live"
-            : state === "ended"
-              ? `claude · ${status ?? "finished"}`
-              : state === "unavailable"
-                ? (reason ?? "no recording")
-                : "connecting…"}
-        </span>
-        <span className="flex-1" />
-        <span>read-only</span>
-      </div>
-      <div
-        ref={holder}
-        className="min-h-0 flex-1 px-2 py-1.5"
-        style={{ background: "var(--app-bg-2)" }}
-      />
-    </div>
-  );
-}
-
-/** The API base64s the recording so escape sequences survive JSON intact. */
-function decode(payload: string): string {
-  try {
-    const binary = atob(payload);
-    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
-  } catch {
-    return payload;
-  }
+  return <div ref={holder} className="h-full min-h-0 px-2 py-1.5" />;
 }

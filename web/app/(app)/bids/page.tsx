@@ -1,7 +1,9 @@
+import Link from "next/link";
+
 import { PageHeader } from "@/components/shell/page-header";
 import { BoardGroups } from "@/components/bids/board-groups";
 import { NewBidDialog } from "@/components/bids/new-bid-dialog";
-import { ApiError, api } from "@/lib/api";
+import { api } from "@/lib/api";
 import type { Project, Stage } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -25,22 +27,18 @@ export default async function BidBoardPage({
   if (stage && stage !== "all") query.set("stage", stage);
   if (q) query.set("q", q);
 
-  let projects: Project[] = [];
-  let apiError: string | null = null;
-  try {
-    projects = (
-      await api.get<{ projects: Project[] }>(`/api/projects?${query.toString()}`)
-    ).projects;
-  } catch (error) {
-    apiError = error instanceof ApiError ? error.message : String(error);
-  }
+  // See the dashboard: an unreachable API is reported by the error boundary,
+  // not disguised as an empty board.
+  const projects = (
+    await api.get<{ projects: Project[] }>(`/api/projects?${query.toString()}`)
+  ).projects;
 
   return (
     <>
       <PageHeader crumbs={[{ label: "Workspace" }, { label: "Bid board" }]} />
 
       <main className="min-h-0 flex-1 overflow-auto p-6">
-        <div className="mb-5 flex items-end justify-between">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-[20px] font-semibold">Bid board</h1>
             <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
@@ -55,9 +53,10 @@ export default async function BidBoardPage({
           {FILTERS.map((filter) => {
             const active = (stage ?? "all") === filter.key;
             return (
-              <a
+              <Link
                 key={filter.key}
-                href={`/bids?stage=${filter.key}`}
+                href={`/bids?stage=${filter.key}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+                aria-current={active ? "page" : undefined}
                 className="rounded-md px-3 py-1.5 text-[12.5px] no-underline"
                 style={{
                   background: active ? "var(--app-accent-soft)" : "var(--app-panel)",
@@ -66,23 +65,10 @@ export default async function BidBoardPage({
                 }}
               >
                 {filter.label}
-              </a>
+              </Link>
             );
           })}
         </div>
-
-        {apiError && (
-          <div
-            className="mb-5 rounded-lg px-4 py-3 text-[12.5px]"
-            style={{
-              background: "var(--app-neg-soft)",
-              border: "1px solid var(--app-neg-line)",
-              color: "var(--app-neg)",
-            }}
-          >
-            {apiError}
-          </div>
-        )}
 
         <BoardGroups projects={projects} />
       </main>

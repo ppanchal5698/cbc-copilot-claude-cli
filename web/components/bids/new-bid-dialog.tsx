@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
+
+import { useDialog } from "@/hooks/use-dialog";
+import { errorMessage, proxyMutate } from "@/lib/proxy-fetcher";
+import type { Project } from "@/lib/types";
 
 interface Field {
   key: string;
@@ -30,35 +34,35 @@ export function NewBidDialog() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [autopilot, setAutopilot] = useState(false);
+
+  const close = useCallback(() => setOpen(false), []);
+  const dialogRef = useDialog<HTMLFormElement>(open, close);
 
   async function create(event: React.FormEvent) {
     event.preventDefault();
-    setBusy(true);
 
     const body = Object.fromEntries(
       Object.entries(values).filter(([, value]) => value.trim() !== ""),
     );
     if (body.state) body.state = body.state.toUpperCase().slice(0, 2);
 
-    const response = await fetch("/api/proxy/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("Could not create the bid", { description: String(detail.detail) });
+    setBusy(true);
+    try {
+      const project = await proxyMutate<Project>("/api/proxy/projects", {
+        body: { ...body, autopilot },
+      });
+      toast.success(`${project.code} created`, { description: "Now add the bid documents." });
+      setOpen(false);
+      setValues({});
+      setAutopilot(false);
+      router.push(`/bids/${project.code}/intake`);
+      router.refresh();
+    } catch (problem) {
+      toast.error("Could not create the bid", { description: errorMessage(problem) });
+    } finally {
       setBusy(false);
-      return;
     }
-
-    const project = await response.json();
-    toast.success(`${project.code} created`, { description: "Now add the bid documents." });
-    setOpen(false);
-    setBusy(false);
-    router.push(`/bids/${project.code}/intake`);
-    router.refresh();
   }
 
   if (!open) {
@@ -76,29 +80,36 @@ export function NewBidDialog() {
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center p-6"
+      className="fixed inset-0 z-50 grid place-items-center overflow-auto p-4 sm:p-6"
       style={{ background: "rgba(0,0,0,0.55)" }}
       onClick={(event) => event.target === event.currentTarget && setOpen(false)}
     >
       <form
+        ref={dialogRef}
         onSubmit={create}
-        className="anim-popin w-full max-w-[620px] rounded-xl p-6"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-bid-title"
+        className="anim-popin my-auto w-full max-w-[620px] rounded-xl p-5 sm:p-6"
         style={{
           background: "var(--app-panel)",
           border: "1px solid var(--app-line)",
           boxShadow: "var(--app-sh-3)",
         }}
       >
-        <h2 className="text-[16px] font-semibold">New bid</h2>
+        <h2 id="new-bid-title" className="text-[16px] font-semibold">
+          New bid
+        </h2>
         <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
           A CBC number is assigned automatically. Everything else can be filled in later.
         </p>
 
-        <div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3.5">
+        <div className="mt-5 grid gap-x-4 gap-y-3.5 sm:grid-cols-2">
           {FIELDS.map((field) => (
             <label
               key={field.key}
-              className={field.key === "name" ? "col-span-2 block" : "block"}
+              htmlFor={`new-bid-${field.key}`}
+              className={field.key === "name" ? "block sm:col-span-2" : "block"}
             >
               <span
                 className="block text-[11px] uppercase tracking-[0.07em]"
@@ -108,8 +119,10 @@ export function NewBidDialog() {
                 {field.required && <span style={{ color: "var(--app-neg)" }}> *</span>}
               </span>
               <input
+                id={`new-bid-${field.key}`}
                 type={field.type ?? "text"}
                 required={field.required}
+                aria-describedby={field.hint ? `new-bid-${field.key}-hint` : undefined}
                 placeholder={field.placeholder}
                 value={values[field.key] ?? ""}
                 onChange={(event) =>
@@ -123,13 +136,37 @@ export function NewBidDialog() {
                 }}
               />
               {field.hint && (
-                <span className="mt-1 block text-[10.5px]" style={{ color: "var(--app-tx-3)" }}>
+                <span
+                  id={`new-bid-${field.key}-hint`}
+                  className="mt-1 block text-[10.5px]"
+                  style={{ color: "var(--app-tx-3)" }}
+                >
                   {field.hint}
                 </span>
               )}
             </label>
           ))}
         </div>
+
+        <label
+          className="mt-5 flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5"
+          style={{ background: "var(--app-panel-2)", border: "1px solid var(--app-line)" }}
+        >
+          <input
+            type="checkbox"
+            checked={autopilot}
+            onChange={(event) => setAutopilot(event.target.checked)}
+            className="mt-0.5"
+          />
+          <span className="flex flex-col leading-snug">
+            <span className="text-[12.5px] font-semibold">Run the whole pipeline on upload</span>
+            <span className="text-[11.5px]" style={{ color: "var(--app-tx-2)" }}>
+              One pass from intake to a draft proposal, without stopping for you to
+              confirm the openings. They are priced before anyone checks them, and
+              anything uncertain is flagged for review at the end. Nothing is ever sent.
+            </span>
+          </span>
+        </label>
 
         <div className="mt-6 flex items-center justify-end gap-2">
           <button

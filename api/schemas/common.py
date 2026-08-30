@@ -18,6 +18,10 @@ JobType = Literal[
     # LLM `ingest_pricebook` pass stays as the adapter of last resort.
     "index_catalog",
     "delete_catalog",
+    # Phase 0-6 in one session, for a bid marked autopilot. The gated
+    # extract_bid_set -> match_and_price -> build_proposal path is unchanged and
+    # remains the default.
+    "run_full_pipeline",
 ]
 JobStatus = Literal["queued", "running", "done", "failed", "cancelled"]
 
@@ -34,6 +38,9 @@ EXCLUSIVE_JOB_TYPES = (
     "match_and_price",
     "build_proposal",
     "ingest_addendum",
+    # One pipeline per bid: a second upload while one is running is more files for
+    # the same run, not a second run over the same drawings.
+    "run_full_pipeline",
 )
 CostSource = Literal[
     "P21_LAST_PO", "LIST_X_MULTIPLIER", "VENDOR_RFQ", "DISTRIBUTOR_MANUAL", "MANUAL", "BOOK_PRICE"

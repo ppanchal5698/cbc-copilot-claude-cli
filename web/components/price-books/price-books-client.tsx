@@ -13,143 +13,146 @@ import {
 import { toast } from "sonner";
 
 import { formatMoney } from "@/lib/format";
-import type { PriceBook, Product } from "@/lib/types";
+import type { PriceBookDetail, PriceBooksResponse } from "@/lib/types";
 
-import { proxyFetcher } from "@/lib/proxy-fetcher";
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 
 function formatMultiplier(value: number | null | undefined): string {
   return typeof value === "number" && !Number.isNaN(value) ? value.toFixed(3) : "—";
 }
 
-interface ListResponse {
-  priceBooks: PriceBook[];
-  counts: { total: number; stale: number; undated: number };
-  stewardship: { owner: string | null; cadence: string | null; note: string };
-}
-
 export function PriceBooksClient() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const { data, error, mutate } = useSWR<ListResponse>("/api/proxy/price-books", proxyFetcher);
-  const { data: detail, mutate: mutateDetail } = useSWR<{
-    priceBook: PriceBook;
-    parts: Product[];
-    partCount: number;
-  }>(selectedId ? `/api/proxy/price-books/${selectedId}` : null, proxyFetcher);
+  const { data, error, isLoading, mutate } = useSWR<PriceBooksResponse>(
+    "/api/proxy/price-books",
+    proxyFetcher,
+  );
+  const { data: detail, mutate: mutateDetail } = useSWR<PriceBookDetail>(
+    selectedId ? `/api/proxy/price-books/${selectedId}` : null,
+    proxyFetcher,
+  );
 
   const books = data?.priceBooks ?? [];
   const selected = detail?.priceBook;
 
   async function upload(files: FileList | null) {
     if (!files?.length || !selectedId) return;
+    const file = files[0];
     const form = new FormData();
-    form.append("file", files[0]);
+    form.append("file", file);
 
-    const response = await fetch(`/api/proxy/price-books/${selectedId}/file`, {
-      method: "POST",
-      body: form,
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("Upload failed", { description: String(body.detail) });
-      return;
+    // A price book is a large PDF. Without this the button simply sat there.
+    setUploading(file.name);
+    try {
+      await proxyMutate(`/api/proxy/price-books/${selectedId}/file`, { form });
+      toast.success("Sheet uploaded", {
+        description: "Claude has been queued to read it into the catalog.",
+      });
+      mutate();
+      mutateDetail();
+    } catch (problem) {
+      toast.error("Upload failed", { description: errorMessage(problem) });
+    } finally {
+      setUploading(null);
+      if (fileRef.current) fileRef.current.value = "";
     }
-    toast.success("Sheet uploaded", {
-      description: "Claude has been queued to read it into the catalog.",
-    });
-    if (fileRef.current) fileRef.current.value = "";
-    mutate();
-    mutateDetail();
   }
 
   async function patch(body: Record<string, unknown>, success: string) {
-    const response = await fetch(`/api/proxy/price-books/${selectedId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      toast.error("Could not save that");
-      return;
+    setBusy(true);
+    try {
+      await proxyMutate(`/api/proxy/price-books/${selectedId}`, { method: "PATCH", body });
+      toast.success(success);
+      mutate();
+      mutateDetail();
+    } catch (problem) {
+      toast.error("Could not save that", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    toast.success(success);
-    mutate();
-    mutateDetail();
   }
 
   /** Record that purchasing has been asked for a newer sheet. Sends nothing. */
   async function requestSheet() {
     if (!selected) return;
     const note = `Updated sheet requested ${new Date().toLocaleDateString()}`;
-    const response = await fetch(`/api/proxy/price-books/${selectedId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ note }),
-    });
-    if (!response.ok) {
-      toast.error("Could not record the request");
-      return;
+    try {
+      await proxyMutate(`/api/proxy/price-books/${selectedId}`, {
+        method: "PATCH",
+        body: { note },
+      });
+      toast.success("Request recorded against the program", {
+        description: "Nothing was emailed — tell purchasing directly.",
+      });
+      mutate();
+      mutateDetail();
+    } catch (problem) {
+      toast.error("Could not record the request", { description: errorMessage(problem) });
     }
-    toast.success("Request recorded against the program", {
-      description: "Nothing was emailed — tell purchasing directly.",
-    });
-    mutate();
-    mutateDetail();
   }
 
   async function markReviewed() {
-    const response = await fetch(`/api/proxy/price-books/${selectedId}/mark-reviewed`, {
-      method: "POST",
-    });
-    if (!response.ok) {
-      toast.error("Could not record the review");
-      return;
+    try {
+      await proxyMutate(`/api/proxy/price-books/${selectedId}/mark-reviewed`);
+      toast.success("Marked as reviewed today");
+      mutate();
+      mutateDetail();
+    } catch (problem) {
+      toast.error("Could not record the review", { description: errorMessage(problem) });
     }
-    toast.success("Marked as reviewed today");
-    mutate();
-    mutateDetail();
   }
 
   async function remove() {
     if (!selected) return;
-    const response = await fetch(`/api/proxy/price-books/${selectedId}`, { method: "DELETE" });
-    if (!response.ok) {
-      toast.error("Could not remove that program");
+    if (
+      !window.confirm(
+        `Remove the ${selected.displayName ?? selected.vendor} program? Parts priced under it are kept and marked orphaned.`,
+      )
+    ) {
       return;
     }
-    toast.success(`${selected.vendor} removed`, {
-      description: "Parts priced under it are kept and marked orphaned.",
-    });
-    setSelectedId(null);
-    mutate();
+    try {
+      await proxyMutate(`/api/proxy/price-books/${selectedId}`, { method: "DELETE" });
+      toast.success(`${selected.vendor} removed`, {
+        description: "Parts priced under it are kept and marked orphaned.",
+      });
+      setSelectedId(null);
+      mutate();
+    } catch (problem) {
+      toast.error("Could not remove that program", { description: errorMessage(problem) });
+    }
   }
 
   async function create(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const response = await fetch("/api/proxy/price-books", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        vendor: String(form.get("vendor") ?? "").trim(),
-        program: String(form.get("program") ?? "").trim() || null,
-        multiplier: form.get("multiplier") ? Number(form.get("multiplier")) : null,
-        effective: String(form.get("effective") ?? "") || null,
-      }),
-    });
-    if (!response.ok) {
-      toast.error("Could not add that program");
-      return;
+    setBusy(true);
+    try {
+      await proxyMutate("/api/proxy/price-books", {
+        body: {
+          vendor: String(form.get("vendor") ?? "").trim(),
+          program: String(form.get("program") ?? "").trim() || null,
+          multiplier: form.get("multiplier") ? Number(form.get("multiplier")) : null,
+          effective: String(form.get("effective") ?? "") || null,
+        },
+      });
+      toast.success("Program added");
+      setAdding(false);
+      mutate();
+    } catch (problem) {
+      toast.error("Could not add that program", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    toast.success("Program added");
-    setAdding(false);
-    mutate();
   }
 
   return (
-    <main className="relative flex min-h-0 flex-1 gap-4 overflow-hidden p-4">
+    <main className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 lg:flex-row lg:overflow-hidden">
       {error && (
         <div
           className="absolute inset-x-4 top-4 z-10 rounded-lg px-4 py-3 text-[12.5px]"
@@ -162,7 +165,7 @@ export function PriceBooksClient() {
           Could not load price books: {error.message}
         </div>
       )}
-      <section className="flex w-[340px] shrink-0 flex-col gap-3">
+      <section className="flex shrink-0 flex-col gap-3 lg:w-[340px]">
         <div className="flex items-end justify-between">
           <div>
             <h1 className="text-[18px] font-semibold">Price books</h1>
@@ -218,9 +221,22 @@ export function PriceBooksClient() {
         )}
 
         <div
-          className="min-h-0 flex-1 overflow-auto rounded-xl"
+          className="min-h-[160px] flex-1 overflow-auto rounded-xl"
           style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
         >
+          {isLoading && books.length === 0 && (
+            <p className="px-4 py-8 text-center text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+              Reading the programs…
+            </p>
+          )}
+          {!isLoading && !error && books.length === 0 && (
+            <div className="grid place-items-center gap-1.5 px-5 py-10 text-center">
+              <span className="text-[13px] font-semibold">No price books yet</span>
+              <span className="text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                Add a vendor program, then upload its sheet. Every quote prices off these.
+              </span>
+            </div>
+          )}
           {books.map((book) => (
             <button
               key={book.id}
@@ -259,7 +275,7 @@ export function PriceBooksClient() {
       </section>
 
       <section
-        className="flex min-w-0 flex-1 flex-col overflow-auto rounded-xl"
+        className="flex min-w-0 flex-1 flex-col rounded-xl lg:overflow-auto"
         style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
       >
         {!selected ? (
@@ -295,7 +311,7 @@ export function PriceBooksClient() {
             </div>
 
             <div
-              className="mt-6 grid grid-cols-4 gap-4 rounded-lg border p-4"
+              className="mt-6 grid grid-cols-2 gap-4 rounded-lg border p-4 xl:grid-cols-4"
               style={{ borderColor: "var(--app-line)" }}
             >
               {[
@@ -339,7 +355,7 @@ export function PriceBooksClient() {
               </p>
             )}
 
-            <div className="mt-5 flex items-end gap-3">
+            <div className="mt-5 flex flex-wrap items-end gap-3">
               <label className="flex flex-col">
                 <span className="text-[10.5px] uppercase tracking-[0.07em]" style={{ color: "var(--app-tx-3)" }}>
                   Multiplier
@@ -349,8 +365,11 @@ export function PriceBooksClient() {
                   step="0.001"
                   defaultValue={selected.multiplier ?? ""}
                   key={selected.id}
+                  disabled={busy}
+                  aria-label="Multiplier"
                   onBlur={(event) => {
                     const next = Number(event.target.value);
+                    if (event.target.value.trim() === "") return;
                     if (!Number.isNaN(next) && next !== selected.multiplier) {
                       patch({ multiplier: next }, "Multiplier updated and parts repriced");
                     }
@@ -367,12 +386,15 @@ export function PriceBooksClient() {
               <input
                 ref={fileRef}
                 type="file"
+                accept="application/pdf,.pdf,.csv,.xlsx"
+                aria-label="Upload a newer price sheet"
                 className="hidden"
                 onChange={(event) => upload(event.target.files)}
               />
               <button
                 onClick={() => fileRef.current?.click()}
-                className="flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[12.5px] font-semibold"
+                disabled={!!uploading}
+                className="flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[12.5px] font-semibold disabled:opacity-60"
                 style={{ background: "var(--app-accent)", color: "#fff" }}
               >
                 <UploadSimple size={14} weight="bold" />
@@ -423,11 +445,12 @@ export function PriceBooksClient() {
                   No catalog parts point at this program yet.
                 </p>
               ) : (
-                <div className="mt-2">
+                <div className="mt-2 overflow-x-auto">
                   <div
                     className="grid gap-3 border-b py-2 text-[10.5px] uppercase tracking-[0.07em]"
                     style={{
-                      gridTemplateColumns: "230px 1fr 100px 100px",
+                      minWidth: 620,
+                      gridTemplateColumns: "230px minmax(160px,1fr) 100px 100px",
                       borderColor: "var(--app-line)",
                       color: "var(--app-tx-3)",
                     }}
@@ -441,7 +464,11 @@ export function PriceBooksClient() {
                     <div
                       key={part.id}
                       className="grid items-center gap-3 border-b py-2 last:border-b-0"
-                      style={{ gridTemplateColumns: "230px 1fr 100px 100px", borderColor: "var(--app-line)" }}
+                      style={{
+                        minWidth: 620,
+                        gridTemplateColumns: "230px minmax(160px,1fr) 100px 100px",
+                        borderColor: "var(--app-line)",
+                      }}
                     >
                       <span className="truncate text-[12.5px] font-medium">{part.part}</span>
                       <span className="truncate text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>

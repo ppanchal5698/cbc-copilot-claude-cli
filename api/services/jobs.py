@@ -6,7 +6,7 @@ web request should hold open, and a dropped connection must not lose the job.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from bson import ObjectId
@@ -19,12 +19,23 @@ from api.services import audit
 EXCLUSIVE = set(EXCLUSIVE_JOB_TYPES)
 
 
+def _due(delay_seconds: int) -> datetime:
+    return datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
+
+
 async def enqueue(
     job_type: str,
     project_id: ObjectId | None = None,
     payload: dict[str, Any] | None = None,
     actor: str = "estimator",
+    delay_seconds: int = 0,
 ) -> dict[str, Any]:
+    """Queue a job. `delay_seconds` holds it back so a burst can coalesce.
+
+    A bid set is often several PDFs, and a run reads the whole of uploads/raw/. A
+    pipeline that started on the first file would simply not see the next two, so
+    the upload route asks for a short delay and each further upload pushes it out.
+    """
     if job_type in EXCLUSIVE and project_id is not None:
         running = await db.jobs.find_one(
             {
@@ -34,6 +45,12 @@ async def enqueue(
             }
         )
         if running:
+            if delay_seconds and running["status"] == "queued":
+                # Still waiting: another file arrived, so give it time to land too.
+                await db.jobs.update_one(
+                    {"_id": running["_id"], "status": "queued"},
+                    {"$set": {"nextAttemptAt": _due(delay_seconds)}},
+                )
             return running
 
     job = {
@@ -48,6 +65,7 @@ async def enqueue(
         "createdAt": datetime.now(timezone.utc),
         "startedAt": None,
         "finishedAt": None,
+        "nextAttemptAt": _due(delay_seconds) if delay_seconds else None,
     }
     try:
         result = await db.jobs.insert_one(job)

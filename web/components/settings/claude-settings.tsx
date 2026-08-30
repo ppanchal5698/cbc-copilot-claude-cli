@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import useSWR from "swr";
 import { toast } from "sonner";
 import {
@@ -15,9 +15,15 @@ import {
   Warning,
 } from "@phosphor-icons/react/dist/ssr";
 
-import type { ClaudeSettings, OllamaModelsResponse, ProviderTest } from "@/lib/types";
+import type {
+  ClaudeSettings,
+  OauthCodeError,
+  OauthStart,
+  OllamaModelsResponse,
+  ProviderTest,
+} from "@/lib/types";
 
-import { proxyFetcher } from "@/lib/proxy-fetcher";
+import { ProxyError, errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 
 type Mode = ClaudeSettings["mode"];
 
@@ -135,8 +141,11 @@ export function ClaudeSettingsClient() {
     proxyFetcher,
   );
 
-  const [mode, setMode] = useState<Mode>("subscription");
-  const [draft, setDraft] = useState<Record<string, string>>({});
+  // The user's explicit pick wins; until they make one the server's saved mode
+  // is what shows. Derived rather than copied in an effect, which is what used
+  // to make switching provider render one frame of the previous one's fields.
+  const [pickedMode, setPickedMode] = useState<Mode | null>(null);
+  const [edits, setEdits] = useState<{ key: string; values: Record<string, string> } | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<ProviderTest | null>(null);
@@ -145,31 +154,10 @@ export function ClaudeSettingsClient() {
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
 
-  // Re-seed the form whenever the server's view of the mode changes.
-  useEffect(() => {
-    if (!data) return;
-    setMode(data.mode);
-    setDraft(
-      Object.fromEntries(
-        Object.entries(data.fields).map(([key, field]) => [key, field.value ?? ""]),
-      ),
-    );
-  }, [data?.mode, data?.updatedAt]);
-
-  // Switching provider starts from that provider's own stored values, not from
-  // whatever was typed for the previous one.
-  useEffect(() => {
-    if (!data) return;
-    const next = data.schema?.[mode];
-    if (!next) return;
-    setDraft(Object.fromEntries(Object.entries(next).map(([k, f]) => [k, f.value ?? ""])));
-    setResult(null);
-  }, [mode]);
-
   // Provider credentials are not an estimator's to read or change, so the API
   // refuses them. Say which it is rather than sitting on "Reading…" for ever.
   if (error) {
-    const forbidden = (error as { status?: number }).status === 403;
+    const forbidden = error instanceof ProxyError && error.status === 403;
     return (
       <div className="px-7 py-6">
         <div
@@ -182,7 +170,7 @@ export function ClaudeSettingsClient() {
         >
           {forbidden
             ? "You do not have permission to configure the provider. Ask whoever administers this installation."
-            : `Could not read the configuration: ${(error as Error).message}`}
+            : `Could not read the configuration: ${errorMessage(error)}`}
         </div>
       </div>
     );
@@ -196,10 +184,30 @@ export function ClaudeSettingsClient() {
     );
   }
 
+  const mode: Mode = pickedMode ?? data.mode;
+
   // Not `data.fields`, which only covers the saved mode - picking a provider you
   // have not saved yet would render an empty form with no way to configure it.
   const fields = data.schema?.[mode] ?? (mode === data.mode ? data.fields : {});
   const fieldKeys = Object.keys(fields);
+
+  // A different provider, or a fresh save, is a different form. Keying the
+  // draft off both reseeds it without an effect - switching provider starts
+  // from that provider's own stored values, not from what was typed for the last.
+  const draftKey = `${mode}:${data.updatedAt ?? ""}`;
+  const draft =
+    edits?.key === draftKey
+      ? edits.values
+      : Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value ?? ""]));
+
+  function setField(key: string, value: string) {
+    setEdits({ key: draftKey, values: { ...draft, [key]: value } });
+  }
+
+  function pickMode(next: Mode) {
+    setPickedMode(next);
+    setResult(null);
+  }
 
   function payload() {
     const body: Record<string, string> = { mode };
@@ -214,20 +222,14 @@ export function ClaudeSettingsClient() {
   async function save() {
     setSaving(true);
     try {
-      const response = await fetch("/api/proxy/settings/claude", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload()),
-      });
-      const body = await response.json();
-      if (!response.ok) {
-        toast.error("Could not save that", { description: String(body.detail) });
-        return;
-      }
+      await proxyMutate("/api/proxy/settings/claude", { method: "PUT", body: payload() });
       toast.success("Provider saved", {
         description: "The next job will use it — the worker does not need a restart.",
       });
+      setEdits(null);
       mutate();
+    } catch (problem) {
+      toast.error("Could not save that", { description: errorMessage(problem) });
     } finally {
       setSaving(false);
     }
@@ -237,17 +239,14 @@ export function ClaudeSettingsClient() {
     setTesting(true);
     setResult(null);
     try {
-      const response = await fetch("/api/proxy/settings/claude/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload()),
+      const body = await proxyMutate<ProviderTest>("/api/proxy/settings/claude/test", {
+        body: payload(),
       });
-      const body: ProviderTest = await response.json();
       setResult(body);
       if (body.ok) toast.success("Claude Code answered");
       else toast.error("No answer from Claude Code");
-    } catch {
-      toast.error("Could not reach the API");
+    } catch (problem) {
+      toast.error("Could not reach the API", { description: errorMessage(problem) });
     } finally {
       setTesting(false);
     }
@@ -260,16 +259,9 @@ export function ClaudeSettingsClient() {
       const baseUrl = draft.baseUrl?.trim();
       if (baseUrl) params.set("baseUrl", baseUrl);
       const query = params.toString();
-      const response = await fetch(
+      const body = await proxyFetcher<OllamaModelsResponse>(
         `/api/proxy/settings/ollama/models${query ? `?${query}` : ""}`,
       );
-      const body: OllamaModelsResponse & { detail?: string } = await response.json();
-      if (!response.ok) {
-        toast.error("Could not list Ollama models", {
-          description: String(body.detail ?? "Is Ollama running on the host?"),
-        });
-        return;
-      }
       const names = body.models.map((entry) => entry.name).filter(Boolean) as string[];
       setOllamaModels(names);
       if (names.length === 0) {
@@ -279,22 +271,23 @@ export function ClaudeSettingsClient() {
       } else {
         toast.success(`Found ${names.length} model${names.length === 1 ? "" : "s"}`);
       }
-    } catch {
-      toast.error("Could not reach the API");
+    } catch (problem) {
+      toast.error("Could not list Ollama models", {
+        description: errorMessage(problem) || "Is Ollama running on the host?",
+      });
     } finally {
       setLoadingModels(false);
     }
   }
 
   async function startSignIn() {
-    const response = await fetch("/api/proxy/settings/claude/oauth/start", { method: "POST" });
-    const body = await response.json();
-    if (!response.ok) {
-      toast.error("Could not start sign-in", { description: String(body.detail) });
-      return;
+    try {
+      const body = await proxyMutate<OauthStart>("/api/proxy/settings/claude/oauth/start");
+      setSignIn({ session: body.session, url: body.url });
+      window.open(body.url, "_blank", "noopener,noreferrer");
+    } catch (problem) {
+      toast.error("Could not start sign-in", { description: errorMessage(problem) });
     }
-    setSignIn({ session: body.session, url: body.url });
-    window.open(body.url, "_blank", "noopener,noreferrer");
   }
 
   async function finishSignIn() {
@@ -304,18 +297,22 @@ export function ClaudeSettingsClient() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session: signIn.session, code: code.trim() }),
     });
-    const body = await response.json();
+    const body: { detail?: string | OauthCodeError } = await response
+      .json()
+      .catch(() => ({}) as { detail?: string | OauthCodeError });
     if (!response.ok) {
       // A rejected code makes the CLI start a fresh authorization, so the link
       // on screen is already dead. Swap it for the new one rather than leaving
       // the estimator to retry against a challenge that no longer exists.
       const detail = body.detail ?? {};
-      const message = typeof detail === "string" ? detail : detail.message;
-      if (detail.url) {
-        setSignIn({ session: signIn.session, url: detail.url });
+      const structured: OauthCodeError = typeof detail === "string" ? { message: detail } : detail;
+      if (structured.url) {
+        setSignIn({ session: signIn.session, url: structured.url });
         setCode("");
       }
-      toast.error(message || "That code was not accepted", { description: detail.hint });
+      toast.error(structured.message || "That code was not accepted", {
+        description: structured.hint,
+      });
       return;
     }
     toast.success("Signed in to Claude Code");
@@ -351,7 +348,7 @@ export function ClaudeSettingsClient() {
           return (
             <button
               key={key}
-              onClick={() => setMode(key)}
+              onClick={() => pickMode(key)}
               className="flex flex-col items-start gap-1.5 rounded-xl p-3.5 text-left transition"
               style={{
                 background: on ? "var(--app-accent-soft)" : "var(--app-panel)",
@@ -497,9 +494,7 @@ export function ClaudeSettingsClient() {
                   <select
                     value={draft[key] ?? ""}
                     disabled={field.locked}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, [key]: event.target.value }))
-                    }
+                    onChange={(event) => setField(key, event.target.value)}
                     className="rounded-md px-2.5 py-1.5 text-[12.5px] outline-none disabled:opacity-60"
                     style={{
                       background: "var(--app-panel-2)",
@@ -518,10 +513,11 @@ export function ClaudeSettingsClient() {
                   <input
                     value={draft[key] ?? ""}
                     disabled={field.locked}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, [key]: event.target.value }))
-                    }
+                    onChange={(event) => setField(key, event.target.value)}
                     placeholder={meta.placeholder}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
                     className="rounded-md px-2.5 py-1.5 text-[12.5px] outline-none disabled:opacity-60"
                     style={{
                       background: "var(--app-panel-2)",

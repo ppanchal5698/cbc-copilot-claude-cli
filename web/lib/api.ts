@@ -6,6 +6,8 @@
  * calc-engine, behind the API, so the numbers on a quote have one implementation.
  */
 
+import "server-only";
+
 import { auth } from "@/auth";
 import { internalApiHeaders } from "@/lib/internal-api";
 import { formatApiDetail } from "@/lib/format";
@@ -78,8 +80,3 @@ export const api = {
   upload: <T>(path: string, form: FormData) =>
     request<T>(path, { method: "POST", body: form }),
 };
-
-/** Absolute URL for a document the browser fetches directly (PDF viewer). */
-export function documentUrl(code: string, documentId: string): string {
-  return `/api/proxy/projects/${code}/documents/${documentId}/file`;
-}

@@ -9,6 +9,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
  * header, the action bar, a keyboard shortcut - so a small context beats
  * threading callbacks through four component layers.
  */
+export type Theme = "dark" | "light";
+
 interface UiState {
   notesOpen: boolean;
   openNotes: (ref?: string) => void;
@@ -25,6 +27,10 @@ interface UiState {
   focusMode: boolean;
   toggleFocus: () => void;
 
+  /** The palette, the header and the pre-paint script all used to own this. */
+  theme: Theme;
+  toggleTheme: () => void;
+
   /** Bumped whenever a note is logged, so counts refresh without a page reload. */
   notesVersion: number;
   bumpNotes: () => void;
@@ -32,20 +38,57 @@ interface UiState {
 
 const Context = createContext<UiState | null>(null);
 
+/**
+ * Read a persisted preference without breaking hydration.
+ *
+ * The server has no localStorage, so the first client render must match the
+ * server's markup and the stored value can only be applied afterwards. Both
+ * preferences are cosmetic, so a one-frame default is acceptable; the theme
+ * itself is already applied pre-paint by the inline script in app/layout.tsx,
+ * which is what actually stops the flash.
+ */
+function stored(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null; /* private browsing */
+  }
+}
+
+function remember(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private browsing */
+  }
+}
+
 export function UiStateProvider({ children }: { children: React.ReactNode }) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesRef, setNotesRef] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
+  const [theme, setTheme] = useState<Theme>("dark");
+  const [hydrated, setHydrated] = useState(false);
   const [notesVersion, setNotesVersion] = useState(0);
 
-  useEffect(() => {
-    try {
-      setFocusMode(localStorage.getItem("opshub-focus") === "1");
-    } catch {
-      /* private browsing */
-    }
+  // One pass after mount to pick up what the browser remembered. Guarded by a
+  // flag rather than an empty dependency array so it cannot loop.
+  if (!hydrated && typeof window !== "undefined") {
+    setHydrated(true);
+    setFocusMode(stored("opshub-focus") === "1");
+    setTheme(stored("opshub-theme") === "light" ? "light" : "dark");
+  }
+
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => {
+      const next: Theme = current === "dark" ? "light" : "dark";
+      document.documentElement.dataset.theme = next;
+      remember("opshub-theme", next);
+      return next;
+    });
   }, []);
 
   const openNotes = useCallback((ref?: string) => {
@@ -56,11 +99,7 @@ export function UiStateProvider({ children }: { children: React.ReactNode }) {
   const toggleFocus = useCallback(() => {
     setFocusMode((current) => {
       const next = !current;
-      try {
-        localStorage.setItem("opshub-focus", next ? "1" : "0");
-      } catch {
-        /* private browsing */
-      }
+      remember("opshub-focus", next ? "1" : "0");
       return next;
     });
   }, []);
@@ -103,6 +142,8 @@ export function UiStateProvider({ children }: { children: React.ReactNode }) {
       setTerminalOpen,
       focusMode,
       toggleFocus,
+      theme,
+      toggleTheme,
       notesVersion,
       bumpNotes: () => setNotesVersion((v) => v + 1),
     }),
@@ -114,6 +155,8 @@ export function UiStateProvider({ children }: { children: React.ReactNode }) {
       terminalOpen,
       focusMode,
       toggleFocus,
+      theme,
+      toggleTheme,
       notesVersion,
     ],
   );

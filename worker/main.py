@@ -44,6 +44,41 @@ MAX_ATTEMPTS = int(os.environ.get("WORKER_MAX_ATTEMPTS", "3"))
 # lost the thread, and stopping it is cheaper than letting it finish.
 MAX_TURNS = int(os.environ.get("WORKER_MAX_TURNS", "60"))
 
+# A full Phase 0-6 run is nine subagent calls plus the sheet-finding that feeds
+# them, on a set that can be 744 pages. Both budgets above are sized for one phase
+# and are simply wrong for six.
+PIPELINE_TIMEOUT = int(os.environ.get("WORKER_PIPELINE_TIMEOUT_SECONDS", "10800"))
+PIPELINE_MAX_TURNS = int(os.environ.get("WORKER_PIPELINE_MAX_TURNS", "200"))
+
+
+def limits_for(job_type: str) -> tuple[int, int]:
+    """(timeout seconds, max turns) for a job type."""
+    if job_type == "run_full_pipeline":
+        return PIPELINE_TIMEOUT, PIPELINE_MAX_TURNS
+    return JOB_TIMEOUT, MAX_TURNS
+
+
+# Which phase a project has reached, read from what is on disk. An autopilot run is
+# one job that can last an hour, and `stage` is only written when a job finishes -
+# so without this the board would sit on "intake / 0%" for the whole run.
+PIPELINE_PROGRESS = (
+    ("review/review_summary.html", "proposal", 95, "Review"),
+    ("quotation.html", "proposal", 85, "Quote built"),
+    ("priced/line_items.json", "quote", 70, "Pricing"),
+    ("extracted/hardware_sets.json", "quote", 55, "Product matching"),
+    ("extracted/door_schedule.json", "extraction", 40, "Take-off"),
+    ("extracted/scope_summary.json", "extraction", 25, "Spec scoping"),
+    ("extracted/scope_metadata.json", "intake", 10, "Intake"),
+)
+
+
+def phase_reached(project_dir: Path) -> tuple[str, int, str] | None:
+    """The furthest phase whose output exists, or None if nothing has landed."""
+    for relative, stage, progress, label in PIPELINE_PROGRESS:
+        if (project_dir / relative).exists():
+            return stage, progress, label
+    return None
+
 # A running job says so every HEARTBEAT_SECONDS. Nothing else distinguishes "this
 # is a 40-minute extraction" from "the worker that claimed this was killed an hour
 # ago", and without that distinction a dead job holds the exclusive-job index
@@ -265,6 +300,31 @@ async def sync_results(job: dict, project: dict | None) -> str:
         )
         return f"{counts['inserted']} priced, {counts['updated']} updated, {counts['skipped']} kept"
 
+    if job["type"] == "run_full_pipeline":
+        # One session produced all of it, so all of it lands at once - the same
+        # three imports the gated path does at its three phase boundaries.
+        openings = await sync.import_extraction(project)
+        await db.documents.update_many(
+            {"projectId": project["_id"]}, {"$set": {"state": "read"}}
+        )
+        priced = await sync.import_quote_lines(project)
+        # Totals are stored on a change, not on a read (api/services/quote.py), and
+        # new priced lines are a change - otherwise the board shows no value until
+        # somebody opens the bid.
+        await quote_service.persist(project)
+        artifacts = await sync.import_proposal_artifacts(project)
+        await db.projects.update_one(
+            {"_id": project["_id"]},
+            {"$set": {"stage": "proposal", "progress": 100, "phase": "Draft ready",
+                      "updatedAt": _now()}},
+        )
+        written = sum(1 for present in artifacts.values() if present)
+        return (
+            f"{openings['inserted'] + openings['updated']} opening(s), "
+            f"{priced['inserted'] + priced['updated']} priced line(s), "
+            f"{written} proposal artifact(s) - draft ready for estimator review"
+        )
+
     if job["type"] == "build_proposal":
         artifacts = await sync.import_proposal_artifacts(project)
         await db.projects.update_one(
@@ -359,6 +419,7 @@ async def process(job: dict) -> None:
         {"$set": {"recording": str(recording.relative_to(REPO_ROOT)).replace("\\", "/")}},
     )
 
+    timeout, max_turns = limits_for(job["type"])
     cancel_event = threading.Event()
 
     async def watch_cancel() -> None:
@@ -375,18 +436,38 @@ async def process(job: dict) -> None:
                 return
             await asyncio.sleep(1)
 
+    async def watch_progress() -> None:
+        """Move the bid along as each phase writes its output."""
+        if job["type"] != "run_full_pipeline" or project is None:
+            return
+        directory = Path(storage.project_dir(project["slug"]))
+        last: tuple[str, int, str] | None = None
+        while True:
+            reached = phase_reached(directory)
+            if reached and reached != last:
+                stage, progress, label = reached
+                await db.projects.update_one(
+                    {"_id": project["_id"]},
+                    {"$set": {"stage": stage, "progress": progress,
+                              "phase": label, "updatedAt": _now()}},
+                )
+                log.info("%s reached %s (%s%%)", project["code"], label, progress)
+                last = reached
+            await asyncio.sleep(10)
+
     watcher = asyncio.create_task(watch_cancel())
     heartbeat = asyncio.create_task(_beat(job["_id"]))
+    progress_watcher = asyncio.create_task(watch_progress())
     try:
         result = await asyncio.to_thread(
             runner.run_claude,
             prompt,
-            JOB_TIMEOUT,
+            timeout,
             env,
             provider.secret_values(config),
             recording,
             job["type"],
-            MAX_TURNS,
+            max_turns,
             _CATALOG_INDEX_PATH,
             cancel_event.is_set,
         )
@@ -394,6 +475,7 @@ async def process(job: dict) -> None:
         cancel_event.set()
         watcher.cancel()
         heartbeat.cancel()
+        progress_watcher.cancel()
 
     # Stopped because the worker is going down, not because anyone asked. Put it
     # back on the queue rather than recording a failure nobody caused.
@@ -418,6 +500,20 @@ async def process(job: dict) -> None:
     # Recorded so "which provider produced this line?" is answerable months later,
     # the same question NFR-3 asks of every price.
     await db.jobs.update_one({"_id": job["_id"]}, {"$set": {"provider": described}})
+
+    # And carried onto the bid itself when the provider is one Claude Code warns
+    # about. A draft that looks finished but was produced on a model that could
+    # not delegate is silently wrong at the level of the whole document - the
+    # estimator has to be able to see that without reading the job log.
+    if project is not None:
+        degraded = bool(described.get("warnings"))
+        await db.projects.update_one(
+            {"_id": project["_id"]},
+            {"$set": {
+                "producedBy": {**described, "degraded": degraded},
+                "degraded": degraded,
+            }},
+        )
 
     recording_note = ""
     if recording.exists():
@@ -464,7 +560,10 @@ async def loop(once: bool = False) -> int:
     else:
         log.warning("CATALOG_INDEX_PATH is unset; catalog MCP lookups may return nothing")
 
-    log.info("worker up - polling every %ss (timeout %ss)", POLL_SECONDS, JOB_TIMEOUT)
+    log.info(
+        "worker up - polling every %ss (phase jobs %ss/%s turns, full pipeline %ss/%s turns)",
+        POLL_SECONDS, JOB_TIMEOUT, MAX_TURNS, PIPELINE_TIMEOUT, PIPELINE_MAX_TURNS,
+    )
     await reap_abandoned()
 
     while not _stop.is_set():

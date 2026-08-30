@@ -5,26 +5,8 @@ import useSWR from "swr";
 import { Checks, ClockCounterClockwise, Warning } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
-import { proxyFetcher } from "@/lib/proxy-fetcher";
-
-interface VersionSummary {
-  id: string;
-  version: number;
-  reason: string;
-  createdAt: string;
-  createdBy: string;
-  reconciled: boolean;
-  lineItemCount: number;
-  quoteLineCount: number;
-}
-
-interface VersionDiff {
-  version: number;
-  added: string[];
-  removed: string[];
-  changed: { mark: string; fields: string[]; before: Record<string, unknown>; after: Record<string, unknown> }[];
-  pending: string;
-}
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import type { VersionDiff, VersionsResponse } from "@/lib/types";
 
 /**
  * Addendum snapshots and diffs — interim UI for FR-14 until Matrix 4.1 rules land.
@@ -34,12 +16,10 @@ export function VersionsPanel({ code }: { code: string }) {
   const [diff, setDiff] = useState<VersionDiff | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const { data, mutate } = useSWR<{
-    versions: VersionSummary[];
-    current: number;
-    unreconciled: number;
-    pending: string;
-  }>(`/api/proxy/projects/${code}/versions`, proxyFetcher);
+  const { data, mutate } = useSWR<VersionsResponse>(
+    `/api/proxy/projects/${code}/versions`,
+    proxyFetcher,
+  );
 
   const versions = data?.versions ?? [];
   if (versions.length === 0) return null;
@@ -52,27 +32,26 @@ export function VersionsPanel({ code }: { code: string }) {
     }
     setExpanded(version);
     setDiff(null);
-    const response = await fetch(`/api/proxy/projects/${code}/versions/${version}/diff`);
-    if (!response.ok) {
-      toast.error("Could not load the diff");
-      return;
+    try {
+      setDiff(
+        await proxyFetcher<VersionDiff>(`/api/proxy/projects/${code}/versions/${version}/diff`),
+      );
+    } catch (problem) {
+      toast.error("Could not load the diff", { description: errorMessage(problem) });
     }
-    setDiff(await response.json());
   }
 
   async function reconcile(version: number) {
     setBusy(true);
-    const response = await fetch(`/api/proxy/projects/${code}/versions/${version}/reconcile`, {
-      method: "POST",
-    });
-    setBusy(false);
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("Could not mark reconciled", { description: String(body.detail) });
-      return;
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/versions/${version}/reconcile`);
+      toast.success(`Version ${version} marked reconciled`);
+      mutate();
+    } catch (problem) {
+      toast.error("Could not mark reconciled", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    toast.success(`Version ${version} marked reconciled`);
-    mutate();
   }
 
   return (
@@ -99,7 +78,7 @@ export function VersionsPanel({ code }: { code: string }) {
       <div className="divide-y" style={{ borderColor: "var(--app-line)" }}>
         {versions.map((entry) => (
           <div key={entry.id} className="px-4 py-3">
-            <div className="flex items-start gap-3">
+            <div className="flex flex-wrap items-start gap-3">
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] font-semibold">v{entry.version}</span>

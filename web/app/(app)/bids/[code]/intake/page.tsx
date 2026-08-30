@@ -54,7 +54,7 @@ export default async function IntakePage({ params }: { params: Promise<{ code: s
           { label: "Workspace", href: "/dashboard" },
           { label: `${project.code} · Intake` },
         ]}
-        runPill={runPillFor(jobs[0], project.counts.total)}
+        runPill={runPillFor(jobs[0], project.counts.total, project.phase)}
         reviewCount={project.counts.needsLook}
         code={project.code}
       />

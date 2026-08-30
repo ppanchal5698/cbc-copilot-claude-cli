@@ -272,6 +272,116 @@
   animation: sweep 1.4s linear infinite;
 }
 
+/* Route-level loading skeletons. Every page here is force-dynamic and blocks
+   on the API, so navigation used to show nothing at all until it answered. */
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.skeleton {
+  border-radius: 6px;
+  background: var(--app-panel-2);
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+/* Respect a reduced-motion preference: the shimmer, the sweep and the entrance
+   animations are all decoration, and a vestibular trigger is not decoration. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .anim-sweep::after,
+  .anim-fadein,
+  .anim-popin,
+  .anim-riseup {
+    animation: none;
+  }
+  .terminal-log-scroll {
+    scroll-behavior: auto;
+  }
+}
+
 .tnum {
   font-variant-numeric: tabular-nums;
+}
+
+/* Run terminal structured log viewer */
+.terminal-log-scroll {
+  scroll-behavior: smooth;
+}
+
+.terminal-log-row + .terminal-log-row {
+  border-top: 1px solid transparent;
+}
+
+.terminal-log .agent-prose {
+  color: var(--app-tx);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.terminal-log .agent-prose p {
+  margin: 0 0 0.5em;
+}
+
+.terminal-log .agent-prose p:last-child {
+  margin-bottom: 0;
+}
+
+.terminal-log .agent-prose code {
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.terminal-log .agent-prose pre {
+  font-family: var(--app-font-mono);
+  font-size: 11px;
+  background: var(--app-panel-2);
+  border: 1px solid var(--app-line);
+  border-radius: 6px;
+  padding: 0.5em 0.75em;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+
+.terminal-log .agent-prose ul,
+.terminal-log .agent-prose ol {
+  margin: 0.25em 0 0.5em 1.25em;
+  padding: 0;
+}
+
+.terminal-log .agent-prose li {
+  margin: 0.15em 0;
+}
+
+.terminal-log .tool-card {
+  background: var(--app-panel);
+  transition: border-color 0.15s ease;
+}
+
+.terminal-log .tool-card:hover {
+  border-color: var(--app-accent-line) !important;
+}
+
+.terminal-code-block {
+  font-family: var(--app-font-mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  background: var(--app-panel-2);
+  border: 1px solid var(--app-line);
+  border-radius: 6px;
+  padding: 0.5em 0.65em;
+  overflow-x: auto;
+  max-height: 240px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--app-tx-2);
+  margin: 0;
 }

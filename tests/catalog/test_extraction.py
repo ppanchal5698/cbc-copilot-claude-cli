@@ -167,3 +167,53 @@ def test_the_adapter_matches_the_file_type(tmp_path) -> None:
     assert extractors.choose(tmp_path / "sheet.xlsx") is extractors.extract_spreadsheet
     with pytest.raises(ValueError, match="no extractor"):
         extractors.choose(tmp_path / "notes.docx")
+
+
+# ── rendered pages must not land beside the drawings ───────────────────────
+
+
+def test_a_rendered_page_defaults_to_the_cache_not_the_source_directory(tmp_path) -> None:
+    """It used to default to the PDF's own directory.
+
+    On a real autopilot run that dropped `1_Architectural_p12_200dpi.png` into
+    `projects/{slug}/uploads/raw/`, where raw uploads are immutable
+    (.claude/rules/file-safety.md).
+    """
+    from cbc_core import pdfpages
+
+    raw = tmp_path / "uploads" / "raw"
+    raw.mkdir(parents=True)
+    assert pdfpages._writable_target(raw / "plans.pdf", None) == pdfpages.RENDER_CACHE
+
+
+@pytest.mark.parametrize("protected", ["pricebooks", "reference-library"])
+def test_read_only_reference_data_is_refused(protected: str) -> None:
+    """pricebooks/ is mounted :ro on the worker; the failure should say why."""
+    from cbc_core import pdfpages
+
+    with pytest.raises(ValueError, match="read-only reference data"):
+        pdfpages._writable_target(
+            pdfpages.ROOT / "pricebooks" / "hager.pdf", pdfpages.ROOT / protected
+        )
+    with pytest.raises(ValueError, match="read-only reference data"):
+        pdfpages._writable_target(
+            pdfpages.ROOT / "pricebooks" / "hager.pdf", pdfpages.ROOT / protected / "pages"
+        )
+
+
+def test_writing_into_uploads_raw_is_refused_even_when_asked(tmp_path) -> None:
+    """The guard is here because the PreToolUse hook cannot see this write:
+    it happens inside PyMuPDF, not through Write or Bash."""
+    from cbc_core import pdfpages
+
+    raw = tmp_path / "uploads" / "raw"
+    raw.mkdir(parents=True)
+    with pytest.raises(ValueError, match="immutable"):
+        pdfpages._writable_target(raw / "plans.pdf", raw)
+
+
+def test_an_ordinary_output_directory_is_allowed(tmp_path) -> None:
+    from cbc_core import pdfpages
+
+    processed = tmp_path / "uploads" / "processed"
+    assert pdfpages._writable_target(tmp_path / "plans.pdf", processed) == processed.resolve()

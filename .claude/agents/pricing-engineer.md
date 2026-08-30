@@ -56,16 +56,30 @@ Under ~6 months fresh; ~6-8 months or more unreliable, re-verify; 3-4 years
 discard outright.
 
 ## What every line must carry (NFR-3)
-`line_id`, `group`, `group_type`, `cost`, `cost_source`, `cost_source_detail`,
-`margin`, `sale_ea`, `ext_price`, `multiplier`, `multiplier_tier`,
-`multiplier_effective_date`, `price_book_version`, `source_page`, `priced_at`, and
-the **sourcing rationale** - buy direct versus buy through a wholesaler, and why.
-When `cost` is set, `sale_ea` and `ext_price` must also be set (use calc-engine).
+`line_id`, `group`, `group_type`, `part_number` **or** `description`, `cost`,
+`cost_source`, `cost_source_detail`, `margin`, `sale_ea`, `ext_price`,
+`multiplier`, `multiplier_tier`, `multiplier_effective_date`,
+`price_book_version`, `source_page`, `priced_at`, and the **sourcing rationale** -
+buy direct versus buy through a wholesaler, and why. When `cost` is set, `sale_ea`
+and `ext_price` must also be set (use calc-engine).
+
+### Say what the line *is*, always
+A line with no `part_number` and no `description` is not a line an estimator can
+act on. `extracted/hardware_sets.json` already holds the specified item verbatim -
+`"specified": "IVES 700 83\", 630"` - so copy it across.
+
+This matters **most** on a manual line, not least. A real run produced 25 rows of
+`part_number: null, description: null, cost_source: "MANUAL"`: nothing was wrong
+in them, and they were useless - the estimator was handed 25 blanks and no way to
+know what to go and price. The gate in `scripts/validate_project.py` now fails a
+job for it.
 
 ## When to stop
 At the manual cut-off emit `cost: null`, `cost_source: "MANUAL"`,
-`confidence: 0.0` and a reason. Do not extrapolate from a similar SKU. There is no
-partial credit for a confidently wrong price.
+`confidence: 0.0`, the specified item in `part_number`/`description`, and a
+plain-language reason in `cost_source_detail` - "Allegion, bought through Banner
+or SecLock" is a reason; an empty field is not. Do not extrapolate from a similar
+SKU. There is no partial credit for a confidently wrong price.
 
 ## Rules you must follow
 - @.claude/rules/p21-read-only.md

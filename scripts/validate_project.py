@@ -261,11 +261,34 @@ def check_pricing(project: str, *, require_hardware_sets: bool = False) -> tuple
         problems.append(f"{project}: priced/line_items.json must contain a non-empty lines array")
         return problems, warnings
 
+    priced_count = 0
     for index, line in enumerate(lines, start=1):
         label = line.get("line_id") or line.get("description", f"line {index}")[:40]
         for field in PRICING_LINE_FIELDS:
             if line.get(field) is None or line.get(field) == "":
                 problems.append(f"{project}: priced line {label} is missing {field}")
+
+        # A line has to say what it is. The matcher records the specified item -
+        # "IVES 700 83\", 630" - and a run that dropped it wrote 25 blank MANUAL
+        # rows: not wrong, but useless to the estimator who has to price them.
+        if not (line.get("part_number") or line.get("description")):
+            problems.append(
+                f"{project}: priced line {label} has neither part_number nor description "
+                "- carry the specified item across from hardware_sets.json"
+            )
+        # NFR-3: an unauditable line is not a line.
+        if line.get("source_page") is None:
+            problems.append(f"{project}: priced line {label} has no source_page")
+        # NFR-2: a manual line is an instruction to a human, so it says why.
+        if line.get("cost_source") == "MANUAL" and not str(
+            line.get("cost_source_detail") or line.get("reason") or ""
+        ).strip():
+            problems.append(
+                f"{project}: MANUAL line {label} records no reason - say why it "
+                "cannot be priced automatically"
+            )
+        if line.get("cost") is not None:
+            priced_count += 1
         group_type = line.get("group_type")
         if group_type and group_type not in PRICING_GROUP_TYPES:
             warnings.append(f"{project}: priced line {label} has unusual group_type {group_type!r}")
@@ -282,6 +305,32 @@ def check_pricing(project: str, *, require_hardware_sets: bool = False) -> tuple
                     problems.append(
                         f"{project}: priced line {label} has cost but missing sale_ea or ext_price"
                     )
+
+    # Not errors: an all-Allegion bid legitimately prices nothing automatically
+    # (CLAUDE.md - bought via Banner or SecLock, so manual entry). The point is
+    # that the quote says so rather than looking finished.
+    if priced_count == 0:
+        warnings.append(
+            f"{project}: not one of {len(lines)} line(s) carries a price - this quote "
+            "is entirely manual and is not ready to send to anyone"
+        )
+
+    hw_path = root / "extracted" / "hardware_sets.json"
+    if hw_path.exists():
+        try:
+            groups = json.loads(hw_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            groups = []
+        specified = {
+            str(entry.get("hardware_set"))
+            for entry in (groups if isinstance(groups, list) else [])
+            if entry.get("hardware_set")
+        }
+        quoted = {str(line.get("group")) for line in lines if line.get("group")}
+        for missing in sorted(specified - quoted):
+            warnings.append(
+                f"{project}: hardware {missing} was extracted but has no line on the quote"
+            )
 
     return problems, warnings
 
@@ -304,25 +353,52 @@ def check_proposal(project: str) -> tuple[list[str], list[str]]:
     return problems, warnings
 
 
+# Which checks each job type has to pass before its output reaches MongoDB.
+#
+# A dict rather than an if/elif chain because the chain ended in `else: return`,
+# and a job type nobody remembered to add fell through it silently. That is
+# exactly what happened to `run_full_pipeline`: the one path with no human
+# checkpoints was also the one path with no artifact checks. GATED_JOB_TYPES
+# below asserts the mapping stays complete.
+ARTIFACT_CHECKS: dict[str, tuple] = {
+    "extract_bid_set": (lambda slug: check_extraction(slug, require_scope=True),),
+    "rerun_extraction": (lambda slug: check_extraction(slug, require_scope=False),),
+    "match_and_price": (lambda slug: check_pricing(slug, require_hardware_sets=True),),
+    "build_proposal": (check_proposal,),
+    # One session produced all three, so all three are checked.
+    "run_full_pipeline": (
+        lambda slug: check_extraction(slug, require_scope=True),
+        lambda slug: check_pricing(slug, require_hardware_sets=True),
+        check_proposal,
+    ),
+}
+
+# Job types that write no project artifacts, so there is nothing to check. Listed
+# rather than defaulted, so adding a job type is a decision and not an omission.
+UNCHECKED_JOB_TYPES = frozenset(
+    {"ingest_pricebook", "ingest_addendum", "index_catalog", "delete_catalog"}
+)
+
+
 def validate_job_artifacts(job_type: str, project_slug: str) -> None:
     """Raise ValueError if job artifacts fail validation (worker gate)."""
     problems: list[str] = []
     warnings: list[str] = []
 
-    if job_type in ("extract_bid_set", "rerun_extraction"):
-        p, w = check_extraction(project_slug, require_scope=job_type == "extract_bid_set")
-        problems.extend(p)
-        warnings.extend(w)
-    elif job_type == "match_and_price":
-        p, w = check_pricing(project_slug, require_hardware_sets=True)
-        problems.extend(p)
-        warnings.extend(w)
-    elif job_type == "build_proposal":
-        p, w = check_proposal(project_slug)
-        problems.extend(p)
-        warnings.extend(w)
-    else:
+    checks = ARTIFACT_CHECKS.get(job_type)
+    if checks is None:
+        if job_type not in UNCHECKED_JOB_TYPES:
+            # Better a loud failure than a job quietly skipping its own gate.
+            raise ValueError(
+                f"job type {job_type!r} has no entry in ARTIFACT_CHECKS and is not "
+                "listed as unchecked - add it to one or the other"
+            )
         return
+
+    for check in checks:
+        p, w = check(project_slug)
+        problems.extend(p)
+        warnings.extend(w)
 
     for warning in warnings:
         print(f"WARN  {warning}", file=sys.stderr)

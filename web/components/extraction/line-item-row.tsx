@@ -12,6 +12,7 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
+import { errorMessage, proxyMutate } from "@/lib/proxy-fetcher";
 import type { LineItem, LineStatus } from "@/lib/types";
 
 const STATUS: Record<
@@ -48,6 +49,9 @@ const STATUS: Record<
   },
 };
 
+/** Must match the header in ExtractionClient, hence the shared constant. */
+export const ROW_COLUMNS = "28px 34px 60px minmax(160px,1fr) 110px 60px 100px 120px";
+
 const EDITABLE = [
   { key: "mark", label: "Mark", width: "80px" },
   { key: "description", label: "Description", width: "1fr" },
@@ -80,67 +84,116 @@ export function LineItemRow({
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<Record<string, string>>(() => ({
-    mark: item.mark ?? "",
-    description: item.description ?? "",
-    size: item.size ?? "",
-    qty: String(item.qty ?? 1),
-    division: item.division ?? "",
-    hwSet: item.hwSet ?? "",
-  }));
+  const [edits, setEdits] = useState<{ from: string; values: Record<string, string> } | null>(
+    null,
+  );
 
   const status = STATUS[item.status];
   const evidence = item.evidence;
 
-  async function call(path: string, init: RequestInit, success: string) {
-    setBusy(true);
-    const response = await fetch(`/api/proxy/projects/${code}/line-items${path}`, init);
-    setBusy(false);
+  // Identity of the server's version of this row. The draft used to be seeded
+  // once and never re-synced, so a re-run that changed a line while the screen
+  // was open left the form showing the old values - and "Save my changes" wrote
+  // them straight back over what Claude had just read.
+  const revision = [
+    item.mark,
+    item.description,
+    item.size,
+    item.qty,
+    item.division,
+    item.hwSet,
+    item.confirmedAt,
+  ].join("\u0000");
 
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("That did not go through", { description: String(body.detail) });
+  const draft =
+    edits?.from === revision
+      ? edits.values
+      : {
+          mark: item.mark ?? "",
+          description: item.description ?? "",
+          size: item.size ?? "",
+          qty: String(item.qty ?? 1),
+          division: item.division ?? "",
+          hwSet: item.hwSet ?? "",
+        };
+
+  const dirty = edits?.from === revision;
+
+  function setField(key: string, value: string) {
+    setEdits({ from: revision, values: { ...draft, [key]: value } });
+  }
+
+  async function call(
+    path: string,
+    init: Parameters<typeof proxyMutate>[1],
+    success: string,
+  ): Promise<boolean> {
+    setBusy(true);
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/line-items${path}`, init);
+      toast.success(success);
+      setEdits(null);
+      onChanged();
+      return true;
+    } catch (problem) {
+      toast.error("That did not go through", { description: errorMessage(problem) });
       return false;
+    } finally {
+      setBusy(false);
     }
-    toast.success(success);
-    onChanged();
-    return true;
   }
 
   const confirm = () =>
     call(`/${item.id}/confirm`, { method: "POST" }, `${item.mark ?? "Line"} kept as is`);
 
-  const save = () =>
-    call(
+  const save = () => {
+    const qty = Number(draft.qty);
+    if (draft.qty.trim() === "" || Number.isNaN(qty) || qty <= 0) {
+      toast.error("Quantity has to be a positive number", {
+        description: `"${draft.qty}" is not one, so nothing was saved.`,
+      });
+      return Promise.resolve(false);
+    }
+    if (!draft.description.trim()) {
+      toast.error("A line needs a description");
+      return Promise.resolve(false);
+    }
+    return call(
       `/${item.id}`,
       {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        body: {
           mark: draft.mark || null,
-          description: draft.description,
+          description: draft.description.trim(),
           size: draft.size || null,
-          qty: Number(draft.qty) || 1,
+          qty,
           division: draft.division || null,
           hwSet: draft.hwSet || null,
-        }),
+        },
       },
       "Your changes are saved",
     );
+  };
 
-  const remove = () =>
-    call(`/${item.id}`, { method: "DELETE" }, `${item.mark ?? "Line"} removed`);
+  const remove = () => {
+    if (!window.confirm(`Remove ${item.mark ?? "this line"} — "${item.description}"?`)) {
+      return Promise.resolve(false);
+    }
+    return call(`/${item.id}`, { method: "DELETE" }, `${item.mark ?? "Line"} removed`);
+  };
 
   const resolveDuplicate = (keep: "one" | "both") =>
     call(
       `/${item.id}/resolve-duplicate`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ keep }),
-      },
+      { method: "POST", body: { keep } },
       keep === "one" ? "Kept one reading" : "Kept both as separate lines",
     );
+
+  function toggleOpen() {
+    const next = !open;
+    setOpen(next);
+    onSelect(next ? item : null);
+  }
 
   return (
     <div
@@ -157,12 +210,18 @@ export function LineItemRow({
       }}
     >
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        aria-label={`${item.mark ? `${item.mark}: ` : ""}${item.description}`}
         className="grid cursor-pointer items-center gap-3 px-4 py-2.5"
-        style={{ gridTemplateColumns: "28px 34px 60px 1fr 110px 60px 100px 120px" }}
-        onClick={() => {
-          const next = !open;
-          setOpen(next);
-          onSelect(next ? item : null);
+        style={{ gridTemplateColumns: ROW_COLUMNS }}
+        onClick={toggleOpen}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            toggleOpen();
+          }
         }}
       >
         <span onClick={(event) => event.stopPropagation()}>
@@ -305,8 +364,12 @@ export function LineItemRow({
             )}
 
             <div
-              className="mt-3.5 grid gap-2.5"
-              style={{ gridTemplateColumns: EDITABLE.map((f) => f.width).join(" ") }}
+              className="mt-3.5 grid gap-2.5 sm:grid-cols-2 lg:[grid-template-columns:var(--editable-cols)]"
+              style={
+                {
+                  "--editable-cols": EDITABLE.map((f) => f.width).join(" "),
+                } as React.CSSProperties
+              }
             >
               {EDITABLE.map((field) => (
                 <label key={field.key} className="block">
@@ -318,9 +381,8 @@ export function LineItemRow({
                   </span>
                   <input
                     value={draft[field.key] ?? ""}
-                    onChange={(event) =>
-                      setDraft((current) => ({ ...current, [field.key]: event.target.value }))
-                    }
+                    inputMode={field.key === "qty" ? "numeric" : undefined}
+                    onChange={(event) => setField(field.key, event.target.value)}
                     className="mt-1 w-full rounded-md px-2 py-1.5 text-[12.5px] outline-none focus:ring-2"
                     style={{
                       background: "var(--app-panel-2)",
@@ -344,7 +406,8 @@ export function LineItemRow({
               </button>
               <button
                 onClick={save}
-                disabled={busy}
+                disabled={busy || !dirty}
+                title={dirty ? undefined : "Nothing changed yet"}
                 className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] disabled:opacity-60"
                 style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
               >

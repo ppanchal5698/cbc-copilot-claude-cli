@@ -14,7 +14,7 @@ import {
 import { auth } from "@/auth";
 import { PageHeader } from "@/components/shell/page-header";
 import { NewBidDialog } from "@/components/bids/new-bid-dialog";
-import { ApiError, api } from "@/lib/api";
+import { api } from "@/lib/api";
 import { formatMoneyShort } from "@/lib/format";
 import type { Project } from "@/lib/types";
 
@@ -54,13 +54,10 @@ export default async function DashboardPage() {
   const session = await auth();
   const name = session?.user?.name ?? "Estimator";
 
-  let projects: Project[] = [];
-  let apiError: string | null = null;
-  try {
-    projects = (await api.get<{ projects: Project[] }>("/api/projects")).projects;
-  } catch (error) {
-    apiError = error instanceof ApiError ? error.message : String(error);
-  }
+  // Not caught here. A dead API used to render as "0 open bids · nothing is
+  // flagged", which reads as a calm empty desk rather than a broken one; the
+  // error boundary in app/(app)/error.tsx says what actually happened.
+  const projects = (await api.get<{ projects: Project[] }>("/api/projects")).projects;
 
   const needsLook = projects.reduce((sum, project) => sum + project.counts.needsLook, 0);
   const running = projects.filter((project) => project.activeJob).length;
@@ -82,7 +79,7 @@ export default async function DashboardPage() {
       <PageHeader crumbs={[{ label: "Workspace" }, { label: "Dashboard" }]} reviewCount={needsLook} />
 
       <main className="min-h-0 flex-1 overflow-auto p-6">
-        <div className="mb-6 flex items-start justify-between">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="flex items-center gap-2 text-[24px] font-semibold">
               {greeting(name)} <span>👋</span>
@@ -94,9 +91,9 @@ export default async function DashboardPage() {
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div
-              className="flex items-center gap-2.5 rounded-lg px-3 py-2"
+              className="hidden items-center gap-2.5 rounded-lg px-3 py-2 sm:flex"
               style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
             >
               <Buildings size={16} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
@@ -111,20 +108,7 @@ export default async function DashboardPage() {
           </div>
         </div>
 
-        {apiError && (
-          <div
-            className="mb-5 rounded-lg px-4 py-3 text-[12.5px]"
-            style={{
-              background: "var(--app-neg-soft)",
-              border: "1px solid var(--app-neg-line)",
-              color: "var(--app-neg)",
-            }}
-          >
-            {apiError}
-          </div>
-        )}
-
-        <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 300px" }}>
+        <div className="grid gap-4 xl:grid-cols-[1fr_300px]">
           <section
             className="overflow-hidden rounded-xl"
             style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
@@ -184,7 +168,7 @@ export default async function DashboardPage() {
                       {state.tag}
                     </span>
                     <span
-                      className="tnum w-[92px] shrink-0 text-right text-[11.5px]"
+                      className="tnum hidden w-[92px] shrink-0 text-right text-[11.5px] sm:block"
                       style={{ color: "var(--app-tx-3)" }}
                     >
                       {project.bidDue

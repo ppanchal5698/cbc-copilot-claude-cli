@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import {
@@ -9,7 +9,7 @@ import {
   Trash,
   ArrowRight,
   ArrowLeft,
-  FloppyDisk,
+  ArrowsClockwise,
   PencilLine,
   Clock,
   PhoneCall,
@@ -19,8 +19,8 @@ import { toast } from "sonner";
 import { AlternateBar } from "@/components/bids/alternate-bar";
 import { useUiState } from "@/components/shell/ui-state";
 import { formatMoney, formatPercent } from "@/lib/format";
-import { proxyFetcher } from "@/lib/proxy-fetcher";
-import type { Job, QuoteLine, QuoteResponse } from "@/lib/types";
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import type { AlternatesResponse, Job, QuoteLine, QuoteResponse } from "@/lib/types";
 
 const TAX_OPTIONS = [
   { key: "OH", label: "Ohio 8.0%" },
@@ -29,6 +29,8 @@ const TAX_OPTIONS = [
   { key: "NONE", label: "No nexus" },
 ];
 
+const COLUMNS = "140px minmax(200px,1fr) 60px 95px 85px 72px 120px 105px 30px";
+
 /** An input that only commits on blur or Enter, so totals do not thrash per keystroke. */
 function Cell({
   value,
@@ -36,6 +38,7 @@ function Cell({
   align = "right",
   prefix,
   suffix,
+  label,
   disabled,
 }: {
   value: number | null;
@@ -43,26 +46,33 @@ function Cell({
   align?: "left" | "right";
   prefix?: string;
   suffix?: string;
+  label: string;
   disabled?: boolean;
 }) {
-  const [draft, setDraft] = useState<string>(value === null ? "" : String(value));
   const [editing, setEditing] = useState(false);
+  const [edit, setEdit] = useState<{ from: number | null; text: string } | null>(null);
 
-  useEffect(() => {
-    if (!editing) {
-      setDraft(value === null ? "" : String(value));
-    }
-  }, [value, editing]);
+  // The draft follows the server value unless it is being typed into. Derived
+  // from the value it was seeded off rather than synced in an effect, so a
+  // background poll can never overwrite what someone is halfway through typing.
+  const text = edit && (editing || edit.from === value) ? edit.text : value === null ? "" : String(value);
 
   function commit() {
     setEditing(false);
-    const trimmed = draft.trim();
+    const trimmed = text.trim();
     if (trimmed === "") {
+      setEdit(null);
       if (value !== null) onCommit(null);
       return;
     }
     const parsed = Number(trimmed);
-    if (Number.isNaN(parsed) || parsed === value) return;
+    if (Number.isNaN(parsed)) {
+      toast.error(`${label} has to be a number`, { description: `"${trimmed}" is not one.` });
+      setEdit(null);
+      return;
+    }
+    setEdit(null);
+    if (parsed === value) return;
     onCommit(parsed);
   }
 
@@ -77,15 +87,17 @@ function Cell({
         </span>
       )}
       <input
-        value={draft}
+        value={text}
         disabled={disabled}
-        onChange={(event) => setDraft(event.target.value)}
+        aria-label={label}
+        inputMode="decimal"
+        onChange={(event) => setEdit({ from: value, text: event.target.value })}
         onFocus={() => setEditing(true)}
         onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === "Enter") event.currentTarget.blur();
           if (event.key === "Escape") {
-            setDraft(value === null ? "" : String(value));
+            setEdit(null);
             setEditing(false);
             event.currentTarget.blur();
           }
@@ -123,10 +135,16 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
   const job = jobData?.jobs?.[0] ?? null;
   const running = job?.status === "running" || job?.status === "queued";
 
-  const { data, mutate } = useSWR<QuoteResponse>(
+  const { data, error, isLoading, mutate } = useSWR<QuoteResponse>(
     `/api/proxy/projects/${code}/quote`,
     proxyFetcher,
     { refreshInterval: running ? 4000 : 0 },
+  );
+
+  // Same SWR key as AlternateBar, so this is the same request, not a second one.
+  const { data: alternateData } = useSWR<AlternatesResponse>(
+    `/api/proxy/projects/${code}/alternates`,
+    proxyFetcher,
   );
 
   const refresh = useCallback(() => {
@@ -134,97 +152,106 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
     router.refresh();
   }, [mutate, router]);
 
-  const totals = data?.totals;
+  const filtering = alternate !== undefined;
   const groups = (data?.groups ?? [])
-    .map((group) => ({
-      ...group,
-      lines:
-        alternate === undefined
-          ? group.lines
-          : group.lines.filter((line) => (line.alternateGroup ?? null) === (alternate ?? null)),
-    }))
+    .map((group) => {
+      if (!filtering) return group;
+      const lines = group.lines.filter(
+        (line) => (line.alternateGroup ?? null) === (alternate ?? null),
+      );
+      return {
+        ...group,
+        lines,
+        // Summing line extendeds the API already computed. No price, margin or
+        // tax is recalculated here - those have one implementation, behind the API.
+        subtotal: lines.reduce((sum, line) => sum + (line.extended ?? 0), 0),
+      };
+    })
     .filter((group) => group.lines.length > 0);
 
+  const visibleLines = groups.reduce((sum, group) => sum + group.lines.length, 0);
+
+  // When a group is selected the footer must show that group's money, not the
+  // whole bid's. These totals are the API's own per-alternate figures.
+  const selectedAlternate = filtering
+    ? alternateData?.alternates.find((entry) => (entry.name ?? null) === (alternate ?? null))
+    : undefined;
+  const totals = data?.totals;
+
   async function patchLine(line: QuoteLine, body: Record<string, unknown>) {
-    const response = await fetch(`/api/proxy/projects/${code}/quote/lines/${line.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-      const detail = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("Could not save that", { description: String(detail.detail) });
-      return;
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/quote/lines/${line.id}`, {
+        method: "PATCH",
+        body,
+      });
+      mutate();
+    } catch (problem) {
+      toast.error("Could not save that", { description: errorMessage(problem) });
     }
-    mutate();
   }
 
   async function deleteLine(line: QuoteLine) {
-    const response = await fetch(`/api/proxy/projects/${code}/quote/lines/${line.id}`, {
-      method: "DELETE",
-    });
-    if (!response.ok) {
-      toast.error("Could not remove that line");
-      return;
+    if (!window.confirm(`Remove "${line.description}" from the quote?`)) return;
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/quote/lines/${line.id}`, {
+        method: "DELETE",
+      });
+      toast.success("Line removed");
+      mutate();
+    } catch (problem) {
+      toast.error("Could not remove that line", { description: errorMessage(problem) });
     }
-    toast.success("Line removed");
-    mutate();
   }
 
   async function addLine() {
-    const response = await fetch(`/api/proxy/projects/${code}/quote/lines`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description: "New line", division: "08 11 00", qty: 1 }),
-    });
-    if (!response.ok) {
-      toast.error("Could not add a line");
-      return;
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/quote/lines`, {
+        body: { description: "New line", division: "08 11 00", qty: 1 },
+      });
+      toast.success("Line added", { description: "Set its cost and margin." });
+      mutate();
+    } catch (problem) {
+      toast.error("Could not add a line", { description: errorMessage(problem) });
     }
-    toast.success("Line added", { description: "Set its cost and margin." });
-    mutate();
   }
 
   async function setFreight(value: number | null) {
-    const response = await fetch(`/api/proxy/projects/${code}/quote/settings`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ freight: value }),
-    });
-    if (!response.ok) {
-      toast.error("Could not update freight");
-      return;
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/quote/settings`, {
+        method: "PATCH",
+        body: { freight: value },
+      });
+      toast.success(value ? "Freight added to the quote" : "Freight back to TBD");
+      mutate();
+    } catch (problem) {
+      toast.error("Could not update freight", { description: errorMessage(problem) });
     }
-    toast.success(value ? "Freight added to the quote" : "Freight back to TBD");
-    mutate();
   }
 
   async function setTax(state: string) {
-    const response = await fetch(`/api/proxy/projects/${code}/quote/settings`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taxJurisdiction: state }),
-    });
-    if (!response.ok) {
-      toast.error("Could not update tax jurisdiction");
-      return;
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/quote/settings`, {
+        method: "PATCH",
+        body: { taxJurisdiction: state },
+      });
+      mutate();
+    } catch (problem) {
+      toast.error("Could not update tax jurisdiction", { description: errorMessage(problem) });
     }
-    mutate();
   }
 
   async function continueToProposal() {
     setBusy(true);
-    const response = await fetch(`/api/proxy/projects/${code}/quote/continue-to-proposal`, {
-      method: "POST",
-    });
-    setBusy(false);
-    if (!response.ok) {
-      toast.error("Could not hand off to the proposal");
-      return;
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/quote/continue-to-proposal`);
+      toast.success("Proposal queued for Claude");
+      refresh();
+      router.push(`/bids/${code}/proposal`);
+    } catch (problem) {
+      toast.error("Could not hand off to the proposal", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    toast.success("Proposal queued for Claude");
-    refresh();
-    router.push(`/bids/${code}/proposal`);
   }
 
   return (
@@ -237,11 +264,11 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
           style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
         >
           <div
-            className="flex items-center gap-3 border-b px-4 py-3.5"
+            className="flex flex-wrap items-center gap-3 border-b px-4 py-3.5"
             style={{ borderColor: "var(--app-line)" }}
           >
             <span
-              className="grid h-8 w-8 place-items-center rounded-lg"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
               style={{ background: "var(--app-accent-soft)", color: "var(--app-accent)" }}
             >
               <Table size={17} weight="duotone" />
@@ -265,7 +292,7 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
                 }}
               >
                 <PencilLine size={13} weight="duotone" />
-                {data.edited!.count} line{data.edited!.count === 1 ? "" : "s"} edited by hand
+                {data.edited.count} line{data.edited.count === 1 ? "" : "s"} edited by hand
               </span>
             )}
 
@@ -286,13 +313,14 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
 
             <span className="flex-1" />
 
-            <div className="flex gap-1">
+            <div className="flex flex-wrap gap-1">
               {TAX_OPTIONS.map((option) => {
                 const active = (totals?.taxJurisdiction ?? "") === option.key;
                 return (
                   <button
-                    key={option.key || "none"}
+                    key={option.key}
                     onClick={() => setTax(option.key)}
+                    aria-pressed={active}
                     className="rounded-md px-2.5 py-1.5 text-[11.5px]"
                     style={{
                       background: active ? "var(--app-accent-soft)" : "transparent",
@@ -326,157 +354,203 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
             </div>
           )}
 
-          <div
-            className="grid gap-3 border-b px-4 py-2.5 text-[10.5px] uppercase tracking-[0.07em]"
-            style={{
-              gridTemplateColumns: "140px 1fr 60px 95px 85px 72px 120px 105px 30px",
-              borderColor: "var(--app-line)",
-              color: "var(--app-tx-3)",
-            }}
-          >
-            <span>Part</span>
-            <span>Description</span>
-            <span className="text-right">Qty</span>
-            <span className="text-right">Cost</span>
-            <span className="text-right">Sell</span>
-            <span className="text-right">Margin</span>
-            <span>Basis</span>
-            <span className="text-right">Extended</span>
-            <span />
-          </div>
-
-          {groups.length === 0 && (
-            <div className="grid place-items-center gap-1.5 px-6 py-16 text-center">
-              <span className="text-[13.5px] font-semibold">
-                {running ? "Pricing in progress…" : "Nothing priced yet"}
-              </span>
-              <span className="max-w-[440px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
-                {running
-                  ? "Claude is working through the catalog and the price books."
-                  : "Confirm the openings on the extraction step, then hand off to pricing."}
-              </span>
-            </div>
-          )}
-
-          {groups.map((group) => (
-            <div key={group.division}>
+          <div className="overflow-x-auto">
+            <div style={{ minWidth: 940 }}>
               <div
-                className="flex items-baseline gap-2 px-4 py-2.5"
-                style={{ background: "var(--app-panel-2)" }}
+                className="grid gap-3 border-b px-4 py-2.5 text-[10.5px] uppercase tracking-[0.07em]"
+                style={{
+                  gridTemplateColumns: COLUMNS,
+                  borderColor: "var(--app-line)",
+                  color: "var(--app-tx-3)",
+                }}
               >
-                <span className="text-[13px] font-semibold">{group.division}</span>
-                <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
-                  {group.lines.length} line{group.lines.length === 1 ? "" : "s"}
-                </span>
-                <span className="flex-1" />
-                <span className="tnum text-[13px] font-semibold">
-                  ${formatMoney(group.subtotal)}
-                </span>
+                <span>Part</span>
+                <span>Description</span>
+                <span className="text-right">Qty</span>
+                <span className="text-right">Cost</span>
+                <span className="text-right">Sell</span>
+                <span className="text-right">Margin</span>
+                <span>Basis</span>
+                <span className="text-right">Extended</span>
+                <span />
               </div>
 
-              {group.lines.map((line) => (
-                <div
-                  key={line.id}
-                  className="grid items-center gap-3 border-b px-4 py-2 last:border-b-0"
-                  style={{
-                    gridTemplateColumns: "140px 1fr 60px 95px 85px 72px 120px 105px 30px",
-                    borderColor: "var(--app-line)",
-                    borderLeft: line.addedByHand ? "3px solid var(--app-neg)" : undefined,
-                  }}
-                >
-                  <span className="truncate text-[12px]" style={{ color: "var(--app-tx-2)" }}>
-                    {line.part ?? "—"}
+              {error ? (
+                <div className="grid place-items-center gap-2 px-6 py-16 text-center">
+                  <span className="text-[13.5px] font-semibold" style={{ color: "var(--app-neg)" }}>
+                    Could not load the quote
                   </span>
-
-                  <span className="min-w-0">
-                    <span className="block truncate text-[12.5px]">{line.description}</span>
-                    {(line.marginOverridden || line.addedByHand) && (
-                      <span className="text-[10.5px]" style={{ color: "var(--app-neg)" }}>
-                        {line.addedByHand ? "added by hand" : "margin overridden"}
-                        {line.overrideReason ? ` · ${line.overrideReason}` : ""}
-                      </span>
-                    )}
+                  <span className="max-w-[440px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                    {errorMessage(error)}
                   </span>
-
-                  <Cell
-                    value={line.qty}
-                    onCommit={(next) => patchLine(line, { qty: next ?? 1 })}
-                  />
-                  <Cell
-                    value={line.cost}
-                    prefix="$"
-                    onCommit={(next) => patchLine(line, { cost: next })}
-                  />
-
-                  <span className="tnum text-right text-[12.5px]">
-                    {line.sell === null ? (
-                      <span
-                        className="rounded px-1.5 py-0.5 text-[10.5px]"
-                        style={{ background: "var(--app-warn-soft)", color: "var(--app-warn)" }}
-                      >
-                        {line.priceStatus ?? "MANUAL"}
-                      </span>
-                    ) : (
-                      formatMoney(line.sell)
-                    )}
-                  </span>
-
-                  <Cell
-                    value={line.margin === null ? null : Math.round(line.margin * 100)}
-                    suffix="%"
-                    onCommit={(next) =>
-                      patchLine(line, {
-                        margin: next === null ? null : Math.min(Math.max(next, 0), 99) / 100,
-                        overrideReason: "edited on the quote grid",
-                      })
-                    }
-                  />
-
-                  <span className="min-w-0">
-                    <span
-                      className="block truncate text-[11.5px]"
-                      style={{ color: "var(--app-tx-2)" }}
-                      title={
-                        [line.basis, line.multiplierTier, line.multiplierEffectiveDate]
-                          .filter(Boolean)
-                          .join(" · ") || undefined
-                      }
-                    >
-                      {line.basis ?? "—"}
-                    </span>
-                    {line.lapsed && (
-                      <span
-                        className="rounded px-1 text-[10px]"
-                        style={{ background: "var(--app-warn-soft)", color: "var(--app-warn)" }}
-                        title={`Price book effective ${line.multiplierEffectiveDate} — past the 180-day review window`}
-                      >
-                        lapsed
-                      </span>
-                    )}
-                  </span>
-
-                  <span className="tnum text-right text-[12.5px] font-semibold">
-                    {line.extended === null ? "—" : `$${formatMoney(line.extended)}`}
-                  </span>
-
                   <button
-                    onClick={() => deleteLine(line)}
-                    aria-label="Remove line"
-                    style={{ color: "var(--app-tx-3)" }}
+                    onClick={() => mutate()}
+                    className="mt-1 rounded-md px-3 py-1.5 text-[12px]"
+                    style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
                   >
-                    <Trash size={14} weight="duotone" />
+                    Try again
                   </button>
                 </div>
-              ))}
+              ) : isLoading && !data ? (
+                <div className="grid place-items-center px-6 py-16 text-center">
+                  <span className="text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+                    Loading the priced lines…
+                  </span>
+                </div>
+              ) : groups.length === 0 ? (
+                <div className="grid place-items-center gap-1.5 px-6 py-16 text-center">
+                  <span className="text-[13.5px] font-semibold">
+                    {running
+                      ? "Pricing in progress…"
+                      : filtering && data?.lineCount
+                        ? "Nothing in this group yet"
+                        : "Nothing priced yet"}
+                  </span>
+                  <span className="max-w-[440px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                    {running
+                      ? "Claude is working through the catalog and the price books."
+                      : filtering && data?.lineCount
+                        ? "Move lines into this alternate on the extraction step, or add them by hand."
+                        : "Confirm the openings on the extraction step, then hand off to pricing."}
+                  </span>
+                </div>
+              ) : (
+                groups.map((group) => (
+                  <div key={group.division}>
+                    <div
+                      className="flex items-baseline gap-2 px-4 py-2.5"
+                      style={{ background: "var(--app-panel-2)" }}
+                    >
+                      <span className="text-[13px] font-semibold">{group.division}</span>
+                      <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                        {group.lines.length} line{group.lines.length === 1 ? "" : "s"}
+                      </span>
+                      <span className="flex-1" />
+                      <span className="tnum text-[13px] font-semibold">
+                        ${formatMoney(group.subtotal)}
+                      </span>
+                    </div>
+
+                    {group.lines.map((line) => (
+                      <div
+                        key={line.id}
+                        className="grid items-center gap-3 border-b px-4 py-2 last:border-b-0"
+                        style={{
+                          gridTemplateColumns: COLUMNS,
+                          borderColor: "var(--app-line)",
+                          borderLeft: line.addedByHand ? "3px solid var(--app-neg)" : undefined,
+                        }}
+                      >
+                        <span className="truncate text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                          {line.part ?? "—"}
+                        </span>
+
+                        <span className="min-w-0">
+                          <span className="block truncate text-[12.5px]" title={line.description}>
+                            {line.description}
+                          </span>
+                          {(line.marginOverridden || line.addedByHand) && (
+                            <span className="text-[10.5px]" style={{ color: "var(--app-neg)" }}>
+                              {line.addedByHand ? "added by hand" : "margin overridden"}
+                              {line.overrideReason ? ` · ${line.overrideReason}` : ""}
+                            </span>
+                          )}
+                        </span>
+
+                        <Cell
+                          value={line.qty}
+                          label={`Quantity for ${line.description}`}
+                          onCommit={(next) => patchLine(line, { qty: next ?? 1 })}
+                        />
+                        <Cell
+                          value={line.cost}
+                          prefix="$"
+                          label={`Cost for ${line.description}`}
+                          onCommit={(next) => patchLine(line, { cost: next })}
+                        />
+
+                        <span className="tnum text-right text-[12.5px]">
+                          {line.sell === null ? (
+                            <span
+                              className="rounded px-1.5 py-0.5 text-[10.5px]"
+                              style={{
+                                background: "var(--app-warn-soft)",
+                                color: "var(--app-warn)",
+                              }}
+                            >
+                              {line.priceStatus ?? "MANUAL"}
+                            </span>
+                          ) : (
+                            formatMoney(line.sell)
+                          )}
+                        </span>
+
+                        <Cell
+                          // Shown to a tenth rather than rounded to a whole
+                          // percent: a 27.5% band displayed as "28" and then
+                          // committed back was a silent half-point of margin.
+                          value={line.margin === null ? null : Number((line.margin * 100).toFixed(1))}
+                          suffix="%"
+                          label={`Margin for ${line.description}`}
+                          onCommit={(next) =>
+                            patchLine(line, {
+                              margin: next === null ? null : Math.min(Math.max(next, 0), 99) / 100,
+                              overrideReason: "edited on the quote grid",
+                            })
+                          }
+                        />
+
+                        <span className="min-w-0">
+                          <span
+                            className="block truncate text-[11.5px]"
+                            style={{ color: "var(--app-tx-2)" }}
+                            title={
+                              [line.basis, line.multiplierTier, line.multiplierEffectiveDate]
+                                .filter(Boolean)
+                                .join(" · ") || undefined
+                            }
+                          >
+                            {line.basis ?? "—"}
+                          </span>
+                          {line.lapsed && (
+                            <span
+                              className="rounded px-1 text-[10px]"
+                              style={{
+                                background: "var(--app-warn-soft)",
+                                color: "var(--app-warn)",
+                              }}
+                              title={`Price book effective ${line.multiplierEffectiveDate} — past the 180-day review window`}
+                            >
+                              lapsed
+                            </span>
+                          )}
+                        </span>
+
+                        <span className="tnum text-right text-[12.5px] font-semibold">
+                          {line.extended === null ? "—" : `$${formatMoney(line.extended)}`}
+                        </span>
+
+                        <button
+                          onClick={() => deleteLine(line)}
+                          aria-label={`Remove ${line.description}`}
+                          style={{ color: "var(--app-tx-3)" }}
+                        >
+                          <Trash size={14} weight="duotone" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ))
+              )}
             </div>
-          ))}
+          </div>
 
           {totals && (
             <div
-              className="flex items-end gap-8 border-t px-4 py-4"
+              className="flex flex-wrap items-end gap-6 border-t px-4 py-4"
               style={{ borderColor: "var(--app-line)" }}
             >
-              <span className="flex-1 text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+              <span className="min-w-[220px] flex-1 text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
                 Lines with a magenta rule were added by hand. Divisors come from the margin sheet.
                 {totals.unpricedLines > 0 && (
                   <>
@@ -519,11 +593,7 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
                 >
                   Freight
                 </span>
-                <Cell
-                  value={totals.freight}
-                  prefix="$"
-                  onCommit={(next) => setFreight(next)}
-                />
+                <Cell value={totals.freight} prefix="$" label="Freight" onCommit={setFreight} />
                 <span className="mt-0.5 text-[10px]" style={{ color: "var(--app-tx-3)" }}>
                   {totals.freight ? "quoted on this bid" : "TBD at estimate stage"}
                 </span>
@@ -534,11 +604,22 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
                   className="text-[10.5px] uppercase tracking-[0.07em]"
                   style={{ color: "var(--app-tx-3)" }}
                 >
-                  Sell total
+                  {/* Showing the whole bid's total above a filtered list was
+                      the screen telling two different stories at once. */}
+                  {selectedAlternate ? `${selectedAlternate.label} total` : "Sell total"}
                 </span>
                 <span className="tnum text-[24px] font-bold">
-                  ${formatMoney(totals.grandTotal)}
+                  $
+                  {formatMoney(
+                    selectedAlternate ? selectedAlternate.grandTotal : totals.grandTotal,
+                  )}
                 </span>
+                {filtering && (
+                  <span className="mt-0.5 text-[10px]" style={{ color: "var(--app-tx-3)" }}>
+                    {visibleLines} of {data?.lineCount ?? 0} lines · whole bid $
+                    {formatMoney(totals.grandTotal)}
+                  </span>
+                )}
               </span>
             </div>
           )}
@@ -546,7 +627,7 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
       </main>
 
       <footer
-        className="flex shrink-0 items-center gap-3 border-t px-5 py-3"
+        className="flex flex-wrap items-center gap-3 border-t px-5 py-3"
         style={{ borderColor: "var(--app-line)", background: "var(--app-bg)" }}
       >
         <a
@@ -566,7 +647,10 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
           Log a call
         </button>
 
-        <span className="flex-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+        <span
+          className="min-w-[200px] flex-1 text-[12.5px]"
+          style={{ color: "var(--app-tx-2)" }}
+        >
           Cost, sell and margin are all editable. Overrides are logged against your name.
         </span>
         <button
@@ -574,7 +658,7 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
           className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px]"
           style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
         >
-          <FloppyDisk size={14} weight="duotone" />
+          <ArrowsClockwise size={14} weight="duotone" />
           Refresh totals
         </button>
         <button

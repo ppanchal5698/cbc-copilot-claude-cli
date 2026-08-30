@@ -39,7 +39,14 @@ _READING = ["pdf-tools", "artifact-storage"]
 # cost, calc-engine for the arithmetic, p21 for last-PO history.
 _PRICING = ["catalog", "pricebook", "calc-engine", "p21-connector", "artifact-storage"]
 
+# One run that spans every phase needs every server. Per-phase scoping is a real
+# cost and quality lever when a job does one thing; here the same pass reads
+# drawings, prices lines and writes artifacts, so narrowing it would only make a
+# subagent reach for a tool it has not been given.
+_EVERYTHING = list(SERVERS)
+
 PROFILES: dict[str, list[str]] = {
+    "run_full_pipeline": _EVERYTHING,
     "extract_bid_set": _READING,
     "rerun_extraction": _READING,
     "ingest_addendum": _READING,

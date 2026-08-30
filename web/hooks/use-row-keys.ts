@@ -22,12 +22,12 @@ export function useRowKeys<T extends { id: string }>({
   onOpen?: (row: T) => void;
   enabled?: boolean;
 }) {
-  const [cursor, setCursor] = useState<number>(-1);
+  const [storedCursor, setCursor] = useState<number>(-1);
 
-  // A shrinking list must not leave the cursor pointing past the end.
-  useEffect(() => {
-    setCursor((current) => (current >= rows.length ? rows.length - 1 : current));
-  }, [rows.length]);
+  // A shrinking list must not leave the cursor pointing past the end. Clamped
+  // on the way out rather than corrected in an effect, so the render that sees
+  // the shorter list already sees a valid cursor.
+  const cursor = Math.min(storedCursor, rows.length - 1);
 
   const isTyping = useCallback(() => {
     const target = document.activeElement as HTMLElement | null;
@@ -50,12 +50,12 @@ export function useRowKeys<T extends { id: string }>({
 
       if (key === "j" || event.key === "ArrowDown") {
         event.preventDefault();
-        setCursor((current) => Math.min(current + 1, rows.length - 1));
+        setCursor(Math.min(cursor + 1, rows.length - 1));
         return;
       }
       if (key === "k" || event.key === "ArrowUp") {
         event.preventDefault();
-        setCursor((current) => Math.max(current - 1, 0));
+        setCursor(Math.max(cursor - 1, 0));
         return;
       }
 
@@ -92,7 +92,7 @@ export function useRowKeys<T extends { id: string }>({
 
   return {
     cursor,
-    cursorId: cursor >= 0 ? rows[cursor]?.id ?? null : null,
+    cursorId: cursor >= 0 ? (rows[cursor]?.id ?? null) : null,
     setCursor,
   };
 }

@@ -7,18 +7,8 @@ import { toast } from "sonner";
 
 import { formatMoneyShort } from "@/lib/format";
 
-import { proxyFetcher } from "@/lib/proxy-fetcher";
-
-export interface Alternate {
-  name: string | null;
-  label: string;
-  isBase: boolean;
-  lineItemCount: number;
-  quoteLineCount: number;
-  subtotal: number;
-  grandTotal: number;
-  unpricedLines: number;
-}
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import type { AlternatesResponse } from "@/lib/types";
 
 /**
  * Base bid and alternates as distinct, comparable groups.
@@ -41,7 +31,7 @@ export function AlternateBar({
   showTotals?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
-  const { data, mutate } = useSWR<{ alternates: Alternate[]; pending: string }>(
+  const { data, mutate } = useSWR<AlternatesResponse>(
     `/api/proxy/projects/${code}/alternates`,
     proxyFetcher,
   );
@@ -62,22 +52,18 @@ export function AlternateBar({
   }
 
   async function create(name: string) {
-    if (!name.trim()) return;
-    const response = await fetch(`/api/proxy/projects/${code}/alternates`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim() }),
-    });
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("Could not add that alternate", { description: String(body.detail) });
-      return;
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/alternates`, { body: { name: trimmed } });
+      toast.success(`${trimmed} created`, {
+        description: "Empty by design — move lines into it, or add them by hand.",
+      });
+      setAdding(false);
+      mutate();
+    } catch (problem) {
+      toast.error("Could not add that alternate", { description: errorMessage(problem) });
     }
-    toast.success(`${name.trim()} created`, {
-      description: "Empty by design — move lines into it, or add them by hand.",
-    });
-    setAdding(false);
-    mutate();
   }
 
   return (

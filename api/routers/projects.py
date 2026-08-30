@@ -177,6 +177,14 @@ async def list_projects(
 async def create_project(body: ProjectCreate, actor: Actor) -> dict[str, Any]:
     code = await next_code()
 
+    # Unless the bid says otherwise, the installation default decides. False out
+    # of the box: the gated flow is what CLAUDE.md describes, and autopilot prices
+    # openings nobody has checked.
+    autopilot = body.autopilot
+    if autopilot is None:
+        pipeline = await db.settings.find_one({"_id": "pipeline"}) or {}
+        autopilot = bool(pipeline.get("autopilotDefault", False))
+
     slug = storage.slugify(body.name)
     if await db.projects.find_one({"slug": slug}):
         slug = f"{slug}_{code.lower().replace('-', '_')}"
@@ -189,6 +197,7 @@ async def create_project(body: ProjectCreate, actor: Actor) -> dict[str, Any]:
         else None,
         "code": code,
         "slug": slug,
+        "autopilot": autopilot,
         "stage": "intake",
         "progress": 0,
         "createdAt": now,

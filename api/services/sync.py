@@ -63,9 +63,20 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
 
 
+def door_number(item: dict[str, Any]) -> str:
+    """The grouping key, whichever of the two names it arrived under.
+
+    `door_number` is what the parser, the agents and the validator emit; `mark` is
+    what the Mongo document calls it. Two names for the key the whole quote groups
+    by is a standing trap - it is read here, once, so nothing downstream has to
+    guess which one is populated.
+    """
+    return str(item.get("door_number") or item.get("mark") or "").strip()
+
+
 def _identity(item: dict[str, Any]) -> str:
     """Stable key for matching a re-extracted row to an existing line item."""
-    mark = (item.get("mark") or item.get("door_number") or "").strip()
+    mark = door_number(item)
     if mark:
         return f"mark:{mark}"
     return "desc:" + (item.get("description") or item.get("raw_row") or "").strip().lower()[:80]
@@ -168,7 +179,7 @@ async def import_extraction(project: dict[str, Any]) -> dict[str, int]:
             "pageSize": item.get("page_size"),
         }
         fields = {
-            "mark": item.get("mark") or item.get("door_number"),
+            "mark": door_number(item) or None,
             "description": item.get("description") or item.get("raw_row", ""),
             "size": item.get("size") or item.get("width"),
             "qty": item.get("qty", 1),

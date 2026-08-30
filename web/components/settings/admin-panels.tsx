@@ -4,25 +4,22 @@ import { useState } from "react";
 import useSWR from "swr";
 import { toast } from "sonner";
 
-import { proxyFetcher } from "@/lib/proxy-fetcher";
-
-interface AuditEntry {
-  id: string;
-  at: string;
-  actor: string;
-  action: string;
-  note?: string | null;
-}
+import { useDebounced } from "@/hooks/use-debounced";
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import type { AuditEntry, UserRow } from "@/lib/types";
 
 export function AuditLogPanel() {
   const [project, setProject] = useState("");
-  const query = project.trim()
-    ? `/api/proxy/audit?limit=50&project=${encodeURIComponent(project.trim())}`
+  // Debounced: this used to issue a request on every keystroke of the filter.
+  const settled = useDebounced(project.trim());
+  const query = settled
+    ? `/api/proxy/audit?limit=50&project=${encodeURIComponent(settled)}`
     : "/api/proxy/audit?limit=50";
 
-  const { data, isLoading } = useSWR<{ entries: AuditEntry[]; total: number }>(
+  const { data, error, isLoading } = useSWR<{ entries: AuditEntry[]; total: number }>(
     query,
     proxyFetcher,
+    { keepPreviousData: true },
   );
 
   return (
@@ -39,6 +36,7 @@ export function AuditLogPanel() {
           value={project}
           onChange={(event) => setProject(event.target.value)}
           placeholder="Filter by bid code, e.g. bid_12"
+          aria-label="Filter the audit log by bid code"
           className="mt-3 w-full max-w-xs rounded-md px-2.5 py-1.5 text-[12px] outline-none"
           style={{
             background: "var(--app-panel-2)",
@@ -49,7 +47,12 @@ export function AuditLogPanel() {
       </div>
 
       <div className="max-h-[420px] overflow-auto">
-        {isLoading && (
+        {error && (
+          <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-neg)" }}>
+            Could not read the audit log: {errorMessage(error)}
+          </p>
+        )}
+        {isLoading && !data && (
           <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
             Loading…
           </p>
@@ -75,7 +78,7 @@ export function AuditLogPanel() {
             </span>
           </div>
         ))}
-        {!isLoading && (data?.entries.length ?? 0) === 0 && (
+        {!isLoading && !error && (data?.entries.length ?? 0) === 0 && (
           <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
             No entries yet.
           </p>
@@ -93,14 +96,6 @@ export function AuditLogPanel() {
   );
 }
 
-interface UserRow {
-  id: string;
-  email: string;
-  name: string;
-  initials: string;
-  role: string;
-}
-
 export function UsersAdminPanel() {
   const { data, mutate } = useSWR<{ users: UserRow[] }>("/api/proxy/users", proxyFetcher);
   const [draft, setDraft] = useState({
@@ -115,33 +110,28 @@ export function UsersAdminPanel() {
   async function createUser(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
-    const response = await fetch("/api/proxy/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(draft),
-    });
-    setBusy(false);
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({ detail: response.statusText }));
-      toast.error("Could not create user", { description: String(body.detail) });
-      return;
+    try {
+      await proxyMutate("/api/proxy/users", { body: draft });
+      toast.success(`${draft.email} added`);
+      setDraft({ email: "", name: "", initials: "", role: "estimator", password: "" });
+      mutate();
+    } catch (problem) {
+      toast.error("Could not create user", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
     }
-    toast.success(`${draft.email} added`);
-    setDraft({ email: "", name: "", initials: "", role: "estimator", password: "" });
-    mutate();
   }
 
   async function updateRole(user: UserRow, role: string) {
-    const response = await fetch(`/api/proxy/users/${user.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role }),
-    });
-    if (!response.ok) {
-      toast.error("Could not update role");
-      return;
+    try {
+      await proxyMutate(`/api/proxy/users/${user.id}`, { method: "PATCH", body: { role } });
+      toast.success(`${user.name} is now ${role}`);
+      mutate();
+    } catch (problem) {
+      toast.error("Could not update role", { description: errorMessage(problem) });
+      // Put the select back where it was; the change did not happen.
+      mutate();
     }
-    mutate();
   }
 
   return (
@@ -225,6 +215,7 @@ export function UsersAdminPanel() {
             </div>
             <select
               value={user.role}
+              aria-label={`Role for ${user.name}`}
               onChange={(event) => updateRole(user, event.target.value)}
               className="rounded-md px-2 py-1 text-[12px] outline-none"
               style={{
