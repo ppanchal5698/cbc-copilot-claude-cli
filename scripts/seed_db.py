@@ -218,9 +218,9 @@ def seed_demo_project(db) -> str | None:
     """Create the Dutch Bros bid from the fixture already in the repo."""
     from api.services import storage
 
-    fixture = ROOT / "building-plans" / "1_Architectural.pdf"
+    fixture = ROOT / "tests" / "fixtures" / "pdfs" / "1_Architectural.pdf"
     if not fixture.exists():
-        print("  ! building-plans/1_Architectural.pdf missing - skipping demo project")
+        print("  ! tests/fixtures/pdfs/1_Architectural.pdf missing - skipping demo project")
         return None
 
     code = "CBC-260143"

@@ -28,23 +28,28 @@ run_phase() {
   echo "[$(date -Iseconds)] ${label} - ${project} (agent: ${agent})"
 
   cd "${ROOT}"
+
+  # The constraints come from worker/prompts.py, which is what the Ops-Hub worker
+  # runs with. This script used to restate them by hand, and the copy had fallen
+  # behind: no manual cut-off, no P21 rule, no audit-trail line, and no
+  # requirement that an extracted record carry a bbox. Same rules, one source.
+  local preamble
+  if ! preamble="$(PYTHONPATH="${ROOT}" python -m worker.prompts "${project_dir}")"; then
+    echo "Could not read the constraint preamble from worker/prompts.py" >&2
+    return 1
+  fi
   "${CLAUDE_BIN}" --print --dangerously-skip-permissions "$(cat <<EOF
 You are the CBC Estimating Copilot running ${label} for project ${project}.
 
-Delegate to the ${agent} sub-agent defined in .claude/agents/${agent}.md and
-follow its instructions exactly.
+Delegate to the \`${agent}\` subagent with the Agent tool. Every Agent call
+requires description, subagent_type, and prompt - calls missing description fail.
 
 Working directory for all inputs and outputs: ${project_dir}/
 Bid-set PDFs: ${project_dir}/uploads/raw/
 
 ${instructions}
 
-Constraints that override anything else:
-- Respect every rule in .claude/rules/ and every guardrail in .claude/hooks/.
-- Write only inside ${project_dir}/. Never write to pricebooks/ or reference-library/.
-- Every extracted record carries source_page. Every priced line carries its cost source and date.
-- Flag what you cannot determine. Never guess a fire rating, handing, finish, size or price.
-- Do NOT send anything, by any means.
+${preamble}
 EOF
 )"
 }

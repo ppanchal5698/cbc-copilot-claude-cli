@@ -4,8 +4,7 @@
 projects/
 pricebooks/
 final_pricebooks/
-building-plans/
-frontend/
+tests/fixtures/pdfs/
 
 .git/
 .venv/
@@ -14,6 +13,10 @@ venv/
 **/*.py[co]
 .pytest_cache/
 .cache/
+# The catalog search index: derived data, rebuilt in the container.
+# Baking it in makes the image large and ships a stale index that a named
+# volume then seeds itself from on first start.
+.index/
 
 web/node_modules/
 web/.next/

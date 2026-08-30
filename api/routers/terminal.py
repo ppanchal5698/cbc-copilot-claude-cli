@@ -8,7 +8,7 @@ behind it.
 
 What goes down the wire is the recording verbatim: escape sequences included, so
 xterm.js renders the session the CLI actually drew rather than a paraphrase of
-it. Credentials are already stripped on the way in, by `worker/streaming.py`.
+it. Credentials are already stripped on the way in, by `cbc_core/streaming.py`.
 """
 from __future__ import annotations
 
@@ -26,6 +26,11 @@ from api.db import db, oid
 router = APIRouter(prefix="/api/jobs/{job_id}/terminal", tags=["terminal"])
 
 POLL_SECONDS = 0.4
+# The recording is tailed often, because that is what makes it feel live. The job
+# document is not: its status changes a handful of times in a whole run, and
+# querying it on every tick cost 2.5 database round trips per second per viewer,
+# on top of the four-second polls every other screen already runs.
+JOB_POLL_SECONDS = 2.0
 IDLE_TIMEOUT = 900  # a stream with nothing to say for this long has been abandoned
 
 
@@ -85,27 +90,38 @@ async def stream_terminal(job_id: str, offset: int = 0) -> StreamingResponse:
     replaying the whole session.
     """
     job = await _job(job_id)
-    path = _recording_of(job)
+    # Validate the stored path before the response starts: a bad one is a 400
+    # here, and an error nobody can see once the stream is open.
+    _recording_of(job)
+
+    def _read_from(target: Path, position: int) -> tuple[bytes, int]:
+        """Blocking tail, run off the event loop."""
+        size = target.stat().st_size
+        if size < position:
+            position = 0  # the file was replaced - a re-run of the same job
+        if size <= position:
+            return b"", position
+        with target.open("rb") as handle:
+            handle.seek(position)
+            chunk = handle.read(size - position)
+        return chunk, position + len(chunk)
 
     async def events() -> AsyncIterator[bytes]:
         position = offset
         idle = 0.0
+        since_job_poll = JOB_POLL_SECONDS
+        current = job
 
         while True:
-            current = await _job(job_id)
+            if since_job_poll >= JOB_POLL_SECONDS:
+                current = await _job(job_id)
+                since_job_poll = 0.0
             finished = current.get("status") in ("done", "failed", "cancelled")
             target = _recording_of(current)
 
             if target and target.exists():
-                size = target.stat().st_size
-                if size < position:
-                    # The file was replaced - a re-run of the same job.
-                    position = 0
-                if size > position:
-                    with target.open("rb") as handle:
-                        handle.seek(position)
-                        chunk = handle.read(size - position)
-                    position += len(chunk)
+                chunk, position = await asyncio.to_thread(_read_from, target, position)
+                if chunk:
                     idle = 0.0
                     encoded = base64.b64encode(chunk).decode("ascii")
                     yield f"event: output\ndata: {encoded}\n\n".encode("utf-8")
@@ -118,6 +134,7 @@ async def stream_terminal(job_id: str, offset: int = 0) -> StreamingResponse:
 
             await asyncio.sleep(POLL_SECONDS)
             idle += POLL_SECONDS
+            since_job_poll += POLL_SECONDS
             if idle >= IDLE_TIMEOUT:
                 yield b"event: end\ndata: idle\n\n"
                 return

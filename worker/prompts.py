@@ -1,8 +1,14 @@
 """One prompt per job type.
 
-The constraint preamble is the same wording already used by
-`workflows/_phase.sh`, kept in one place so the rules an unattended run operates
-under cannot drift between the two entry points.
+There are two ways a headless run starts - a job through the worker, and
+`workflows/phaseN_*.sh` from a terminal - and the rules they operate under must
+be the same rules. They were not: the shell path carried its own hand-copied
+subset that had fallen behind, missing the manual cut-off, the P21 constraint,
+the audit-trail line and the requirement that every record carry a bbox.
+
+`_phase.sh` now asks this module for PREAMBLE rather than restating it:
+
+    python -m worker.prompts projects/dutch_bros
 """
 from __future__ import annotations
 
@@ -28,6 +34,22 @@ PREAMBLE = """Constraints that override anything else:
   Reading them into it again is the most expensive way to learn nothing.
 - **Do not shell out for what a tool returns.** `save_artifact` timestamps what it
   writes, so a `date` call is a round trip for a value you are already given.
+- **Delegate with the Agent tool, not by reading agent files.** Every Agent call
+  MUST include all three parameters:
+    description: short label (REQUIRED - calls without it fail validation)
+    subagent_type: one of intake-coordinator, spec-scope-analyst, takeoff-engineer,
+      frp-specialist, product-matcher, pricing-engineer, quote-builder,
+      quality-reviewer, delivery-agent, pricebook-ingestor
+    prompt: full task with paths, page numbers and output files
+  Example:
+    Agent(description="Extract door schedule page 15", subagent_type="takeoff-engineer",
+          prompt="Read {project_dir}/uploads/raw/... page 15. Run parse_schedule.py
+          --page 15 --openings --json. Write {project_dir}/extracted/door_schedule.json
+          with bbox and page_size on every opening.")
+- **Do not write inline `python3 -c` parsers for schedule data.** Run
+  `.claude/skills/extract-door-schedule/scripts/parse_schedule.py` instead.
+- **Do not call compute_totals on raw priced lines with null sale_ea.** Use
+  `scripts/validate_and_render_quote.py` or filter unpriced lines first.
 - If text comes back as punctuation soup, the fonts carry no ToUnicode map;
   pdf-tools already repairs that and sets `encoding_repaired`. Do not decode it
   yourself.
@@ -85,9 +107,12 @@ The estimator asked for another pass over the drawings in {project_dir}/uploads/
 {project_dir}/extracted/door_schedule.json holds the current state, including
 lines the estimator has confirmed (`confirmed_by` set) or added by hand
 (`added_by_hand: true`). Those are decisions, not suggestions - leave them alone.
-Re-read everything else and correct it, following .claude/agents/takeoff-engineer.md.
 
-Carry bbox, page_size and source_page on every row.
+Delegate to `takeoff-engineer` with the Agent tool (description + subagent_type +
+prompt required). Hand it the PDF path, schedule page numbers, and the reconcile
+rules above. It must run `parse_schedule.py --page N --openings --json` and write
+`{project_dir}/extracted/door_schedule.json` with bbox, page_size and confidence
+on every opening.
 
 {preamble}"""
 
@@ -95,8 +120,11 @@ MATCH_AND_PRICE = """You are the CBC Estimating Copilot pricing project {code}.
 
 The estimator has confirmed the openings in {project_dir}/extracted/door_schedule.json.
 
-  1. .claude/agents/product-matcher.md   -> extracted/hardware_sets.json
-  2. .claude/agents/pricing-engineer.md  -> priced/line_items.json, priced/margin_applied.json
+Delegate with the Agent tool (description + subagent_type + prompt required):
+
+  1. `product-matcher`  -> {project_dir}/extracted/hardware_sets.json
+  2. `pricing-engineer` -> {project_dir}/priced/line_items.json,
+                            {project_dir}/priced/margin_applied.json
 
 Use the `catalog` MCP server first for products, multipliers and price-book
 programs - it reads the live database purchasing maintains, so it is current.
@@ -111,6 +139,7 @@ price_book_version, source_page, flags.
 
 An item you cannot price gets cost: null and cost_source: "MANUAL" with a
 plain-language reason. Never extrapolate a price from a similar SKU.
+When cost is set, sale_ea and ext_price must also be set (use calc-engine).
 
 {preamble}"""
 
@@ -118,9 +147,17 @@ BUILD_PROPOSAL = """You are the CBC Estimating Copilot preparing the proposal fo
 
 The estimator has approved the quote in {project_dir}/priced/line_items.json.
 
-  1. .claude/agents/quote-builder.md     -> quotation.html
-  2. .claude/agents/quality-reviewer.md  -> review/review_flags.json, review/review_summary.html
-  3. .claude/agents/delivery-agent.md    -> uploads/final/, review/quotation_email_draft.md
+Delegate with the Agent tool (description + subagent_type + prompt required):
+
+  1. `quote-builder`      -> {project_dir}/quotation.html
+  2. `quality-reviewer`   -> {project_dir}/review/review_flags.json,
+                              {project_dir}/review/review_summary.html
+  3. `delivery-agent`     -> {project_dir}/uploads/final/,
+                              {project_dir}/review/quotation_email_draft.md
+
+The quote-builder must run `python scripts/validate_and_render_quote.py {code}`
+(not hand-written HTML). The quality-reviewer should run
+`python scripts/render_review_summary.py {code}` for the summary page.
 
 Halt at the end and report exactly: "Draft ready for estimator review"
 
@@ -189,6 +226,11 @@ TEMPLATES = {
 }
 
 
+def preamble_for(project_dir: str) -> str:
+    """The constraint block, for any entry point that needs it."""
+    return PREAMBLE.format(project_dir=project_dir)
+
+
 def build(job: dict[str, Any], project: dict[str, Any] | None) -> str:
     template = TEMPLATES.get(job["type"])
     if template is None:
@@ -211,3 +253,9 @@ def build(job: dict[str, Any], project: dict[str, Any] | None) -> str:
         project_dir=project_dir,
         preamble=PREAMBLE.format(project_dir=project_dir),
     )
+
+
+if __name__ == "__main__":  # `python -m worker.prompts <project_dir>`
+    import sys
+
+    print(preamble_for(sys.argv[1] if len(sys.argv) > 1 else "projects/{project}"))

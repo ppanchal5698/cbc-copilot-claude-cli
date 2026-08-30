@@ -7,9 +7,8 @@ import { Tray, FilePdf, UploadSimple, Trash } from "@phosphor-icons/react/dist/s
 import { toast } from "sonner";
 
 import type { BidDocument, Job } from "@/lib/types";
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
-
+import { formatApiDetail } from "@/lib/format";
+import { proxyFetcher } from "@/lib/proxy-fetcher";
 const KINDS = [
   { key: "plan", label: "Plan set" },
   { key: "spec", label: "Specification" },
@@ -32,15 +31,20 @@ export function UploadPanel({
 
   const { data, mutate } = useSWR<{ documents: BidDocument[] }>(
     `/api/proxy/projects/${code}/documents`,
-    fetcher,
+    proxyFetcher,
     { fallbackData: { documents: initialDocuments } },
   );
   const documents = data?.documents ?? [];
 
   const { data: jobData } = useSWR<{ jobs: Job[] }>(
     `/api/proxy/jobs?project=${code}&limit=1`,
-    fetcher,
-    { refreshInterval: 5000 },
+    proxyFetcher,
+    {
+      refreshInterval: (latest) => {
+        const current = latest?.jobs?.[0];
+        return current?.status === "running" || current?.status === "queued" ? 5000 : 0;
+      },
+    },
   );
   const job = jobData?.jobs?.[0];
 
@@ -60,8 +64,9 @@ export function UploadPanel({
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({ detail: response.statusText }));
-        toast.error(`${file.name} was not accepted`, { description: String(body.detail) });
-        continue;
+        toast.error(`${file.name} was not accepted`, {
+          description: formatApiDetail(body.detail, response.statusText),
+        });        continue;
       }
 
       const result = await response.json();

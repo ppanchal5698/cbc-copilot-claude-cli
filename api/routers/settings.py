@@ -26,13 +26,22 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.db import db
-from api.services import audit, provider, secrets
+from api.deps import Actor, require_admin
+from api.services import audit, provider
+from cbc_core import secrets
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+# Every route here reads or writes provider credentials, or spawns a CLI process.
+# The proxy's only check was "is anyone signed in", so any estimator could read
+# which credentials were configured, repoint the gateway, or start processes.
+router = APIRouter(
+    prefix="/api/settings",
+    tags=["settings"],
+    dependencies=[Depends(require_admin)],
+)
 
 DOC_ID = "claude"
 
@@ -124,10 +133,14 @@ async def get_claude_settings() -> dict[str, Any]:
 
 @router.put("/claude")
 async def save_claude_settings(
-    body: ClaudeSettings, actor: str = "estimator"
+    body: ClaudeSettings, actor: Actor
 ) -> dict[str, Any]:
     if body.mode not in provider.MODES:
         raise HTTPException(400, f"unknown mode {body.mode!r}")
+    try:
+        provider.check_base_url(body.baseUrl)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
 
     current = await load_config()
     incoming = body.model_dump(exclude_none=True)
@@ -171,7 +184,13 @@ async def test_claude_settings(body: ClaudeSettings | None = None) -> dict[str, 
     Tests what was typed rather than what was saved, so a wrong key is caught
     before it becomes the configuration every job uses.
     """
-    from worker import runner
+    from cbc_core import claude_cli as runner
+
+    if body is not None:
+        try:
+            provider.check_base_url(body.baseUrl)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     if body is not None and body.mode in provider.MODES:
         stored = await load_config()
@@ -196,6 +215,43 @@ async def test_claude_settings(body: ClaudeSettings | None = None) -> dict[str, 
         "provider": provider.describe(candidate),
         "error": problem,
     }
+
+
+@router.get("/ollama/models")
+async def list_ollama_models(
+    baseUrl: str | None = Query(default=None),
+) -> dict[str, Any]:
+    """Return models from a host Ollama instance for the settings model picker."""
+    import httpx
+
+    resolved = baseUrl or os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    try:
+        provider.check_base_url(resolved)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    url = resolved.rstrip("/") + "/api/tags"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            payload = response.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            502,
+            f"Could not reach Ollama at {resolved!r}: {exc}",
+        ) from exc
+
+    models = []
+    for entry in payload.get("models") or []:
+        models.append(
+            {
+                "name": entry.get("name"),
+                "size": entry.get("size"),
+                "modifiedAt": entry.get("modified_at"),
+            }
+        )
+    return {"baseUrl": resolved, "models": models}
 
 
 @router.post("/claude/oauth/start")
@@ -278,7 +334,7 @@ async def oauth_start() -> dict[str, Any]:
 
 
 @router.post("/claude/oauth/code")
-async def oauth_code(body: OAuthCode, actor: str = "estimator") -> dict[str, Any]:
+async def oauth_code(body: OAuthCode, actor: Actor) -> dict[str, Any]:
     """Hand the browser's authorization code back to the CLI and store the token."""
     entry = _PENDING.get(body.session)
     if not entry:
@@ -446,7 +502,7 @@ async def _first_working_token(candidates: list[str]) -> str | None:
     token exactly once, so storing a broken one silently is unrecoverable - the
     estimator sees a configured credential that fails on every job.
     """
-    from worker import runner
+    from cbc_core import claude_cli as runner
 
     for candidate in candidates:
         env, _ = provider.build_env({"mode": provider.SUBSCRIPTION, "oauthToken": candidate})

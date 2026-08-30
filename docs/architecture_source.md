@@ -1,5 +1,9 @@
 # CBC Estimating Copilot — Project Architecture
 
+> **Bootstrap reference — not the runtime layout.** For the current tree see
+> [`docs/architecture.md`](architecture.md). This file preserves the original
+> bootstrap specification used to scaffold the repo.
+
 > An end-to-end autonomous estimating system built on Claude Code CLI.
 > Processes building-plan PDFs → extracts opening data → matches Division 8/9/10 products → prices → generates quotations — following the exact CBC estimator workflow (Phase 0–6).
 

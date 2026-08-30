@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { CheckSquare, ListChecks, Table, FileText } from "@phosphor-icons/react/dist/ssr";
 
-import { formatMoneyShort } from "@/lib/api";
+import { formatMoneyShort } from "@/lib/format";
 import type { Project, Stage } from "@/lib/types";
 
 const STAGES: { key: Stage; label: string; Icon: typeof CheckSquare }[] = [

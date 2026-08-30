@@ -6,30 +6,52 @@
  */
 import { NextRequest } from "next/server";
 
-import { API_BASE } from "@/lib/api";
 import { auth } from "@/auth";
+import { API_BASE } from "@/lib/api";
+import { internalApiHeaders } from "@/lib/internal-api";
 
 async function proxy(request: NextRequest, path: string[]) {
   const session = await auth();
   if (!session) return new Response("Unauthorized", { status: 401 });
 
   const target = new URL(`${API_BASE}/api/${path.join("/")}`);
-  request.nextUrl.searchParams.forEach((value, key) => target.searchParams.set(key, value));
-  if (session.user?.email && !target.searchParams.has("actor")) {
-    target.searchParams.set("actor", session.user.email);
+  request.nextUrl.searchParams.forEach((value, key) => {
+    if (key !== "actor") {
+      target.searchParams.set(key, value);
+    }
+  });
+
+  const headers = new Headers(request.headers);
+  headers.delete("host");
+  headers.delete("content-length");
+  for (const [key, value] of Object.entries(internalApiHeaders(session.user?.email))) {
+    headers.set(key, value);
   }
 
-  const upstream = await fetch(target, {
+  const contentType = request.headers.get("content-type") ?? "";
+
+  const init: RequestInit = {
     method: request.method,
-    headers: (() => {
-      const headers = new Headers(request.headers);
-      headers.delete("host");
-      headers.delete("content-length");
-      return headers;
-    })(),
-    body: ["GET", "HEAD"].includes(request.method) ? undefined : await request.blob(),
+    headers,
     cache: "no-store",
-  }).catch(() => null);
+  };
+
+  if (!["GET", "HEAD"].includes(request.method)) {
+    if (contentType.includes("multipart/form-data")) {
+      // Re-pack multipart so upstream fetch generates a fresh boundary FastAPI can parse.
+      const form = await request.formData();
+      const upstreamForm = new FormData();
+      for (const [key, value] of form.entries()) {
+        upstreamForm.append(key, value);
+      }
+      init.body = upstreamForm;
+      headers.delete("content-type");
+    } else {
+      init.body = await request.arrayBuffer();
+    }
+  }
+
+  const upstream = await fetch(target, init).catch(() => null);
 
   if (!upstream) {
     return Response.json(
@@ -38,10 +60,10 @@ async function proxy(request: NextRequest, path: string[]) {
     );
   }
 
-  const headers = new Headers(upstream.headers);
-  headers.delete("content-encoding");
-  headers.delete("content-length");
-  return new Response(upstream.body, { status: upstream.status, headers });
+  const responseHeaders = new Headers(upstream.headers);
+  responseHeaders.delete("content-encoding");
+  responseHeaders.delete("content-length");
+  return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
 }
 
 type Ctx = { params: Promise<{ path: string[] }> };
@@ -50,6 +72,9 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   return proxy(request, (await ctx.params).path);
 }
 export async function POST(request: NextRequest, ctx: Ctx) {
+  return proxy(request, (await ctx.params).path);
+}
+export async function PUT(request: NextRequest, ctx: Ctx) {
   return proxy(request, (await ctx.params).path);
 }
 export async function PATCH(request: NextRequest, ctx: Ctx) {

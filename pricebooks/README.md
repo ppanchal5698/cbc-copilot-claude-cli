@@ -1,7 +1,24 @@
 # Price Books
 
-26 vendor files across 10 vendors, copied from `final_pricebooks/`. Machine-readable
-inventory: `index.json` (vendor, file, effective date, kind, divisions).
+26 vendor files across 10 vendors. Machine-readable inventory: `index.json`
+(vendor, file, effective date, kind, divisions).
+
+## Source vs runtime
+
+| Directory | Role |
+|---|---|
+| `final_pricebooks/` | **Source** — raw vendor uploads with original UPPERCASE folder names and filenames as received from purchasing |
+| `pricebooks/` | **Runtime** — normalized snake_case filenames consumed by the `pricebook` MCP server, Docker mounts, and skills |
+
+The relationship is recorded in `index.json` (`"generated_from": "final_pricebooks/"`).
+Refresh normalized files with:
+
+```bash
+bash scripts/refresh_pricebooks.sh
+```
+
+Ops-Hub can also ingest sheets via the `ingest_pricebook` job, which writes both
+MongoDB (`products`, `priceBooks`) and files under `pricebooks/`.
 
 **These files are READ-ONLY during a pipeline run.** The `pre_delete_guard.py` hook
 blocks any `rm` that touches this directory, and `.claude/rules/file-safety.md`

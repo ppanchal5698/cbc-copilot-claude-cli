@@ -5,6 +5,7 @@ callers read as prose: `db.line_items.find({...})`.
 """
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any
 
@@ -14,9 +15,12 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, TEXT
-from pymongo.errors import OperationFailure, PyMongoError
+from pymongo.errors import DuplicateKeyError, OperationFailure, PyMongoError
 
 from api.config import settings
+from api.schemas.common import EXCLUSIVE_JOB_TYPES
+
+log = logging.getLogger("cbc.api.db")
 
 _client: AsyncIOMotorClient | None = None
 
@@ -88,12 +92,35 @@ class Collections:
         return database()["estimateVersions"]
 
     @property
+    def counters(self):
+        """Monotonic sequences. `_id` is the counter name, `seq` is the value."""
+        return database()["counters"]
+
+    @property
     def settings(self):
         """Installation settings - one document per concern, `_id` is the name."""
         return database()["settings"]
 
 
 db = Collections()
+
+
+async def _replace_index(collection, name: str, keys, **options) -> None:
+    """Create an index, replacing an existing one whose options differ.
+
+    `create_index` is idempotent only while the options match; changing them on an
+    index that already exists raises rather than migrating, which would leave a
+    tightened constraint silently un-applied on every database that already had
+    the old one - that is, all of them.
+    """
+    try:
+        await collection.create_index(keys, name=name, **options)
+        return
+    except OperationFailure as exc:
+        if exc.code not in (85, 86):  # IndexOptionsConflict, IndexKeySpecsConflict
+            raise
+    await collection.drop_index(name)
+    await collection.create_index(keys, name=name, **options)
 
 
 async def ensure_indexes() -> None:
@@ -108,8 +135,30 @@ async def ensure_indexes() -> None:
     await db.quote_lines.create_index([("projectId", ASCENDING), ("division", ASCENDING)])
     await db.quotes.create_index([("projectId", ASCENDING)], unique=True)
     await db.proposals.create_index([("projectId", ASCENDING)])
-    await db.products.create_index([("part", ASCENDING)], unique=True)
+    # Hager's 1234 and Rockwood's 1234 are different parts. A unique index on
+    # `part` alone made the price-book ingest upsert one over the other, so the
+    # second vendor's sheet silently replaced the first vendor's costs.
+    await db.products.create_index([("part", ASCENDING)])
     await db.products.create_index([("division", ASCENDING)])
+    try:
+        await _replace_index(
+            db.products,
+            "product_identity",
+            [("manufacturer", ASCENDING), ("part", ASCENDING)],
+            unique=True,
+        )
+    except DuplicateKeyError:
+        log.error(
+            "products already holds two rows with the same manufacturer and part, so "
+            "the unique index could not be built. Run scripts/dedupe_products.py, "
+            "then restart. Ingest is keyed on (manufacturer, part) either way."
+        )
+    for legacy in ("part_1",):  # the old part-only unique index
+        try:
+            await db.products.drop_index(legacy)
+            log.info("dropped legacy index products.%s", legacy)
+        except OperationFailure:
+            pass
     await db.products.create_index(
         [("part", TEXT), ("description", TEXT), ("manufacturer", TEXT)],
         name="product_search",
@@ -117,10 +166,29 @@ async def ensure_indexes() -> None:
     await db.price_books.create_index([("vendor", ASCENDING), ("program", ASCENDING)])
     await db.jobs.create_index([("status", ASCENDING), ("createdAt", ASCENDING)])
     await db.jobs.create_index([("projectId", ASCENDING), ("createdAt", DESCENDING)])
+    await _replace_index(
+        db.jobs,
+        "exclusive_active_job",
+        [("projectId", ASCENDING), ("type", ASCENDING)],
+        unique=True,
+        partialFilterExpression={
+            "status": {"$in": ["queued", "running"]},
+            # Without this the index also covered `ingest_pricebook`, which carries
+            # no project - so two pending uploads shared the key (null, type) and
+            # the second was silently dropped in favour of the first.
+            "type": {"$in": list(EXCLUSIVE_JOB_TYPES)},
+        },
+    )
+    await db.jobs.create_index([("status", ASCENDING), ("heartbeatAt", ASCENDING)])
     await db.audit_log.create_index([("at", DESCENDING)])
     await db.audit_log.create_index([("target.projectId", ASCENDING)])
     await db.calls.create_index([("projectId", ASCENDING), ("createdAt", DESCENDING)])
-    await db.versions.create_index([("projectId", ASCENDING), ("version", DESCENDING)])
+    await _replace_index(
+        db.versions,
+        "project_version",
+        [("projectId", ASCENDING), ("version", DESCENDING)],
+        unique=True,
+    )
     # Alternates are queried per group on both the extraction and quote screens.
     await db.line_items.create_index([("projectId", ASCENDING), ("alternateGroup", ASCENDING)])
     await db.quote_lines.create_index([("projectId", ASCENDING), ("alternateGroup", ASCENDING)])

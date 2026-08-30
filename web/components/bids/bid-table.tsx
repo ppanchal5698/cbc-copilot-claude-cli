@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { formatMoneyShort } from "@/lib/api";
+import { formatMoneyShort } from "@/lib/format";
 import type { Project } from "@/lib/types";
 
 const STAGE_LABEL: Record<string, string> = {

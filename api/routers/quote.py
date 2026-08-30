@@ -8,12 +8,14 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any
 
+from bson import ObjectId
 from fastapi import APIRouter, HTTPException
 
 from api.db import db, oid, serialise
-from api.models import QuoteLineCreate, QuoteLineUpdate, QuoteSettings
+from api.deps import Actor
+from api.schemas import QuoteLineCreate, QuoteLineUpdate, QuoteSettings
 from api.routers.projects import load
-from api.services import audit, jobs, pricing, sync
+from api.services import audit, jobs, quote as quote_service, sync
 
 router = APIRouter(prefix="/api/projects/{code}/quote", tags=["quote"])
 
@@ -26,7 +28,7 @@ STALE_DAYS = 180
 
 
 async def _lines(project_id) -> list[dict[str, Any]]:
-    return await db.quote_lines.find({"projectId": project_id}).sort("division", 1).to_list(2000)
+    return await quote_service.lines_for(project_id)
 
 
 def _lapsed(line: dict[str, Any]) -> bool:
@@ -44,66 +46,16 @@ def _lapsed(line: dict[str, Any]) -> bool:
 
 
 async def _recompute(project: dict[str, Any], actor: str = "system") -> dict[str, Any]:
-    """Re-price every line and re-total. Called after any edit."""
-    project_id = project["_id"]
-    quote = await db.quotes.find_one({"projectId": project_id}) or {}
-    # "NONE" is the estimator saying there is no nexus. Unset means nobody has
-    # ruled, so the ship-to state decides. Collapsing both into null would let a
-    # deliberate "no tax" silently become "tax per the project state".
-    stored = quote.get("taxJurisdiction")
-    state = stored if stored else project.get("state")
-
-    lines = await _lines(project_id)
-    for line in lines:
-        priced = pricing.price_line(
-            cost=line.get("cost"),
-            margin=line.get("margin"),
-            qty=line.get("qty", 1),
-            division=line.get("division"),
-        )
-        stale = ("sell" not in line) or ("extended" not in line)
-        if stale or (line.get("sell"), line.get("extended"), line.get("margin")) != (
-            priced["sell"],
-            priced["extended"],
-            priced["margin"],
-        ):
-            await db.quote_lines.update_one(
-                {"_id": line["_id"]},
-                {
-                    "$set": {
-                        "sell": priced["sell"],
-                        "extended": priced["extended"],
-                        "margin": priced["margin"],
-                        "marginCheck": pricing.check_margin(
-                            line.get("division"), priced["margin"]
-                        ),
-                    }
-                },
-            )
-            line.update(sell=priced["sell"], extended=priced["extended"], margin=priced["margin"])
-
-    totals = pricing.totals(lines, state, quote.get("freight"))
-    await db.quotes.update_one(
-        {"projectId": project_id},
-        {
-            "$set": {
-                **totals,
-                "taxJurisdiction": state,
-                "updatedAt": _now(),
-                "quoteNumber": quote.get("quoteNumber") or f"Q-{project.get('code', '')}",
-            },
-            "$setOnInsert": {"projectId": project_id, "createdAt": _now()},
-        },
-        upsert=True,
-    )
-    return totals
+    """Re-price, store, and return the totals. Only for routes that change something."""
+    return await quote_service.persist(project)
 
 
 @router.get("")
 async def get_quote(code: str) -> dict[str, Any]:
     project = await load(code)
-    totals = await _recompute(project)
-    raw = await _lines(project["_id"])
+    # Computed, not stored. This is a GET; it used to write a row per line and
+    # upsert the totals on every page load and every four-second poll.
+    totals, raw = await quote_service.totals_for(project)
     lines = [{**serialise(line), "lapsed": _lapsed(line)} for line in raw]
 
     groups: dict[str, dict[str, Any]] = {}
@@ -130,7 +82,7 @@ async def get_quote(code: str) -> dict[str, Any]:
 
 
 @router.patch("/settings")
-async def update_settings(code: str, body: QuoteSettings, actor: str = "estimator") -> dict:
+async def update_settings(code: str, body: QuoteSettings, actor: Actor) -> dict:
     project = await load(code)
     changes = body.model_dump(exclude_unset=True)
     await db.quotes.update_one(
@@ -143,7 +95,7 @@ async def update_settings(code: str, body: QuoteSettings, actor: str = "estimato
 
 
 @router.post("/lines", status_code=201)
-async def add_line(code: str, body: QuoteLineCreate, actor: str = "estimator") -> dict:
+async def add_line(code: str, body: QuoteLineCreate, actor: Actor) -> dict:
     project = await load(code)
     payload = body.model_dump(exclude_none=True)
 
@@ -167,7 +119,9 @@ async def add_line(code: str, body: QuoteLineCreate, actor: str = "estimator") -
         "cost": None,
         **payload,
         "projectId": project["_id"],
-        "lineKey": f"hand-{_now().timestamp():.0f}",
+        # Unique, not merely time-ordered: at second resolution two lines added
+        # in the same second shared a key, and the next sync collapsed them.
+        "lineKey": f"hand-{ObjectId()}",
         "addedByHand": True,
         "marginOverridden": False,
         "flags": [],
@@ -186,7 +140,7 @@ async def add_line(code: str, body: QuoteLineCreate, actor: str = "estimator") -
 
 @router.patch("/lines/{line_id}")
 async def update_line(
-    code: str, line_id: str, body: QuoteLineUpdate, actor: str = "estimator"
+    code: str, line_id: str, body: QuoteLineUpdate, actor: Actor
 ) -> dict:
     project = await load(code)
     line = await db.quote_lines.find_one({"_id": oid(line_id), "projectId": project["_id"]})
@@ -227,7 +181,7 @@ async def update_line(
 
 
 @router.delete("/lines/{line_id}")
-async def delete_line(code: str, line_id: str, actor: str = "estimator") -> dict:
+async def delete_line(code: str, line_id: str, actor: Actor) -> dict:
     project = await load(code)
     line = await db.quote_lines.find_one({"_id": oid(line_id), "projectId": project["_id"]})
     if not line:
@@ -244,16 +198,12 @@ async def delete_line(code: str, line_id: str, actor: str = "estimator") -> dict
 
 
 @router.post("/continue-to-proposal")
-async def continue_to_proposal(code: str, actor: str = "estimator") -> dict:
+async def continue_to_proposal(code: str, actor: Actor) -> dict:
     """Phase boundary: write the approved quote down, then enqueue the proposal build."""
     project = await load(code)
     await _recompute(project, actor)
     await sync.export_quote_lines(project)
 
     job = await jobs.enqueue("build_proposal", project["_id"], actor=actor)
-    await db.projects.update_one(
-        {"_id": project["_id"]},
-        {"$set": {"stage": "proposal", "progress": 100, "updatedAt": _now()}},
-    )
     await audit.record("project.continue_to_proposal", actor, {"projectId": project["_id"]})
     return {"job": serialise(job)}

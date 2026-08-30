@@ -14,7 +14,7 @@ const RunTerminal = dynamic(
   { ssr: false },
 );
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+import { proxyFetcher } from "@/lib/proxy-fetcher";
 
 /**
  * The run terminal, docked at the bottom of whatever bid is on screen.
@@ -30,7 +30,7 @@ export function TerminalDrawer({ code }: { code: string | null }) {
 
   const { data } = useSWR<{ jobs: Job[] }>(
     terminalOpen && code ? `/api/proxy/jobs?project=${encodeURIComponent(code)}&limit=12` : null,
-    fetcher,
+    proxyFetcher,
     { refreshInterval: 5000 },
   );
 

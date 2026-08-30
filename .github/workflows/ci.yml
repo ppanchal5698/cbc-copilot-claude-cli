@@ -1,0 +1,88 @@
+# The gate that would have caught a syntax error in a router shipping to main.
+#
+# The API test suite calls `pytest.skip` when MongoDB is unreachable, which keeps
+# a laptop without Docker usable and once let the whole suite go green on a
+# codebase whose API could not be imported at all. So CI runs a real MongoDB and
+# sets REQUIRE_MONGO, which turns that skip into a failure.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      mongo:
+        image: mongo:7
+        env:
+          MONGO_INITDB_ROOT_USERNAME: cbc
+          MONGO_INITDB_ROOT_PASSWORD: cbc_local_dev
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval db.adminCommand('ping')"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      MONGODB_URI: mongodb://cbc:cbc_local_dev@localhost:27017/cbc_opshub?authSource=admin
+      REQUIRE_MONGO: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          pip install -r requirements.txt
+          pip install -e ./mcp-servers
+
+      # Cheap, and the first thing to fail on a file that does not parse. The
+      # test suite covers this too, but a compile error should not need pytest
+      # to collect a hundred modules before it is reported.
+      - name: Compile every Python file
+        run: python -m compileall -q api worker cbc_core mcp-servers scripts
+
+      - name: Import the API
+        run: python -c "from api.main import app; print(len(app.openapi()['paths']), 'paths')"
+
+      - name: MCP selftest
+        run: python mcp-servers/main.py --selftest
+
+      - name: Guardrail shell tests
+        run: bash tests/pipeline/test_guardrails/test_no_auto_send.sh && bash tests/pipeline/test_guardrails/test_file_safety.sh
+
+      - name: Test
+        run: python -m pytest tests -q -rs
+
+      # The shell entry point builds its prompt from worker/prompts.py; if that
+      # import breaks, the workflow scripts fail at run time rather than here.
+      - name: Check the workflow preamble resolves
+        run: |
+          bash -n workflows/_phase.sh
+          python -m worker.prompts projects/example | grep -q "NFR-1"
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run lint

@@ -12,7 +12,8 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 
 from api.db import db, oid, serialise
-from api.models import CallCreate
+from api.deps import Actor
+from api.schemas import CallCreate
 from api.routers.projects import load
 from api.services import audit
 
@@ -42,7 +43,7 @@ async def list_calls(code: str, limit: int = Query(default=100, le=500)) -> dict
 
 
 @router.post("", status_code=201)
-async def log_call(code: str, body: CallCreate, actor: str = "estimator") -> dict:
+async def log_call(code: str, body: CallCreate, actor: Actor) -> dict:
     project = await load(code)
 
     document = {
@@ -65,7 +66,7 @@ async def log_call(code: str, body: CallCreate, actor: str = "estimator") -> dic
 
 
 @router.post("/{call_id}/resolve")
-async def resolve_rfi(code: str, call_id: str, actor: str = "estimator") -> dict:
+async def resolve_rfi(code: str, call_id: str, actor: Actor) -> dict:
     """Close an RFI once the architect or GC has answered."""
     project = await load(code)
     entry = await db.calls.find_one({"_id": oid(call_id), "projectId": project["_id"]})
@@ -85,7 +86,7 @@ async def resolve_rfi(code: str, call_id: str, actor: str = "estimator") -> dict
 
 
 @router.delete("/{call_id}", status_code=204)
-async def delete_call(code: str, call_id: str, actor: str = "estimator") -> None:
+async def delete_call(code: str, call_id: str, actor: Actor) -> None:
     project = await load(code)
     entry = await db.calls.find_one({"_id": oid(call_id), "projectId": project["_id"]})
     if not entry:

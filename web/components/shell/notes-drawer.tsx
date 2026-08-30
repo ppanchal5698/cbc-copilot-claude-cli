@@ -15,7 +15,7 @@ import { toast } from "sonner";
 
 import { useUiState } from "@/components/shell/ui-state";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+import { proxyFetcher } from "@/lib/proxy-fetcher";
 
 const KINDS = [
   { key: "call", label: "Call", Icon: PhoneCall, placeholder: "Who did you speak to, and what was agreed?" },
@@ -56,7 +56,7 @@ export function NotesDrawer({ code }: { code: string | null }) {
 
   const { data, mutate } = useSWR<{ calls: CallEntry[]; count: number; openRfis: number }>(
     notesOpen && code ? `/api/proxy/projects/${code}/calls` : null,
-    fetcher,
+    proxyFetcher,
   );
 
   if (!notesOpen) return null;

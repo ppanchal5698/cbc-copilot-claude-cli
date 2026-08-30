@@ -19,8 +19,11 @@ services:
       APP_ENV: development
     volumes:
       - ./projects:/app/projects
-      - ./pricebooks:/app/pricebooks:ro
-      - ./building-plans:/app/building-plans:ro
+      # Writable, matching the base file: compose merges volumes by mount path,
+      # so repeating this with :ro here would put the price-book upload back on a
+      # read-only mount in exactly the environment it is developed in.
+      - ./pricebooks:/app/pricebooks
+      - ./tests/fixtures/pdfs:/app/tests/fixtures/pdfs:ro
       - claude_home:/home/cbc/.claude
       - ${CLAUDE_CREDENTIALS:-~/.claude/.credentials.json}:/home/cbc/.claude/.credentials.json:ro
 

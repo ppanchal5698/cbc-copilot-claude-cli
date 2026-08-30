@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import logging
 import os
 import signal
 import sys
-from datetime import datetime, timezone
+import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -25,8 +25,12 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from api import db as db_module  # noqa: E402
 from api.db import db  # noqa: E402
-from api.services import audit, provider, storage, sync  # noqa: E402
-from worker import prompts, runner, streaming  # noqa: E402
+from api.services import audit, provider, quote as quote_service, storage, sync  # noqa: E402
+from cbc_core import claude_cli as runner, streaming  # noqa: E402
+from scripts.validate_project import validate_job_artifacts  # noqa: E402
+from worker import prompts  # noqa: E402
+from worker.handlers.catalog import delete_catalog, index_catalog  # noqa: E402
+from worker.handlers.ingest import ingest_pricebook  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S"
@@ -34,11 +38,22 @@ logging.basicConfig(
 log = logging.getLogger("cbc.worker")
 
 POLL_SECONDS = int(os.environ.get("WORKER_POLL_SECONDS", "5"))
-JOB_TIMEOUT = int(os.environ.get("WORKER_JOB_TIMEOUT_SECONDS", "1800"))
+JOB_TIMEOUT = int(os.environ.get("WORKER_JOB_TIMEOUT_SECONDS", "3600"))
 MAX_ATTEMPTS = int(os.environ.get("WORKER_MAX_ATTEMPTS", "3"))
 # A bound on how far a pass can wander. A run that needs more than this has
 # lost the thread, and stopping it is cheaper than letting it finish.
 MAX_TURNS = int(os.environ.get("WORKER_MAX_TURNS", "60"))
+
+# A running job says so every HEARTBEAT_SECONDS. Nothing else distinguishes "this
+# is a 40-minute extraction" from "the worker that claimed this was killed an hour
+# ago", and without that distinction a dead job holds the exclusive-job index
+# against its project forever.
+HEARTBEAT_SECONDS = 30
+STALE_AFTER = HEARTBEAT_SECONDS * 3
+
+# Retry delay: RETRY_BASE * 2**attempts. Without it a job that fails in two
+# seconds burns its whole attempt budget in six.
+RETRY_BASE_SECONDS = int(os.environ.get("WORKER_RETRY_BASE_SECONDS", "30"))
 
 _stop = asyncio.Event()
 
@@ -48,17 +63,127 @@ def _now() -> datetime:
 
 
 async def claim() -> dict | None:
-    """Atomically take the oldest queued job. Two workers cannot take the same one."""
+    """Atomically take the oldest due job. Two workers cannot take the same one."""
+    now = _now()
     return await db.jobs.find_one_and_update(
-        {"status": "queued"},
-        {"$set": {"status": "running", "startedAt": _now()}, "$inc": {"attempts": 1}},
+        {
+            "status": "queued",
+            # A requeued job carries a delay; a fresh one has no such field.
+            "$or": [{"nextAttemptAt": None}, {"nextAttemptAt": {"$lte": now}}],
+        },
+        {
+            "$set": {"status": "running", "startedAt": now, "heartbeatAt": now},
+            "$inc": {"attempts": 1},
+        },
         sort=[("createdAt", 1)],
         return_document=True,
     )
 
 
-async def finish(job: dict, ok: bool, error: str | None, output: str, note: str = "") -> None:
-    retryable = not ok and job.get("attempts", 1) < MAX_ATTEMPTS
+async def reap_abandoned() -> int:
+    """Recover jobs whose worker died while holding them.
+
+    A `running` job with a stale heartbeat is not running: the process that
+    claimed it is gone. Left alone it stays `running` forever, and because the
+    exclusive-active-job index counts it as in flight, every later job of that
+    type for that bid is silently handed back this corpse instead of being
+    queued - the bid can never be re-extracted through the UI again.
+    """
+    cutoff = _now() - timedelta(seconds=STALE_AFTER)
+    abandoned = await db.jobs.find(
+        {
+            "status": "running",
+            "$or": [{"heartbeatAt": {"$lt": cutoff}}, {"heartbeatAt": None}],
+        }
+    ).to_list(100)
+
+    for job in abandoned:
+        attempts = job.get("attempts", 1)
+        retry = attempts < MAX_ATTEMPTS
+        await db.jobs.update_one(
+            {"_id": job["_id"], "status": "running"},
+            {
+                "$set": {
+                    "status": "queued" if retry else "failed",
+                    "error": "worker stopped while this job was running",
+                    "nextAttemptAt": _now() if retry else None,
+                    "heartbeatAt": None,
+                    "finishedAt": None if retry else _now(),
+                }
+            },
+        )
+        await audit.record(
+            f"job.reaped.{job['type']}",
+            actor="worker",
+            target={"jobId": job["_id"], "projectId": job.get("projectId")},
+            note="requeued" if retry else "attempts exhausted",
+        )
+        log.warning(
+            "reaped abandoned %s (attempt %s) - %s",
+            job["type"], attempts, "requeued" if retry else "failed",
+        )
+    return len(abandoned)
+
+
+async def _beat(job_id) -> None:
+    """Say the job is still alive until this task is cancelled."""
+    while True:
+        await asyncio.sleep(HEARTBEAT_SECONDS)
+        await db.jobs.update_one({"_id": job_id}, {"$set": {"heartbeatAt": _now()}})
+
+
+async def finish(
+    job: dict,
+    ok: bool,
+    error: str | None,
+    output: str,
+    note: str = "",
+    permanent: bool = False,
+) -> None:
+    current = await db.jobs.find_one({"_id": job["_id"]}, {"status": 1})
+    if current and current.get("status") == "cancelled":
+        await db.jobs.update_one(
+            {"_id": job["_id"]},
+            {
+                "$set": {
+                    "log": (output or "")[-8000:],
+                    "note": note or error or "cancelled by estimator",
+                    "finishedAt": _now(),
+                }
+            },
+        )
+        await audit.record(
+            f"job.cancelled.{job['type']}",
+            actor="claude",
+            target={"jobId": job["_id"], "projectId": job.get("projectId")},
+            note=error or note,
+        )
+        log.info("job %s cancelled - left as cancelled", job["type"])
+        return
+
+    if error == "cancelled by estimator":
+        await db.jobs.update_one(
+            {"_id": job["_id"]},
+            {
+                "$set": {
+                    "status": "cancelled",
+                    "error": error,
+                    "log": (output or "")[-8000:],
+                    "note": note or None,
+                    "finishedAt": _now(),
+                }
+            },
+        )
+        await audit.record(
+            f"job.cancelled.{job['type']}",
+            actor="claude",
+            target={"jobId": job["_id"], "projectId": job.get("projectId")},
+        )
+        log.info("job %s cancelled during run", job["type"])
+        return
+
+    attempts = job.get("attempts", 1)
+    retryable = not ok and not permanent and attempts < MAX_ATTEMPTS
     status = "queued" if retryable else ("done" if ok else "failed")
 
     await db.jobs.update_one(
@@ -69,6 +194,12 @@ async def finish(job: dict, ok: bool, error: str | None, output: str, note: str 
                 "error": error,
                 "log": (output or "")[-8000:],
                 "note": note or None,
+                "heartbeatAt": None,
+                "nextAttemptAt": (
+                    _now() + timedelta(seconds=RETRY_BASE_SECONDS * 2**attempts)
+                    if retryable
+                    else None
+                ),
                 "finishedAt": None if retryable else _now(),
             }
         },
@@ -81,7 +212,12 @@ async def finish(job: dict, ok: bool, error: str | None, output: str, note: str 
     )
 
     if retryable:
-        log.warning("job %s failed, requeued (attempt %s): %s", job["type"], job["attempts"], error)
+        log.warning(
+            "job %s failed, retrying in %ss (attempt %s): %s",
+            job["type"], RETRY_BASE_SECONDS * 2**attempts, attempts, error,
+        )
+    elif permanent and not ok:
+        log.error("job %s FAILED permanently (not retried): %s", job["type"], error)
     elif ok:
         log.info("job %s done - %s", job["type"], note or "no changes reported")
     else:
@@ -92,6 +228,15 @@ async def sync_results(job: dict, project: dict | None) -> str:
     """Move what Claude wrote on disk into Mongo."""
     if project is None:
         return ""
+
+    slug = project["slug"]
+    if job["type"] in (
+        "extract_bid_set",
+        "rerun_extraction",
+        "match_and_price",
+        "build_proposal",
+    ):
+        validate_job_artifacts(job["type"], slug)
 
     if job["type"] in ("extract_bid_set", "rerun_extraction"):
         counts = await sync.import_extraction(project)
@@ -109,66 +254,71 @@ async def sync_results(job: dict, project: dict | None) -> str:
 
     if job["type"] == "match_and_price":
         counts = await sync.import_quote_lines(project)
+        # Store the totals here, because the quote screen no longer does it on
+        # read (api/services/quote.py). Landing new priced lines is a change, so
+        # this is the moment they are rolled up - otherwise the board would show
+        # a stale quote total until somebody happened to open the bid.
+        await quote_service.persist(project)
+        await db.projects.update_one(
+            {"_id": project["_id"]},
+            {"$set": {"stage": "quote", "progress": 67, "updatedAt": _now()}},
+        )
         return f"{counts['inserted']} priced, {counts['updated']} updated, {counts['skipped']} kept"
 
     if job["type"] == "build_proposal":
-        return "proposal artifacts written"
+        artifacts = await sync.import_proposal_artifacts(project)
+        await db.projects.update_one(
+            {"_id": project["_id"]},
+            {"$set": {"stage": "proposal", "progress": 100, "updatedAt": _now()}},
+        )
+        written = sum(1 for present in artifacts.values() if present)
+        return f"{written} proposal artifact(s) synced from disk"
+
+    if job["type"] == "ingest_addendum":
+        counts = await sync.import_addendum(project, job)
+        return (
+            f"{counts['added']} added, {counts['removed']} removed, "
+            f"{counts['changed']} changed in addendum diff"
+        )
 
     return ""
 
 
-async def ingest_pricebook(job: dict) -> str:
-    """Load the parts Claude read off a price book into the catalog."""
-    payload = job.get("payload") or {}
-    output_path = REPO_ROOT / payload.get("outputPath", ".cache/pricebook-ingest.json")
-    if not output_path.exists():
-        return "no ingest file produced"
+# Jobs the worker performs itself. Indexing a price book is deterministic
+# extraction into SQLite - there is no reasoning in it, so spending a Claude pass
+# (and its minutes, and its tokens) on it would be waste.
+LOCAL_HANDLERS = {
+    "index_catalog": index_catalog,
+    "delete_catalog": delete_catalog,
+}
 
-    data = json.loads(output_path.read_text(encoding="utf-8"))
-    from bson import ObjectId
 
-    book_id = ObjectId(payload["priceBookId"])
-    written = 0
-    for product in data.get("products", []):
-        if not product.get("part"):
-            continue
-        await db.products.update_one(
-            {"part": product["part"]},
-            {
-                "$set": {
-                    "description": product.get("description", ""),
-                    "manufacturer": product.get("manufacturer"),
-                    "division": product.get("division"),
-                    "listPrice": product.get("list_price"),
-                    "multiplier": product.get("multiplier"),
-                    "cost": product.get("cost"),
-                    "priceBookId": book_id,
-                    "sourcePage": product.get("source_page"),
-                    "seedSource": "price book ingest",
-                    "updatedAt": _now(),
-                    "updatedBy": "claude",
-                },
-                "$setOnInsert": {"part": product["part"], "createdAt": _now()},
-            },
-            upsert=True,
-        )
-        written += 1
+async def process_locally(job: dict) -> None:
+    """Run a job in this process rather than through a Claude Code pass."""
+    handler = LOCAL_HANDLERS[job["type"]]
+    heartbeat = asyncio.create_task(_beat(job["_id"]))
+    try:
+        note = await handler(job)
+    except Exception as exc:
+        log.exception("%s failed", job["type"])
+        # A bad payload, a missing file, or a layout the extractor cannot read all
+        # read exactly the same way on the third attempt. Retrying them spends the
+        # attempt budget to reach the same conclusion more slowly.
+        from catalog_index.pipeline import IndexingError
 
-    await db.price_books.update_one(
-        {"_id": book_id},
-        {
-            "$set": {
-                "partCount": await db.products.count_documents({"priceBookId": book_id}),
-                "effective": data.get("effective_date"),
-                "lastIngestedAt": _now(),
-            }
-        },
-    )
-    output_path.unlink(missing_ok=True)
-    return f"{written} parts written to the catalog"
+        permanent = isinstance(exc, (ValueError, FileNotFoundError, IndexingError))
+        await finish(job, False, str(exc), "", permanent=permanent)
+        return
+    finally:
+        heartbeat.cancel()
+    await finish(job, True, None, "", note)
 
 
 async def process(job: dict) -> None:
+    if job["type"] in LOCAL_HANDLERS:
+        await process_locally(job)
+        return
+
     project = None
     if job.get("projectId"):
         project = await db.projects.find_one({"_id": job["projectId"]})
@@ -179,7 +329,10 @@ async def process(job: dict) -> None:
 
     payload = job.setdefault("payload", {})
     if job["type"] == "ingest_pricebook":
-        payload.setdefault("outputPath", f".cache/pricebook-{job['_id']}.json")
+        # Assigned, never defaulted. `POST /api/jobs` takes a free-form payload, and
+        # a `setdefault` here let the caller choose a path that the ingest handler
+        # then read and unlinked - arbitrary file deletion through the jobs API.
+        payload["outputPath"] = f".cache/pricebook-{job['_id']}.json"
 
     # Read the provider on every job, so changing it on the settings screen takes
     # effect on the next job rather than on the next worker restart.
@@ -206,24 +359,81 @@ async def process(job: dict) -> None:
         {"$set": {"recording": str(recording.relative_to(REPO_ROOT)).replace("\\", "/")}},
     )
 
-    result = await asyncio.to_thread(
-        runner.run_claude,
-        prompt,
-        JOB_TIMEOUT,
-        env,
-        provider.secret_values(config),
-        recording,
-        job["type"],
-        MAX_TURNS,
-        _CATALOG_URI,
-    )
+    cancel_event = threading.Event()
+
+    async def watch_cancel() -> None:
+        while not cancel_event.is_set():
+            # A shutdown stops the subprocess the same way a cancel does. Without
+            # this the container's grace period expires mid-run and the job is
+            # SIGKILLed into a permanent `running`.
+            if _stop.is_set():
+                cancel_event.set()
+                return
+            doc = await db.jobs.find_one({"_id": job["_id"]}, {"status": 1})
+            if doc and doc.get("status") == "cancelled":
+                cancel_event.set()
+                return
+            await asyncio.sleep(1)
+
+    watcher = asyncio.create_task(watch_cancel())
+    heartbeat = asyncio.create_task(_beat(job["_id"]))
+    try:
+        result = await asyncio.to_thread(
+            runner.run_claude,
+            prompt,
+            JOB_TIMEOUT,
+            env,
+            provider.secret_values(config),
+            recording,
+            job["type"],
+            MAX_TURNS,
+            _CATALOG_INDEX_PATH,
+            cancel_event.is_set,
+        )
+    finally:
+        cancel_event.set()
+        watcher.cancel()
+        heartbeat.cancel()
+
+    # Stopped because the worker is going down, not because anyone asked. Put it
+    # back on the queue rather than recording a failure nobody caused.
+    if _stop.is_set():
+        current = await db.jobs.find_one({"_id": job["_id"]}, {"status": 1})
+        if not current or current.get("status") != "cancelled":
+            await db.jobs.update_one(
+                {"_id": job["_id"]},
+                {
+                    "$set": {
+                        "status": "queued",
+                        "startedAt": None,
+                        "heartbeatAt": None,
+                        "nextAttemptAt": None,
+                        "note": "worker shut down mid-run; requeued",
+                    }
+                },
+            )
+            log.info("job %s requeued for shutdown", job["type"])
+            return
 
     # Recorded so "which provider produced this line?" is answerable months later,
     # the same question NFR-3 asks of every price.
     await db.jobs.update_one({"_id": job["_id"]}, {"$set": {"provider": described}})
 
+    recording_note = ""
+    if recording.exists():
+        try:
+            raw = recording.read_text(encoding="utf-8", errors="replace")
+            rec_warnings = streaming.recording_warnings(raw)
+            if rec_warnings:
+                recording_note = "; ".join(rec_warnings)
+        except OSError:
+            pass
+    if described.get("warnings"):
+        provider_note = "; ".join(described["warnings"])
+        recording_note = f"{recording_note}; {provider_note}" if recording_note else provider_note
+
     if not result.ok:
-        await finish(job, False, result.error, result.output)
+        await finish(job, False, result.error, result.output, permanent=result.permanent)
         return
 
     try:
@@ -236,38 +446,48 @@ async def process(job: dict) -> None:
         await finish(job, False, f"result sync failed: {exc}", result.output)
         return
 
-    await finish(job, True, None, result.output, note)
+    combined = note
+    if recording_note:
+        combined = f"{note}; {recording_note}" if note else recording_note
+    await finish(job, True, None, result.output, combined or None)
 
 
-# Resolved once at startup; the catalog server is the only thing in a run that
-# gets database credentials, and they are read-only.
-_CATALOG_URI: str | None = None
+# Path to the SQLite catalog index for MCP pricing lookups.
+_CATALOG_INDEX_PATH: str | None = os.environ.get("CATALOG_INDEX_PATH")
 
 
 async def loop(once: bool = False) -> int:
-    global _CATALOG_URI
-    if await db_module.ensure_readonly_user():
-        _CATALOG_URI = db_module.readonly_uri()
-        log.info("catalog server will read as %s", db_module.READONLY_USER)
+    global _CATALOG_INDEX_PATH
+    _CATALOG_INDEX_PATH = os.environ.get("CATALOG_INDEX_PATH")
+    if _CATALOG_INDEX_PATH:
+        log.info("catalog server will read index at %s", _CATALOG_INDEX_PATH)
     else:
-        _CATALOG_URI = None
-        log.warning(
-            "could not provision the read-only database user; the catalog server "
-            "will inherit nothing and pricing lookups will fail. Set "
-            "MONGODB_READONLY_URI, or grant the API rights to create a user."
-        )
+        log.warning("CATALOG_INDEX_PATH is unset; catalog MCP lookups may return nothing")
 
     log.info("worker up - polling every %ss (timeout %ss)", POLL_SECONDS, JOB_TIMEOUT)
+    await reap_abandoned()
+
     while not _stop.is_set():
         job = await claim()
         if job:
-            await process(job)
+            try:
+                await process(job)
+            except Exception as exc:
+                # Without this, one unexpected exception ends the worker with the
+                # job still marked `running` - which the reaper would eventually
+                # recover, but only after the container came back. Record it now.
+                log.exception("job %s raised", job["type"])
+                try:
+                    await finish(job, False, f"worker error: {exc}", "")
+                except Exception:
+                    log.exception("could not record the failure for job %s", job["_id"])
             if once:
                 return 0
             continue
         if once:
             log.info("no queued jobs")
             return 0
+        await reap_abandoned()
         try:
             await asyncio.wait_for(_stop.wait(), timeout=POLL_SECONDS)
         except asyncio.TimeoutError:
@@ -302,6 +522,8 @@ def main() -> int:
             f"PREFLIGHT OK - {described['mode']} / {described['model']}; "
             "Claude Code is reachable and authenticated."
         )
+        for warning in described.get("warnings", []):
+            print(f"PREFLIGHT WARN - {warning}")
         return 0
 
     for sig in (signal.SIGINT, signal.SIGTERM):

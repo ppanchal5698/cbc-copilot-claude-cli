@@ -1,22 +1,17 @@
 """Quote arithmetic - a thin adapter over the calc-engine MCP server.
 
 There is exactly one implementation of the money math in this system and it is
-`mcp-servers/calc-engine/server.py`. This module adapts it to API shapes; it does
-not reimplement any of it. If you find yourself writing `cost / (1 - margin)`
-here, stop.
+`cbc_core/calc.py`. This module adapts it to API shapes; it does not reimplement
+any of it. If you find yourself writing `cost / (1 - margin)` here, stop.
+
+The calc-engine MCP server is an adapter over the same module, so a price a run
+computes and a price this API computes cannot drift.
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Any
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO_ROOT / "mcp-servers"))
-
-from _runtime import load_server  # noqa: E402
-
-calc = load_server("calc-engine")
+from cbc_core import calc
 
 # Division prefix -> margin band. The estimator can override per line; this is
 # only the default the band framework applies (.claude/memory/margin_sheet.md).
@@ -39,7 +34,7 @@ def band_for_division(division: str | None) -> str:
 
 
 def default_margin(division: str | None) -> float:
-    bands = calc._bands()
+    bands = calc.bands()
     return bands.get(band_for_division(division), bands[DEFAULT_BAND])
 
 
@@ -58,7 +53,20 @@ def price_line(
         return {"sell": None, "extended": None, "margin": margin, "priced": False}
 
     applied = default_margin(division) if margin is None else float(margin)
-    line = calc.calculate_line(cost=float(cost), margin=applied, quantity=float(qty or 0))
+    try:
+        line = calc.calculate_line(cost=float(cost), margin=applied, quantity=float(qty or 0))
+    except (ValueError, TypeError) as exc:
+        # Schema bounds stop new bad values; this catches the ones already stored
+        # and anything a pipeline run wrote straight into Mongo. An unpriceable
+        # line is reported as unpriced, not raised - the caller is looping over
+        # every line on the bid, and one of them must not take the screen down.
+        return {
+            "sell": None,
+            "extended": None,
+            "margin": margin,
+            "priced": False,
+            "error": str(exc),
+        }
     return {
         "sell": line["sale_ea"],
         "extended": line["ext_price"],

@@ -14,10 +14,10 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useUiState } from "@/components/shell/ui-state";
-import { formatMoney } from "@/lib/api";
+import { formatMoney } from "@/lib/format";
 import type { Product, Project } from "@/lib/types";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+import { proxyFetcher } from "@/lib/proxy-fetcher";
 
 const STAGES = [
   { key: "intake", label: "Intake" },
@@ -41,7 +41,7 @@ export function CommandPalette({ code }: { code: string | null }) {
 
   const { data: projectData } = useSWR<{ projects: Project[] }>(
     paletteOpen ? "/api/proxy/projects?limit=50" : null,
-    fetcher,
+    proxyFetcher,
   );
 
   // Parts are only searched once the query is specific enough to be useful.

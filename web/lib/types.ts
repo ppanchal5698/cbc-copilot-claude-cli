@@ -137,6 +137,7 @@ export interface QuoteLine {
   priceStatus?: string | null;
   /** The price book this cost came from is past its review window. */
   lapsed?: boolean;
+  alternateGroup?: string | null;
   flags: string[];
 }
 
@@ -253,7 +254,7 @@ export interface ProviderField {
 }
 
 export interface ClaudeSettings {
-  mode: "subscription" | "anthropic_api" | "bedrock" | "gateway";
+  mode: "subscription" | "anthropic_api" | "bedrock" | "gateway" | "ollama";
   modes: string[];
   fields: Record<string, ProviderField>;
   /** Field shape for every mode, so an unsaved provider still renders a form. */
@@ -274,4 +275,15 @@ export interface ProviderTest {
     region: string | null;
     credentialSource: Record<string, string>;
   };
+}
+
+export interface OllamaModel {
+  name: string | null;
+  size: number | null;
+  modifiedAt: string | null;
+}
+
+export interface OllamaModelsResponse {
+  baseUrl: string;
+  models: OllamaModel[];
 }

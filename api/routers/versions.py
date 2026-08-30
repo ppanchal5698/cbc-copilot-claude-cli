@@ -1,27 +1,17 @@
-"""Alternates and addenda - the interim structure only.
-
-CBC has not answered how alternates are quoted or how addenda reconcile
-(Matrix 4.1 / FR-14 / Open Item 11). What the workbook *does* record is the
-interim rule, and that is all this module implements:
-
-  - the base bid and each alternate are distinct, comparable line groups
-  - an addendum never overwrites prior work
-
-So an addendum snapshots the current state into a new version and the differences
-are flagged for the estimator. Nothing is auto-merged, because the rule for
-merging has not been agreed. Every response says so.
-"""
+"""Addendum version snapshots — interim structure only (Matrix 4.1 / FR-14)."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from pymongo.errors import DuplicateKeyError
 
-from api.db import db, oid, serialise
-from api.models import AlternateCreate, VersionCreate
+from api.db import db, serialise
+from api.deps import Actor
+from api.schemas import VersionCreate
 from api.routers.projects import load
-from api.services import audit, jobs, pricing
+from api.services import audit, jobs
 
 router = APIRouter(prefix="/api/projects/{code}", tags=["versions"])
 
@@ -32,128 +22,35 @@ PENDING_NOTE = (
 )
 
 
+# A snapshot embeds whole documents, against MongoDB's 16 MB per-document limit.
+# Silently keeping the first 5 000 would report a complete freeze of an incomplete
+# bid - the one thing a version is for is being able to trust it later.
+SNAPSHOT_LIMIT = 5000
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# ── alternates ──────────────────────────────────────────────────────────────
-
-
-@router.get("/alternates")
-async def list_alternates(code: str) -> dict[str, Any]:
-    """Every line group on this bid, with its own independent total.
-
-    The base bid is `alternateGroup: null`. Totals are per group so the estimator
-    can compare them side by side, which is the whole point of an alternate.
-    """
-    project = await load(code)
-    project_id = project["_id"]
-
-    # Declared alternates live on the project so an empty one still shows up;
-    # anything a line points at is included too, so data can never orphan a group.
-    names = list(project.get("alternates") or [])
-    names += await db.line_items.distinct("alternateGroup", {"projectId": project_id})
-    names += await db.quote_lines.distinct("alternateGroup", {"projectId": project_id})
-    groups = [None] + sorted({n for n in names if n})
-
-    quote = await db.quotes.find_one({"projectId": project_id}) or {}
-    state = quote.get("taxJurisdiction") or project.get("state")
-
-    out = []
-    for group in groups:
-        query = {"projectId": project_id, "alternateGroup": group}
-        lines = await db.quote_lines.find(query).to_list(2000)
-        totals = pricing.totals(lines, state, quote.get("freight") if group is None else None)
-        out.append(
-            {
-                "name": group,
-                "label": group or "Base bid",
-                "isBase": group is None,
-                "lineItemCount": await db.line_items.count_documents(query),
-                "quoteLineCount": len(lines),
-                "subtotal": totals["subtotal"],
-                "grandTotal": totals["grandTotal"],
-                "unpricedLines": totals["unpricedLines"],
-            }
+async def _snapshot_all(collection, project_id: Any, label: str) -> list[dict[str, Any]]:
+    found = await collection.find({"projectId": project_id}).to_list(SNAPSHOT_LIMIT + 1)
+    if len(found) > SNAPSHOT_LIMIT:
+        raise ValueError(
+            f"this bid has more than {SNAPSHOT_LIMIT} {label}, which is more than a "
+            "version snapshot can hold. Snapshotting it would silently freeze an "
+            "incomplete record."
         )
-
-    return {"alternates": out, "pending": PENDING_NOTE}
-
-
-@router.post("/alternates", status_code=201)
-async def create_alternate(code: str, body: AlternateCreate, actor: str = "estimator") -> dict:
-    """Create an empty alternate group. Lines are moved into it deliberately.
-
-    It does not copy the base bid: whether an alternate inherits the base is one
-    of the unanswered questions, and copying would be inventing the answer.
-    """
-    project = await load(code)
-    name = body.name.strip()
-
-    if name in (project.get("alternates") or []):
-        raise HTTPException(409, f"{name} already exists on this bid")
-
-    await db.projects.update_one(
-        {"_id": project["_id"]},
-        {"$addToSet": {"alternates": name}, "$set": {"updatedAt": _now()}},
-    )
-    await audit.record("alternate.create", actor, {"projectId": project["_id"]}, after=name)
-    return {
-        "name": name,
-        "label": name,
-        "isBase": False,
-        "lineItemCount": 0,
-        "quoteLineCount": 0,
-        "note": "Empty. Move lines into it, or add them by hand. " + PENDING_NOTE,
-    }
-
-
-@router.post("/alternates/assign")
-async def assign_to_alternate(
-    code: str,
-    ids: list[str],
-    alternate: str | None = None,
-    scope: str = "line-items",
-    actor: str = "estimator",
-) -> dict:
-    """Move lines between the base bid and an alternate."""
-    project = await load(code)
-    collection = db.line_items if scope == "line-items" else db.quote_lines
-    if scope not in ("line-items", "quote-lines"):
-        raise HTTPException(400, "scope must be 'line-items' or 'quote-lines'")
-
-    result = await collection.update_many(
-        {"_id": {"$in": [oid(i) for i in ids]}, "projectId": project["_id"]},
-        {"$set": {"alternateGroup": alternate, "updatedAt": _now()}},
-    )
-    await audit.record(
-        "alternate.assign",
-        actor,
-        {"projectId": project["_id"]},
-        after={"alternate": alternate, "moved": result.modified_count, "scope": scope},
-    )
-    return {"moved": result.modified_count, "alternate": alternate}
-
-
-# ── versions ────────────────────────────────────────────────────────────────
+    return found
 
 
 async def snapshot(project: dict[str, Any], reason: str, actor: str) -> dict[str, Any]:
-    """Freeze the current line items and quote lines into a new version.
-
-    This is what makes "an addendum never overwrites prior work" true rather than
-    aspirational - the previous state is stored whole, not diffed.
-    """
+    """Freeze the current line items and quote lines into a new version."""
     project_id = project["_id"]
-    latest = await db.versions.find_one({"projectId": project_id}, sort=[("version", -1)])
-    number = (latest or {}).get("version", 0) + 1
-
-    line_items = await db.line_items.find({"projectId": project_id}).to_list(5000)
-    quote_lines = await db.quote_lines.find({"projectId": project_id}).to_list(5000)
+    line_items = await _snapshot_all(db.line_items, project_id, "line items")
+    quote_lines = await _snapshot_all(db.quote_lines, project_id, "quote lines")
 
     document = {
         "projectId": project_id,
-        "version": number,
         "reason": reason,
         "createdAt": _now(),
         "createdBy": actor,
@@ -165,8 +62,24 @@ async def snapshot(project: dict[str, Any], reason: str, actor: str) -> dict[str
             "quoteLines": serialise(quote_lines),
         },
     }
-    result = await db.versions.insert_one(document)
-    document["_id"] = result.inserted_id
+
+    # Read-then-write on the version number: two addenda uploaded together both
+    # became version n+1, and the addendum diff then attached to whichever one
+    # Mongo happened to return. `(projectId, version)` is unique now, so the loser
+    # of the race is told to try again rather than quietly sharing a number.
+    for _ in range(5):
+        latest = await db.versions.find_one({"projectId": project_id}, sort=[("version", -1)])
+        number = (latest or {}).get("version", 0) + 1
+        document["version"] = number
+        try:
+            result = await db.versions.insert_one(document)
+        except DuplicateKeyError:
+            document.pop("_id", None)
+            continue
+        document["_id"] = result.inserted_id
+        break
+    else:
+        raise ValueError("could not allocate a version number; try again")
 
     await db.projects.update_one({"_id": project_id}, {"$set": {"version": number}})
     await audit.record(
@@ -205,8 +118,7 @@ async def get_version(code: str, version: int) -> dict[str, Any]:
 
 
 @router.post("/versions", status_code=201)
-async def create_version(code: str, body: VersionCreate, actor: str = "estimator") -> dict:
-    """Snapshot the current state, then ask Claude to read the addendum into it."""
+async def create_version(code: str, body: VersionCreate, actor: Actor) -> dict:
     project = await load(code)
     document = await snapshot(project, body.reason, actor)
 
@@ -232,7 +144,6 @@ async def create_version(code: str, body: VersionCreate, actor: str = "estimator
 
 @router.get("/versions/{version}/diff")
 async def diff_version(code: str, version: int) -> dict[str, Any]:
-    """What changed since a snapshot, by mark. Reported, never applied."""
     project = await load(code)
     stored = await db.versions.find_one({"projectId": project["_id"], "version": version})
     if not stored:
@@ -273,8 +184,7 @@ async def diff_version(code: str, version: int) -> dict[str, Any]:
 
 
 @router.post("/versions/{version}/reconcile")
-async def mark_reconciled(code: str, version: int, actor: str = "estimator") -> dict:
-    """The estimator has worked through the differences. Records only their say-so."""
+async def mark_reconciled(code: str, version: int, actor: Actor) -> dict:
     project = await load(code)
     result = await db.versions.update_one(
         {"projectId": project["_id"], "version": version},

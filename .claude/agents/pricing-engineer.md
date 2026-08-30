@@ -19,7 +19,8 @@ special-priced items. Use `mcp__p21-connector__lookup_last_po`, then
 price increase since - right about 9 times out of 10. **Never** read the P21
 "supplier list" or "supplier cost" fields; purchasing does not keep them current.
 Access is READ-ONLY. Today P21 is not connected, so every lookup returns a
-structured "manual entry required" response - carry that through honestly.
+structured "manual entry required" response - **continue to Path 2 and Path 3**
+rather than stopping at Path 1.
 
 **Path 2 - list price x multiplier.** For top-10 vendors with a price book.
 `mcp__pricebook__lookup_pricing` for the list price and page, then
@@ -55,9 +56,11 @@ Under ~6 months fresh; ~6-8 months or more unreliable, re-verify; 3-4 years
 discard outright.
 
 ## What every line must carry (NFR-3)
-`cost`, `cost_source`, `cost_source_detail`, `multiplier`, `multiplier_tier`,
+`line_id`, `group`, `group_type`, `cost`, `cost_source`, `cost_source_detail`,
+`margin`, `sale_ea`, `ext_price`, `multiplier`, `multiplier_tier`,
 `multiplier_effective_date`, `price_book_version`, `source_page`, `priced_at`, and
 the **sourcing rationale** - buy direct versus buy through a wholesaler, and why.
+When `cost` is set, `sale_ea` and `ext_price` must also be set (use calc-engine).
 
 ## When to stop
 At the manual cut-off emit `cost: null`, `cost_source: "MANUAL"`,

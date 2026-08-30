@@ -14,6 +14,31 @@ import type { BidDocument, LineItem } from "@/lib/types";
 // worker makes the viewer refuse to open any file.
 pdfjs.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.mjs?v=${pdfjs.version}`;
 
+const BASE_PAGE_WIDTH = 520;
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 10;
+/** How much of the viewport the highlight should fill when auto-zooming. */
+const FIT_RATIO = 0.88;
+
+function zoomToFitHighlight(
+  bbox: number[],
+  pageSize: { width: number; height: number },
+  viewportWidth: number,
+  viewportHeight: number,
+): number {
+  const [x0, y0, x1, y1] = bbox;
+  const bboxWidth = Math.max(x1 - x0, 1);
+  const bboxHeight = Math.max(y1 - y0, 1);
+  const scaleAtZoom1 = BASE_PAGE_WIDTH / pageSize.width;
+  const widthAtZoom1 = bboxWidth * scaleAtZoom1;
+  const heightAtZoom1 = bboxHeight * scaleAtZoom1;
+
+  const zoomW = (viewportWidth * FIT_RATIO) / widthAtZoom1;
+  const zoomH = (viewportHeight * FIT_RATIO) / heightAtZoom1;
+
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.min(zoomW, zoomH)));
+}
+
 /**
  * The real drawing, with a highlight box over the spot a value was read from.
  *
@@ -45,6 +70,14 @@ export function SheetViewer({
 
   const evidence = selected?.evidence;
 
+  const fitZoomToHighlight = useCallback(() => {
+    if (!evidence?.bbox || !evidence.pageSize || !frameRef.current) return;
+    const pad = 24;
+    const vw = Math.max(frameRef.current.clientWidth - pad, 1);
+    const vh = Math.max(frameRef.current.clientHeight - pad, 1);
+    setZoom(zoomToFitHighlight(evidence.bbox, evidence.pageSize, vw, vh));
+  }, [evidence?.bbox, evidence?.pageSize]);
+
   // Follow the selected line to its page and document.
   useEffect(() => {
     if (!evidence?.sourcePage) return;
@@ -56,11 +89,28 @@ export function SheetViewer({
     }
   }, [evidence?.sourcePage, evidence?.sourceFile, documents]);
 
+  // Zoom in on the linked region whenever a line item with a bbox is selected.
+  useEffect(() => {
+    if (!evidence?.bbox || !evidence.pageSize) {
+      setZoom(1);
+      return;
+    }
+    // Wait for layout so viewport measurements reflect the open pane.
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => fitZoomToHighlight());
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [selected?.id, evidence?.bbox, evidence?.pageSize, fitZoomToHighlight]);
+
   // Bring the highlight into view once it exists.
   useEffect(() => {
     if (!highlightRef.current) return;
     highlightRef.current.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
-  }, [evidence?.bbox, renderedWidth, pageNumber]);
+  }, [evidence?.bbox, renderedWidth, pageNumber, zoom]);
 
   const activeDoc = documents.find((doc) => doc.id === activeDocId) ?? documents[0];
 
@@ -171,7 +221,7 @@ export function SheetViewer({
 
         <div className="flex items-center gap-1">
           <button
-            onClick={() => setZoom((z) => Math.max(0.4, z - 0.2))}
+            onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 0.2))}
             style={{ color: "var(--app-tx-2)" }}
             aria-label="Zoom out"
           >
@@ -185,14 +235,14 @@ export function SheetViewer({
             {Math.round(zoom * 100)}%
           </button>
           <button
-            onClick={() => setZoom((z) => Math.min(4, z + 0.2))}
+            onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 0.2))}
             style={{ color: "var(--app-tx-2)" }}
             aria-label="Zoom in"
           >
             <Plus size={14} weight="bold" />
           </button>
           <button
-            onClick={() => setZoom(2.2)}
+            onClick={fitZoomToHighlight}
             title="Zoom to the highlight"
             style={{ color: "var(--app-tx-2)" }}
           >
@@ -240,7 +290,7 @@ export function SheetViewer({
             <div ref={pageRef} className="relative inline-block">
               <Page
                 pageNumber={pageNumber}
-                width={520 * zoom}
+                width={BASE_PAGE_WIDTH * zoom}
                 onRenderSuccess={measurePage}
                 renderAnnotationLayer={false}
                 renderTextLayer={false}

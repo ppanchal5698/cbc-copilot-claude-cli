@@ -1,220 +1,312 @@
 #!/usr/bin/env python3
-"""catalog MCP server - live product and multiplier data from MongoDB.
+"""catalog MCP server - product search over the SQLite FTS5 index.
 
-READ-ONLY by design, like p21-connector. The estimator maintains the catalog in
-the Ops-Hub UI and the ingest job writes parts from price books; a pricing pass
-only reads. That is what makes "Claude is aware of the newest data" true rather
-than aspirational - there is no snapshot to go stale.
+READ-ONLY by design, like p21-connector, and now read-only in a way the database
+enforces rather than a convention: the connection is opened `query_only`.
 
-Uses pymongo (sync) because the MCP handlers here are synchronous.
+This used to read MongoDB, and its sibling `pricebook` server answered the same
+questions by opening every PDF and running difflib over every line - 6 s on a cold
+process, 2.5 s warm, paid again on every run because each run gets a fresh MCP
+subprocess. Search now costs a fraction of a millisecond, because the reading
+happened once, in the background, when the catalog was uploaded.
+
+The vendor PDFs remain the source of truth. This index is derived from them and can
+be thrown away and rebuilt: `python -m catalog_index.rebuild`.
 """
 from __future__ import annotations
 
-import os
+import json
+import sqlite3
 import sys
-from datetime import date
+import time
 from pathlib import Path
 from typing import Any
 
-from pymongo import MongoClient
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "mcp-servers"))
 
 from _runtime import serve  # noqa: E402
 from tools import TOOLS  # noqa: E402
 
-URI = os.environ.get(
-    "MONGODB_URI", "mongodb://cbc:cbc_local_dev@localhost:27017/cbc_opshub?authSource=admin"
-)
-DB_NAME = os.environ.get("MONGODB_DB", "cbc_opshub")
+from catalog_index import db as index_db  # noqa: E402
+from catalog_index import search as index_search  # noqa: E402
+
+TIERS_FILE = ROOT / "reference-library" / "multipliers" / "vendor_tiers.json"
 STALE_DAYS = 180
 
-_client: MongoClient | None = None
+# A tool call must not be able to ask for an unbounded scan, and must not hang a
+# pricing pass if it tries. The cap is enforced here as well as in the query, and
+# the progress handler aborts a runaway statement rather than blocking the run.
+MAX_LIMIT = 50
+QUERY_TIMEOUT_SECONDS = 5.0
+
+_connection: sqlite3.Connection | None = None
+_deadline = {"at": 0.0}
 
 
-def _db():
-    global _client
-    if _client is None:
-        _client = MongoClient(URI, serverSelectionTimeoutMS=5000)
-    return _client[DB_NAME]
+def _db() -> sqlite3.Connection:
+    """One read-only connection for the life of the process."""
+    global _connection
+    if _connection is None:
+        path = index_db.index_path()
+        if not path.exists():
+            raise FileNotFoundError(
+                f"the catalog index does not exist at {path}. Build it with "
+                "`python -m catalog_index.rebuild` - it is derived from pricebooks/ "
+                "and takes about 20 seconds."
+            )
+        _connection = index_db.connect(path, readonly=True)
+        _connection.set_progress_handler(
+            lambda: 1 if _deadline["at"] and time.monotonic() > _deadline["at"] else 0,
+            100_000,
+        )
+    return _connection
 
 
-def _clean(document: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not document:
-        return None
-    return {
-        ("id" if k == "_id" else k): (str(v) if k.endswith("Id") or k == "_id" else v)
-        for k, v in document.items()
-    }
+def _bounded() -> sqlite3.Connection:
+    connection = _db()
+    _deadline["at"] = time.monotonic() + QUERY_TIMEOUT_SECONDS
+    return connection
 
 
-def _age_days(effective: str | None) -> int | None:
-    if not effective:
-        return None
+def _clamp(limit: Any, default: int = 10) -> int:
     try:
-        return (date.today() - date.fromisoformat(effective)).days
-    except (ValueError, TypeError):
-        return None
+        return max(1, min(int(limit), MAX_LIMIT))
+    except (TypeError, ValueError):
+        return default
 
 
-def _with_book(product: dict[str, Any]) -> dict[str, Any]:
-    book = None
-    if product.get("priceBookId"):
-        book = _db().priceBooks.find_one({"_id": product["priceBookId"]})
-    cleaned = _clean(product) or {}
-    if book:
-        cleaned["priceBook"] = {
-            "vendor": book.get("vendor"),
-            "program": book.get("program"),
-            "multiplier": book.get("multiplier"),
-            "effective": book.get("effective"),
-            "ageDays": _age_days(book.get("effective")),
-            "stale": (_age_days(book.get("effective")) or 0) > STALE_DAYS,
-        }
-    return cleaned
+# ── search ─────────────────────────────────────────────────────────────────
 
 
 def search_products(
     query: str,
-    division: str | None = None,
-    manufacturer: str | None = None,
-    limit: int = 20,
+    vendor: str | None = None,
+    catalog_id: str | None = None,
+    category: str | None = None,
+    limit: int = 10,
+    offset: int = 0,
 ) -> dict[str, Any]:
-    needle = query.strip()
-    mongo_query: dict[str, Any] = {
-        "$or": [
-            {"part": {"$regex": f"^{needle}", "$options": "i"}},
-            {"part": {"$regex": needle, "$options": "i"}},
-            {"description": {"$regex": needle, "$options": "i"}},
-            {"manufacturer": {"$regex": needle, "$options": "i"}},
-        ]
-    }
-    if division:
-        mongo_query["division"] = division
-    if manufacturer:
-        mongo_query["manufacturer"] = {"$regex": manufacturer, "$options": "i"}
+    if not str(query or "").strip():
+        return {"error": "query is required", "count": 0, "results": []}
+    try:
+        start = max(0, int(offset or 0))
+    except (TypeError, ValueError):
+        start = 0
+    return index_search.search(
+        _bounded(), str(query), vendor=vendor, catalog_id=catalog_id,
+        category=category, limit=_clamp(limit), offset=start,
+    )
 
-    found = list(_db().products.find(mongo_query).limit(min(int(limit), 100)))
-    # Exact part-number matches first - an estimator typing a part wants that part.
-    found.sort(key=lambda p: (str(p.get("part", "")).lower() != needle.lower(), p.get("part", "")))
 
+def search_catalog(catalog_id: str, query: str, limit: int = 10) -> dict[str, Any]:
+    return search_products(query, catalog_id=catalog_id, limit=limit)
+
+
+def get_product_details(
+    product_id: int | None = None,
+    product_code: str | None = None,
+    vendor: str | None = None,
+) -> dict[str, Any]:
+    if product_id is None and not product_code:
+        return {"error": "give product_id, or product_code (optionally with vendor)"}
+    found = index_search.get_product(
+        _bounded(), product_id=product_id, product_code=product_code, vendor=vendor
+    )
+    if found is None:
+        return {
+            "found": False,
+            "note": "Not in the index. Price manually, or check whether that catalog is "
+                    "indexed with list_catalogs - do not substitute a similar part.",
+        }
+    return {"found": True, "product": found}
+
+
+def list_catalogs(vendor: str | None = None) -> dict[str, Any]:
+    from datetime import date
+
+    rows = index_search.list_catalogs(_bounded(), vendor)
+    for row in rows:
+        effective = row.get("effective_date")
+        age = None
+        if effective:
+            try:
+                age = (date.today() - date.fromisoformat(effective)).days
+            except (ValueError, TypeError):
+                age = None
+        row["ageDays"] = age
+        row["stale"] = age is not None and age > STALE_DAYS
+        row["undated"] = effective is None
+
+    ready = [r for r in rows if r["status"] == "ready"]
     return {
-        "query": query,
-        "count": len(found),
-        "products": [_with_book(p) for p in found],
+        "count": len(rows),
+        "searchable": len(ready),
+        "products": sum(r["product_count"] for r in ready),
+        "catalogs": rows,
+        "stale": sum(1 for r in rows if r["stale"]),
         "note": (
-            "No catalog match. This may be a MANUAL cut-off item - do not "
-            "substitute the nearest stock part."
-            if not found
-            else None
+            "Only catalogs with status 'ready' appear in search results. "
+            "NFR-10 is open - no named owner or refresh cadence; age is the only signal."
         ),
     }
 
 
-def get_product(part: str) -> dict[str, Any]:
-    product = _db().products.find_one({"part": part})
-    if not product:
-        return {
-            "part": part,
-            "found": False,
-            "note": "Not in the catalog. Price manually or check the source price book.",
-        }
-    return {"part": part, "found": True, "product": _with_book(product)}
+def get_catalog_status(catalog_id: str) -> dict[str, Any]:
+    from catalog_index import registry
+
+    found = registry.status_of(_bounded(), catalog_id)
+    if found is None:
+        return {"found": False, "catalog_id": catalog_id, "note": "no such catalog"}
+    return {"found": True, **found}
+
+
+# ── multipliers: curated data, not extracted ───────────────────────────────
 
 
 def get_multiplier(vendor: str, category: str | None = None) -> dict[str, Any]:
-    needle = vendor.strip()
-    book = _db().priceBooks.find_one(
-        {
-            "$or": [
-                {"vendor": {"$regex": f"^{needle}$", "$options": "i"}},
-                {"displayName": {"$regex": needle, "$options": "i"}},
-            ],
-            "multiplier": {"$ne": None},
-        }
-    )
-    if not book:
+    """From the tier sheet purchasing maintains. Never inferred from a PDF."""
+    if not TIERS_FILE.exists():
+        return {"vendor": vendor, "multiplier": None, "note": "vendor_tiers.json not found"}
+
+    data = json.loads(TIERS_FILE.read_text(encoding="utf-8"))
+    needle = str(vendor or "").strip().lower()
+    for record in data.get("vendors", []):
+        names = {str(record.get("key", "")).lower(), str(record.get("name", "")).lower()}
+        if needle not in names and needle not in str(record.get("name", "")).lower():
+            continue
+        categories = record.get("categories") or {}
+        if category and categories:
+            key = str(category).strip().lower().replace(" ", "_").replace("-", "_")
+            if key in categories:
+                return {
+                    "vendor": record.get("name"), "category": key,
+                    "multiplier": categories[key], "effective_date": record.get("effective_date"),
+                    "account": record.get("account"), "source": record.get("source"),
+                }
+            return {
+                "vendor": record.get("name"), "category": category, "multiplier": None,
+                "available_categories": sorted(categories),
+                "note": "Unknown category for this vendor - do not guess, ask the estimator.",
+            }
         return {
-            "vendor": vendor,
-            "multiplier": None,
-            "note": "No multiplier tier on file. Price manually - never guess.",
+            "vendor": record.get("name"), "tier": record.get("tier"),
+            "multiplier": record.get("multiplier"), "categories": categories or None,
+            "effective_date": record.get("effective_date"), "account": record.get("account"),
+            "note": record.get("note"), "source": record.get("source"),
         }
-
-    categories = book.get("categories") or {}
-    if category:
-        key = category.strip().lower().replace(" ", "_").replace("-", "_")
-        if key in categories:
-            return {
-                "vendor": book.get("vendor"),
-                "category": key,
-                "multiplier": categories[key],
-                "effective": book.get("effective"),
-                "lastReviewed": book.get("lastReviewed"),
-                "account": book.get("account"),
-                "ageDays": _age_days(book.get("effective")),
-            }
-        if categories:
-            return {
-                "vendor": book.get("vendor"),
-                "category": category,
-                "multiplier": None,
-                "availableCategories": sorted(categories),
-                "note": "Unknown category for this vendor - ask the estimator.",
-            }
-
     return {
-        "vendor": book.get("vendor"),
-        "multiplier": book.get("multiplier"),
-        "categories": categories or None,
-        "effective": book.get("effective"),
-        "lastReviewed": book.get("lastReviewed"),
-        "steward": book.get("steward"),
-        "account": book.get("account"),
-        "ageDays": _age_days(book.get("effective")),
-        "stale": (_age_days(book.get("effective")) or 0) > STALE_DAYS,
-        "note": book.get("note"),
+        "vendor": vendor, "multiplier": None,
+        "note": "Vendor not in the tier sheet. Price manually (MANUAL cut-off) - never guess.",
     }
 
 
-def list_price_books(vendor: str | None = None) -> dict[str, Any]:
-    query = {"vendor": {"$regex": vendor, "$options": "i"}} if vendor else {}
-    books = list(_db().priceBooks.find(query).sort("vendor", 1))
+# ── compatibility: the names the agents and skills already call ────────────
 
-    out = []
-    for book in books:
-        age = _age_days(book.get("effective"))
-        out.append(
-            {
-                "vendor": book.get("vendor"),
-                "program": book.get("program"),
-                "multiplier": book.get("multiplier"),
-                "effective": book.get("effective"),
-                "lastReviewed": book.get("lastReviewed"),
-                "steward": book.get("steward"),
-                "partCount": book.get("partCount", 0),
-                "ageDays": age,
-                "stale": age is not None and age > STALE_DAYS,
-                "undated": book.get("effective") is None,
-            }
+
+def search_product(
+    query: str, vendor: str | None = None, division: str | None = None, limit: int = 10
+) -> dict[str, Any]:
+    """Alias kept so `.claude/agents/` and `.claude/skills/` keep working."""
+    result = search_products(query, vendor=vendor, limit=limit)
+    result["hits"] = [
+        {
+            "vendor": r["vendor"], "source_file": r["source_file"],
+            "source_page": r["page_number"], "effective_date": r["effective_date"],
+            "line": " ".join(str(p) for p in (r["product_code"], r["product_name"]) if p)[:200],
+            "price": r["price"], "score": r["relevance_score"],
+        }
+        for r in result.get("results", [])
+    ]
+    result["hit_count"] = result.get("count", 0)
+    return result
+
+
+def list_vendors() -> dict[str, Any]:
+    """Alias of list_catalogs, grouped the way the old tool reported it."""
+    catalogs = list_catalogs()
+    by_vendor: dict[str, dict[str, Any]] = {}
+    for row in catalogs["catalogs"]:
+        entry = by_vendor.setdefault(
+            row["vendor"], {"vendor": row["vendor"], "catalogs": [], "products": 0}
         )
+        entry["catalogs"].append(
+            {"catalog_id": row["catalog_id"], "file": row["file_name"],
+             "status": row["status"], "effective_date": row["effective_date"],
+             "products": row["product_count"], "stale": row["stale"]}
+        )
+        entry["products"] += row["product_count"]
+    return {
+        "count": len(by_vendor),
+        "vendors": sorted(by_vendor.values(), key=lambda v: v["vendor"]),
+        # The flat per-book list the previous server returned. Kept because the
+        # agents, skills and tests that call this tool read `pricebooks`, and a
+        # rename would break them silently at the moment they most need a price.
+        "pricebooks": [
+            {
+                "vendor": row["vendor"], "name": row["file_name"], "file": row["file_name"],
+                "catalog_id": row["catalog_id"], "effective_date": row["effective_date"],
+                "status": row["status"], "products": row["product_count"],
+                "stale": row["stale"],
+            }
+            for row in catalogs["catalogs"]
+        ],
+    }
+
+
+def lookup_pricing(part_number: str, vendor: str, category: str | None = None) -> dict[str, Any]:
+    """List price and net cost for an exact part. Ambiguity is reported, not resolved."""
+    found = search_products(part_number, vendor=vendor, limit=MAX_LIMIT)
+    matches = [
+        {
+            "vendor": r["vendor"], "product_code": r["product_code"],
+            "description": r["product_name"], "list_price": r["price"],
+            "source_file": r["source_file"], "source_page": r["page_number"],
+            "effective_date": r["effective_date"],
+        }
+        for r in found.get("results", [])
+        if r["product_code"]
+    ]
+    priced = [m for m in matches if m["list_price"] is not None]
+
+    tier = get_multiplier(vendor, category)
+    multiplier = tier.get("multiplier")
+    list_price = net_cost = None
+    if len(priced) == 1 and isinstance(multiplier, (int, float)):
+        list_price = priced[0]["list_price"]
+        net_cost = round(float(list_price) * float(multiplier), 2)
 
     return {
-        "count": len(out),
-        "priceBooks": out,
-        "stale": sum(1 for b in out if b["stale"]),
-        "undated": sum(1 for b in out if b["undated"]),
-        "stewardship": "NFR-10 is open - no named owner or refresh cadence. Age is the only signal.",
+        "part_number": part_number, "vendor": vendor,
+        "match_count": len(matches), "matches": matches[:10],
+        "multiplier": multiplier, "multiplier_tier": tier.get("tier"),
+        "multiplier_effective_date": tier.get("effective_date"),
+        "list_price": list_price, "net_cost": net_cost,
+        "cost_source": "LIST_X_MULTIPLIER" if net_cost is not None else "MANUAL",
+        "note": (
+            "Unambiguous single match priced at list x multiplier."
+            if net_cost is not None
+            else "Ambiguous, unpriced or missing - the estimator prices this line. "
+                 "Adders (electrification, NRP, premium finish) are never included here."
+        ),
     }
 
 
 HANDLERS = {
     "search_products": search_products,
-    "get_product": get_product,
+    "search_catalog": search_catalog,
+    "get_product_details": get_product_details,
+    "list_catalogs": list_catalogs,
+    "get_catalog_status": get_catalog_status,
     "get_multiplier": get_multiplier,
-    "list_price_books": list_price_books,
+    "search_product": search_product,
+    "list_vendors": list_vendors,
+    "lookup_pricing": lookup_pricing,
 }
 
-# Guardrail: this server reads. Nothing here may ever write to the catalog.
+# Guardrail: this server reads. Nothing here may ever write to the catalog, and the
+# connection is opened query_only so the database refuses even if this slips.
 _FORBIDDEN = ("write", "update", "insert", "upsert", "delete", "create", "set_")
 assert not [t for t in TOOLS if any(word in t["name"].lower() for word in _FORBIDDEN)], (
     "catalog must expose no write tools"
@@ -222,24 +314,22 @@ assert not [t for t in TOOLS if any(word in t["name"].lower() for word in _FORBI
 
 
 def _demo() -> None:
-    """Runnable check against the seeded database."""
-    books = list_price_books()
-    assert books["count"] > 0, "no price books - run scripts/seed_db.py"
+    """Runnable check against the real index."""
+    catalogs = list_catalogs()
+    assert catalogs["searchable"] > 0, "no catalogs indexed - run catalog_index.rebuild"
 
-    hager = get_multiplier("hager", "locks")
-    assert hager["multiplier"] == 0.29, hager
-
-    unknown = get_multiplier("acme")
-    assert unknown["multiplier"] is None and "never guess" in unknown["note"]
-
-    hit = search_products("150CX18")
+    hit = search_products("B-2888")
     assert hit["count"] >= 1, hit
-    assert hit["products"][0]["part"].startswith("150CX18")
+    assert hit["results"][0]["product_code"] == "B-2888", hit["results"][0]
 
     miss = search_products("definitely-not-a-real-part-xyz")
-    assert miss["count"] == 0 and "MANUAL" in miss["note"]
+    assert miss["count"] == 0 and "MANUAL cut-off" in miss["note"]
 
-    print(f"catalog demo OK - {books['count']} price books, {books['stale']} stale")
+    assert get_multiplier("acme")["multiplier"] is None
+    print(
+        f"catalog demo OK - {catalogs['searchable']} catalogs, "
+        f"{catalogs['products']} products, {catalogs['stale']} stale"
+    )
 
 
 if __name__ == "__main__":

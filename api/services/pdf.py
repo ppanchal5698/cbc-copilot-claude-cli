@@ -4,40 +4,29 @@ The estimator checks an extracted value against the real drawing, so the API
 serves real page renders and the raw file. Bboxes come from extraction and are
 measured in PDF points against `page_size`; the viewer scales them itself.
 
-Reuses the pdf-tools MCP server rather than opening PyMuPDF a second way.
+The page operations come from `cbc_core.pdfpages`, which the pdf-tools MCP server
+also uses - so a bbox the estimator is shown is measured against exactly the frame
+a run recorded it in. This module adds the render cache on top.
 """
 from __future__ import annotations
 
 import hashlib
-import sys
 from pathlib import Path
 from typing import Any
 
 from api.config import settings
-
-sys.path.insert(0, str(settings.repo_root / "mcp-servers"))
-
-from _runtime import load_server  # noqa: E402
-
-pdf_tools = load_server("pdf-tools")
+from cbc_core import pdfpages
 
 RENDER_CACHE = settings.repo_root / ".cache" / "pdf-pages"
 MAX_DPI = 300
 MIN_DPI = 36
 
-
-def page_count(path: Path) -> int:
-    import fitz
-
-    doc = fitz.open(path)
-    try:
-        return doc.page_count
-    finally:
-        doc.close()
+page_count = pdfpages.page_count
+find_text = pdfpages.find_text
 
 
 def page_size(path: Path, page_number: int) -> dict[str, Any]:
-    return pdf_tools.get_page_size(str(path), page_number)
+    return pdfpages.page_size(path, page_number)
 
 
 def render_page(path: Path, page_number: int, dpi: int = 110) -> Path:
@@ -58,37 +47,10 @@ def render_page(path: Path, page_number: int, dpi: int = 110) -> Path:
     if cached.exists():
         return cached
 
-    result = pdf_tools.get_page_image(
-        str(path), page_number=page_number, dpi=dpi, out_dir=str(RENDER_CACHE)
+    produced = Path(
+        pdfpages.page_image(path, page_number=page_number, dpi=dpi, out_dir=RENDER_CACHE)[
+            "image_path"
+        ]
     )
-    if "error" in result:
-        raise ValueError(result["error"])
-
-    produced = Path(result["image_path"])
     produced.replace(cached)
     return cached
-
-
-def find_text(path: Path, page_number: int, needle: str) -> list[dict[str, Any]]:
-    """Locate a string on a page and return its bboxes.
-
-    Fallback for a line whose stored bbox is missing - an older extraction, or a
-    value the estimator typed by hand and wants to point at.
-    """
-    import fitz
-
-    doc = fitz.open(path)
-    try:
-        index = page_number - 1
-        if not 0 <= index < doc.page_count:
-            return []
-        page = doc[index]
-        return [
-            {
-                "bbox": [round(r.x0, 2), round(r.y0, 2), round(r.x1, 2), round(r.y1, 2)],
-                "pageSize": {"width": round(page.rect.width, 2), "height": round(page.rect.height, 2)},
-            }
-            for r in page.search_for(needle)[:20]
-        ]
-    finally:
-        doc.close()

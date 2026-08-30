@@ -6,6 +6,7 @@ lands in `projects/{slug}/uploads/raw/`, a document row is written, and an
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -13,7 +14,9 @@ from fastapi.responses import FileResponse, Response
 
 from api.config import settings
 from api.db import db, oid, serialise
+from api.deps import Actor
 from api.routers.projects import load
+from api.routers.versions import snapshot
 from api.services import audit, jobs, pdf, storage
 
 router = APIRouter(prefix="/api/projects/{code}/documents", tags=["documents"])
@@ -31,24 +34,26 @@ async def list_documents(code: str) -> dict:
 @router.post("", status_code=201)
 async def upload_document(
     code: str,
+    actor: Actor,
     file: UploadFile = File(...),
     kind: str = Form("plan"),
-    actor: str = Form("estimator"),
 ) -> dict:
     project = await load(code)
-    payload = await file.read()
-
-    if len(payload) > settings.max_upload_bytes:
-        raise HTTPException(413, f"file exceeds {settings.max_upload_mb} MB")
-    if not payload.startswith(PDF_MAGIC):
-        raise HTTPException(415, "only PDF bid documents are accepted")
 
     storage.scaffold(project["slug"])
     target = storage.unique_filename(storage.raw_dir(project["slug"]), file.filename or "upload.pdf")
-    target.write_bytes(payload)
-
     try:
-        pages = pdf.page_count(target)
+        size = await storage.receive_upload(
+            file, target, settings.max_upload_bytes, magic=PDF_MAGIC
+        )
+    except ValueError as exc:
+        raise HTTPException(413 if "exceeds" in str(exc) else 415, str(exc)) from exc
+
+    # A bid set is a CAD export; counting its pages is real work, and doing it
+    # inline blocked every other request - including the health check - for the
+    # duration.
+    try:
+        pages = await asyncio.to_thread(pdf.page_count, target)
     except Exception:
         target.unlink(missing_ok=True)
         raise HTTPException(422, "could not read that PDF - it may be corrupt")
@@ -58,7 +63,7 @@ async def upload_document(
         "filename": target.name,
         "kind": kind,
         "pages": pages,
-        "bytes": len(payload),
+        "bytes": size,
         "path": storage.relative(target),
         "state": "received",
         "uploadedAt": datetime.now(timezone.utc),
@@ -74,8 +79,6 @@ async def upload_document(
     # differences are flagged rather than merged (Matrix 4.1 is still open).
     version = None
     if kind == "addendum":
-        from api.routers.versions import snapshot
-
         version = await snapshot(project, f"Addendum: {target.name}", actor)
         job = await jobs.enqueue(
             "ingest_addendum",
@@ -143,12 +146,14 @@ async def get_page(code: str, document_id: str, page_number: int, dpi: int = 110
         raise HTTPException(404, "document not found")
 
     try:
-        image = pdf.render_page(storage.absolute(document["path"]), page_number, dpi)
+        image = await asyncio.to_thread(
+            pdf.render_page, storage.absolute(document["path"]), page_number, dpi
+        )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
     return Response(
-        image.read_bytes(),
+        await asyncio.to_thread(image.read_bytes),
         media_type="image/png",
         headers={"Cache-Control": "private, max-age=86400"},
     )
@@ -161,11 +166,13 @@ async def get_page_size(code: str, document_id: str, page_number: int) -> dict:
     document = await db.documents.find_one({"_id": oid(document_id)})
     if not document:
         raise HTTPException(404, "document not found")
-    return pdf.page_size(storage.absolute(document["path"]), page_number)
+    return await asyncio.to_thread(
+        pdf.page_size, storage.absolute(document["path"]), page_number
+    )
 
 
 @router.delete("/{document_id}", status_code=204)
-async def delete_document(code: str, document_id: str, actor: str = "estimator") -> None:
+async def delete_document(code: str, document_id: str, actor: Actor) -> None:
     """Detach a document from the bid. The file itself stays - raw uploads are immutable."""
     project = await load(code)
     document = await db.documents.find_one({"_id": oid(document_id)})

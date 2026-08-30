@@ -85,6 +85,10 @@ Write to `projects/{project}/extracted/door_schedule.json`:
       "hardware_set": "GROUP 1",
       "notes": "A,B,C,D,E,F",
       "source_page": 14,
+      "bbox": [640.2, 609.8, 998.4, 619.1],
+      "page_size": { "width": 2592.0, "height": 1728.0 },
+      "row_bbox": [640.2, 609.8, 998.4, 619.1],
+      "cell_boxes": [[640.2, 609.8, 690.0, 619.1]],
       "confidence": 0.9,
       "flags": ["fire_rating_missing", "handing_missing", "finish_missing"]
     }
@@ -107,7 +111,9 @@ Write to `projects/{project}/extracted/door_schedule.json`:
 
 ```bash
 python .claude/skills/extract-door-schedule/scripts/parse_schedule.py <pdf> --find
+python .claude/skills/extract-door-schedule/scripts/parse_schedule.py <pdf> --page 14 --openings --json
 ```
 
-`--find` locates candidate schedule pages. `--page N` dumps clustered rows for one
-page. `--json` emits the raw row structure for further parsing.
+`--find` locates candidate schedule pages. `--page N --openings` parses opening
+rows with bbox and page_size. `--json` emits machine-readable output; with
+`--openings` the envelope is `{"openings": [...]}` ready for door_schedule.json.

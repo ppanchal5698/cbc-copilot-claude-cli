@@ -1,18 +1,45 @@
 """Projects - the bid record every other screen hangs off."""
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from api.db import db, oid, serialise
-from api.models import ProjectCreate, ProjectUpdate
-from api.services import audit, jobs, storage
+from api.deps import Actor
+from api.schemas import ProjectCreate, ProjectUpdate
+from api.services import audit, storage
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 STAGE_PROGRESS = {"intake": 0, "extraction": 33, "quote": 67, "proposal": 100}
+
+
+async def next_code() -> str:
+    """Allocate the next CBC-YYNNNN atomically."""
+    prefix = storage.code_prefix()
+    counter = await db.counters.find_one_and_update(
+        {"_id": prefix},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+    )
+    if counter["seq"] == 1:
+        # First allocation under this prefix. The database may already carry codes
+        # issued before the counter existed, so continue that series instead of
+        # restarting on top of it. Costs one scan per prefix, once.
+        highest = storage.highest_code_sequence(await db.projects.distinct("code"), prefix)
+        if highest >= 1:
+            counter = await db.counters.find_one_and_update(
+                {"_id": prefix},
+                {"$set": {"seq": highest + 1}},
+                return_document=ReturnDocument.AFTER,
+            )
+    return f"{prefix}{counter['seq']:04d}"
 
 
 async def load(code_or_id: str) -> dict[str, Any]:
@@ -28,38 +55,100 @@ async def load(code_or_id: str) -> dict[str, Any]:
     return project
 
 
-async def _decorate(project: dict[str, Any]) -> dict[str, Any]:
-    """Attach the counts the board and stage bar render."""
-    project_id = project["_id"]
-    statuses = await db.line_items.aggregate(
-        [{"$match": {"projectId": project_id}}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}]
-    ).to_list(length=20)
-    counts = {row["_id"]: row["n"] for row in statuses}
-    quote = await db.quotes.find_one({"projectId": project_id})
-    latest = await jobs.latest_for_project(project_id)
+async def _count_by_project(collection, ids: list[Any]) -> dict[Any, int]:
+    rows = await collection.aggregate(
+        [{"$match": {"projectId": {"$in": ids}}},
+         {"$group": {"_id": "$projectId", "n": {"$sum": 1}}}]
+    ).to_list(length=len(ids) + 1)
+    return {row["_id"]: row["n"] for row in rows}
 
-    # `status` carries provenance (`by_hand`) in the same field as review state,
-    # so a confirmed hand-added line is not in the `clear` bucket. Confirmation is
-    # what "cleared" means to an estimator, so count the thing that records it.
-    confirmed = await db.line_items.count_documents(
-        {"projectId": project_id, "confirmedAt": {"$ne": None}}
-    )
 
-    return {
-        **serialise(project),
-        "counts": {
-            "total": sum(counts.values()),
-            "clear": confirmed,
-            "needsLook": counts.get("needs_look", 0),
-            "duplicate": counts.get("duplicate", 0),
-            "byHand": counts.get("by_hand", 0),
-        },
-        "documentCount": await db.documents.count_documents({"projectId": project_id}),
-        "version": project.get("version", 1),
-        "callCount": await db.calls.count_documents({"projectId": project_id}),
-        "quoteTotal": (quote or {}).get("grandTotal"),
-        "activeJob": serialise(latest) if latest and latest["status"] in ("queued", "running") else None,
+async def _decorate_many(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach the counts the board and stage bar render, for a whole page of bids.
+
+    Five aggregations for the entire list, not six queries per bid. The board is
+    the landing page and its cost used to grow linearly with the number of open
+    bids - at the default limit that was three hundred sequential round trips.
+    """
+    if not projects:
+        return []
+    ids = [project["_id"] for project in projects]
+
+    # Statuses and confirmations in one pass: `status` carries provenance
+    # (`by_hand`) in the same field as review state, so a confirmed hand-added
+    # line is not in the `clear` bucket. Confirmation is what "cleared" means to
+    # an estimator, so count the thing that records it.
+    status_rows = await db.line_items.aggregate(
+        [
+            {"$match": {"projectId": {"$in": ids}}},
+            {
+                "$group": {
+                    "_id": {"projectId": "$projectId", "status": "$status"},
+                    "n": {"$sum": 1},
+                }
+            },
+        ]
+    ).to_list(length=None)
+
+    confirmed_rows = await db.line_items.aggregate(
+        [
+            {
+                "$match": {
+                    "projectId": {"$in": ids},
+                    "confirmedAt": {"$exists": True, "$ne": None},
+                }
+            },
+            {"$group": {"_id": "$projectId", "n": {"$sum": 1}}},
+        ]
+    ).to_list(length=None)
+
+    counts: dict[Any, dict[str, int]] = {}
+    confirmed = {row["_id"]: row["n"] for row in confirmed_rows}
+    for row in status_rows:
+        project_id, status = row["_id"]["projectId"], row["_id"]["status"]
+        counts.setdefault(project_id, {})[status] = row["n"]
+
+    quotes = {
+        quote["projectId"]: quote
+        for quote in await db.quotes.find({"projectId": {"$in": ids}}).to_list(len(ids) + 1)
     }
+    # Newest first, so the first one seen per project is the current active job.
+    active: dict[Any, dict[str, Any]] = {}
+    for job in await db.jobs.find(
+        {"projectId": {"$in": ids}, "status": {"$in": ["queued", "running"]}}
+    ).sort("createdAt", -1).to_list(length=None):
+        active.setdefault(job["projectId"], job)
+
+    documents = await _count_by_project(db.documents, ids)
+    calls = await _count_by_project(db.calls, ids)
+
+    decorated = []
+    for project in projects:
+        project_id = project["_id"]
+        by_status = counts.get(project_id, {})
+        decorated.append(
+            {
+                **serialise(project),
+                "counts": {
+                    "total": sum(by_status.values()),
+                    "clear": confirmed.get(project_id, 0),
+                    "needsLook": by_status.get("needs_look", 0),
+                    "duplicate": by_status.get("duplicate", 0),
+                    "byHand": by_status.get("by_hand", 0),
+                },
+                "documentCount": documents.get(project_id, 0),
+                "version": project.get("version", 1),
+                "callCount": calls.get(project_id, 0),
+                "quoteTotal": quotes.get(project_id, {}).get("grandTotal"),
+                "activeJob": serialise(active[project_id]) if project_id in active else None,
+            }
+        )
+    return decorated
+
+
+async def _decorate(project: dict[str, Any]) -> dict[str, Any]:
+    """One bid, through the same code path as the board - no second implementation."""
+    return (await _decorate_many([project]))[0]
 
 
 @router.get("")
@@ -72,21 +161,21 @@ async def list_projects(
     if stage:
         query["stage"] = stage
     if q:
+        needle = re.escape(q)  # user input, not a pattern
         query["$or"] = [
-            {"name": {"$regex": q, "$options": "i"}},
-            {"code": {"$regex": q, "$options": "i"}},
-            {"gc": {"$regex": q, "$options": "i"}},
-            {"brand": {"$regex": q, "$options": "i"}},
+            {"name": {"$regex": needle, "$options": "i"}},
+            {"code": {"$regex": needle, "$options": "i"}},
+            {"gc": {"$regex": needle, "$options": "i"}},
+            {"brand": {"$regex": needle, "$options": "i"}},
         ]
 
     projects = await db.projects.find(query).sort("createdAt", -1).to_list(length=limit)
-    return {"projects": [await _decorate(p) for p in projects]}
+    return {"projects": await _decorate_many(projects)}
 
 
 @router.post("", status_code=201)
-async def create_project(body: ProjectCreate, actor: str = "estimator") -> dict[str, Any]:
-    codes = await db.projects.distinct("code")
-    code = storage.next_project_code(codes)
+async def create_project(body: ProjectCreate, actor: Actor) -> dict[str, Any]:
+    code = await next_code()
 
     slug = storage.slugify(body.name)
     if await db.projects.find_one({"slug": slug}):
@@ -105,7 +194,13 @@ async def create_project(body: ProjectCreate, actor: str = "estimator") -> dict[
         "createdAt": now,
         "updatedAt": now,
     }
-    result = await db.projects.insert_one(doc)
+    try:
+        result = await db.projects.insert_one(doc)
+    except DuplicateKeyError:
+        # Two creates for the same name landed between the slug check and here.
+        # The code is already unique, so it is what disambiguates the slug.
+        doc["slug"] = slug = f"{slug}_{code.lower().replace('-', '_')}"
+        result = await db.projects.insert_one(doc)
     doc["_id"] = result.inserted_id
 
     storage.scaffold(slug)
@@ -119,7 +214,7 @@ async def get_project(code: str) -> dict[str, Any]:
 
 
 @router.patch("/{code}")
-async def update_project(code: str, body: ProjectUpdate, actor: str = "estimator") -> dict:
+async def update_project(code: str, body: ProjectUpdate, actor: Actor) -> dict:
     project = await load(code)
     changes = body.model_dump(exclude_none=True)
     if not changes:
@@ -145,7 +240,7 @@ async def update_project(code: str, body: ProjectUpdate, actor: str = "estimator
 
 
 @router.delete("/{code}", status_code=204)
-async def delete_project(code: str, actor: str = "estimator") -> None:
+async def delete_project(code: str, actor: Actor) -> None:
     """Remove the bid record. Uploaded documents stay on disk deliberately.
 
     Raw uploads are immutable evidence (file-safety rule); deleting a database
@@ -153,7 +248,23 @@ async def delete_project(code: str, actor: str = "estimator") -> None:
     """
     project = await load(code)
     project_id = project["_id"]
-    for collection in (db.line_items, db.quote_lines, db.quotes, db.proposals, db.documents):
+
+    # An outstanding job outlives the bid otherwise: the worker claims it, finds no
+    # project, and the exclusive-job index keeps the slot held in the meantime.
+    await db.jobs.update_many(
+        {"projectId": project_id, "status": {"$in": ["queued", "running"]}},
+        {"$set": {"status": "cancelled", "cancelledAt": datetime.now(timezone.utc),
+                  "cancelledBy": actor, "note": "project deleted"}},
+    )
+    for collection in (
+        db.line_items,
+        db.quote_lines,
+        db.quotes,
+        db.proposals,
+        db.documents,
+        db.versions,
+        db.calls,
+    ):
         await collection.delete_many({"projectId": project_id})
     await db.projects.delete_one({"_id": project_id})
     await audit.record(

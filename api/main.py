@@ -17,7 +17,10 @@ from fastapi.responses import JSONResponse
 
 from api.config import settings
 from api.db import ensure_indexes
+from api.deps import InternalAuthMiddleware
 from api.routers import (
+    alternates,
+    audit_log,
     auth,
     calls,
     catalog,
@@ -30,6 +33,7 @@ from api.routers import (
     quote,
     settings as settings_router,
     terminal,
+    users,
     versions,
 )
 
@@ -57,6 +61,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(InternalAuthMiddleware)
 
 
 @app.exception_handler(ValueError)
@@ -67,6 +72,8 @@ async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse
 
 for router in (
     auth.router,
+    users.router,
+    audit_log.router,
     projects.router,
     documents.router,
     line_items.router,
@@ -76,6 +83,7 @@ for router in (
     price_books.router,
     jobs.router,
     calls.router,
+    alternates.router,
     versions.router,
     settings_router.router,
     terminal.router,
@@ -86,6 +94,7 @@ for router in (
 @app.get("/api/health")
 async def health() -> dict:
     from api.db import db
+    from api.services import catalog_search
 
     try:
         await db.projects.database.command("ping")
@@ -97,5 +106,6 @@ async def health() -> dict:
         "status": "ok" if database == "up" else "degraded",
         "database": database,
         "storageRoot": str(settings.storage_root),
+        "catalogIndex": "ready" if catalog_search.index_available() else "missing",
         "sends": "disabled by design (NFR-1)",
     }

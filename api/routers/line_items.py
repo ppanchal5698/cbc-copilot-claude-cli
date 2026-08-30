@@ -12,7 +12,8 @@ from typing import Any
 from fastapi import APIRouter, Body, HTTPException
 
 from api.db import db, oid, serialise
-from api.models import BulkAction, LineItemCreate, LineItemUpdate
+from api.deps import Actor
+from api.schemas import BulkAction, LineItemCreate, LineItemUpdate
 from api.routers.projects import load
 from api.services import audit, jobs, sync
 
@@ -63,7 +64,7 @@ async def list_line_items(
 
 
 @router.post("", status_code=201)
-async def add_line_item(code: str, body: LineItemCreate, actor: str = "estimator") -> dict:
+async def add_line_item(code: str, body: LineItemCreate, actor: Actor) -> dict:
     """Add something the drawings do not carry. Confirmed on arrival - a human typed it."""
     project = await load(code)
 
@@ -93,7 +94,7 @@ async def add_line_item(code: str, body: LineItemCreate, actor: str = "estimator
 
 @router.patch("/{item_id}")
 async def update_line_item(
-    code: str, item_id: str, body: LineItemUpdate, actor: str = "estimator"
+    code: str, item_id: str, body: LineItemUpdate, actor: Actor
 ) -> dict:
     project = await load(code)
     item = await db.line_items.find_one({"_id": oid(item_id), "projectId": project["_id"]})
@@ -125,7 +126,7 @@ async def update_line_item(
 
 
 @router.post("/{item_id}/confirm")
-async def confirm_line_item(code: str, item_id: str, actor: str = "estimator") -> dict:
+async def confirm_line_item(code: str, item_id: str, actor: Actor) -> dict:
     """Keep as is. The estimator has looked at the drawing and agrees."""
     project = await load(code)
     item = await db.line_items.find_one({"_id": oid(item_id), "projectId": project["_id"]})
@@ -143,7 +144,7 @@ async def confirm_line_item(code: str, item_id: str, actor: str = "estimator") -
 
 
 @router.post("/confirm-all")
-async def confirm_all(code: str, actor: str = "estimator") -> dict:
+async def confirm_all(code: str, actor: Actor) -> dict:
     """Confirm everything still flagged for review, in one action."""
     project = await load(code)
     result = await db.line_items.update_many(
@@ -160,7 +161,7 @@ async def confirm_all(code: str, actor: str = "estimator") -> dict:
 
 
 @router.post("/bulk")
-async def bulk_action(code: str, body: BulkAction, actor: str = "estimator") -> dict:
+async def bulk_action(code: str, body: BulkAction, actor: Actor) -> dict:
     """Confirm or remove a selection in one action.
 
     Same audit shape as the single-item paths, so a bulk confirm is as traceable
@@ -191,7 +192,7 @@ async def bulk_action(code: str, body: BulkAction, actor: str = "estimator") -> 
 
 @router.post("/{item_id}/resolve-duplicate")
 async def resolve_duplicate(
-    code: str, item_id: str, keep: str = Body(embed=True, default="one"), actor: str = "estimator"
+    code: str, item_id: str, actor: Actor, keep: str = Body(embed=True, default="one")
 ) -> dict:
     """Keep one reading of a duplicated line, or keep both as separate lines."""
     project = await load(code)
@@ -231,7 +232,7 @@ async def resolve_duplicate(
 
 
 @router.delete("/{item_id}", status_code=204)
-async def delete_line_item(code: str, item_id: str, actor: str = "estimator") -> None:
+async def delete_line_item(code: str, item_id: str, actor: Actor) -> None:
     project = await load(code)
     item = await db.line_items.find_one({"_id": oid(item_id), "projectId": project["_id"]})
     if not item:
@@ -247,7 +248,7 @@ async def delete_line_item(code: str, item_id: str, actor: str = "estimator") ->
 
 
 @router.post("/rerun")
-async def rerun_extraction(code: str, actor: str = "estimator") -> dict:
+async def rerun_extraction(code: str, actor: Actor) -> dict:
     """Ask Claude to read the drawings again.
 
     Confirmed lines and hand-added lines are written down to disk first, so the
@@ -260,7 +261,7 @@ async def rerun_extraction(code: str, actor: str = "estimator") -> dict:
 
 
 @router.post("/continue-to-quote")
-async def continue_to_quote(code: str, actor: str = "estimator") -> dict:
+async def continue_to_quote(code: str, actor: Actor) -> dict:
     """Phase boundary: push confirmed openings down to disk and enqueue pricing."""
     project = await load(code)
 
@@ -270,9 +271,6 @@ async def continue_to_quote(code: str, actor: str = "estimator") -> dict:
     await sync.export_line_items(project)
 
     job = await jobs.enqueue("match_and_price", project["_id"], actor=actor)
-    await db.projects.update_one(
-        {"_id": project["_id"]}, {"$set": {"stage": "quote", "progress": 67, "updatedAt": _now()}}
-    )
     await audit.record(
         "project.continue_to_quote",
         actor,

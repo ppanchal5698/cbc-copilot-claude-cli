@@ -15,14 +15,17 @@ from __future__ import annotations
 import json
 import os
 import sys
+import urllib.error
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from _runtime import serve  # noqa: E402
 from tools import TOOLS  # noqa: E402
+from client import lookup_last_po as _http_lookup, search_item as _http_search  # noqa: E402
 
 # Freshness thresholds, in days (Requirements Matrix 6.2).
 FRESH_DAYS = 180  # under ~6 months
@@ -100,30 +103,107 @@ def lookup_last_po(part_number: str, vendor: str | None = None) -> dict[str, Any
             **MANUAL_ENTRY,
         }
 
-    # ponytail: no live client until CBC IT confirms the P21 endpoint and auth shape.
-    # Wire the read-only query here; keep the MANUAL_ENTRY contract for every failure
-    # path so a pricing agent never sees a half-answer.
+    try:
+        payload = _http_lookup(part_number, vendor)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+        return {
+            "part_number": part_number,
+            "vendor": vendor,
+            "connected": True,
+            "error": f"P21 lookup failed: {exc}",
+            **MANUAL_ENTRY,
+        }
+
+    price = payload.get("last_po_price") or payload.get("price") or payload.get("unit_cost")
+    po_date = payload.get("po_date") or payload.get("purchase_date") or payload.get("date")
+    item_id = payload.get("item_id") or payload.get("id")
+
+    if price is None or po_date is None:
+        return {
+            "part_number": part_number,
+            "vendor": vendor,
+            "connected": True,
+            "item_id": item_id,
+            "last_po_price": price,
+            "po_date": po_date,
+            "freshness_status": "unknown",
+            "error": "P21 response missing price or PO date — use manual entry.",
+            **MANUAL_ENTRY,
+        }
+
+    freshness = check_freshness(str(po_date))
     return {
         "part_number": part_number,
         "vendor": vendor,
         "connected": True,
-        "error": "P21_BASE_URL is set but no read client is implemented yet (NR-10).",
-        **MANUAL_ENTRY,
+        "item_id": item_id,
+        "last_po_price": price,
+        "po_date": po_date,
+        "cost": price,
+        "cost_source": "P21_LAST_PO",
+        "freshness_status": freshness["freshness_status"],
+        "freshness": freshness,
+        "action_required": None if freshness["usable"] else "manual_price_entry",
+        "prompt": None if freshness["usable"] else "price may be out of date - refresh",
     }
 
 
 def search_item(query: str, limit: int = 10) -> dict[str, Any]:
+    if not BASE_URL:
+        return {
+            "query": query,
+            "limit": limit,
+            "connected": False,
+            "results": [],
+            "known_risks": [
+                "P21 item IDs frequently differ from manufacturer part numbers.",
+                "Semi-custom items will not match at all.",
+                "Manual cost entry must always remain available.",
+            ],
+            "note": MANUAL_ENTRY["reason"],
+        }
+
+    try:
+        payload = _http_search(query, limit)
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+        return {
+            "query": query,
+            "limit": limit,
+            "connected": True,
+            "results": [],
+            "error": f"P21 search failed: {exc}",
+            "known_risks": [
+                "P21 item IDs frequently differ from manufacturer part numbers.",
+                "Semi-custom items will not match at all.",
+                "Manual cost entry must always remain available.",
+            ],
+        }
+
+    raw = payload.get("results") or payload.get("items") or []
+    if isinstance(raw, dict):
+        raw = list(raw.values())
+    results = []
+    for row in raw[:limit]:
+        if not isinstance(row, dict):
+            continue
+        results.append(
+            {
+                "item_id": row.get("item_id") or row.get("id"),
+                "part_number": row.get("part_number") or row.get("sku") or row.get("description"),
+                "description": row.get("description") or row.get("name"),
+                "vendor": row.get("vendor"),
+            }
+        )
     return {
         "query": query,
         "limit": limit,
-        "connected": bool(BASE_URL),
-        "results": [],
+        "connected": True,
+        "results": results,
         "known_risks": [
             "P21 item IDs frequently differ from manufacturer part numbers.",
             "Semi-custom items will not match at all.",
             "Manual cost entry must always remain available.",
         ],
-        **({} if BASE_URL else {"note": MANUAL_ENTRY["reason"]}),
     }
 
 

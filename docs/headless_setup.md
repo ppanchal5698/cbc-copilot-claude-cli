@@ -41,7 +41,7 @@ All four must pass. The guardrail suites in particular - they are what makes
 ## Running a bid
 
 ```bash
-bash scripts/init_project.sh dutch_bros_macarthur_2026 building-plans/1_Architectural.pdf
+bash scripts/init_project.sh dutch_bros_macarthur_2026 tests/fixtures/pdfs/1_Architectural.pdf
 ```
 
 ```bash

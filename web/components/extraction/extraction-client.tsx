@@ -9,7 +9,6 @@ import {
   FilePdf,
   ListChecks,
   ArrowRight,
-  FloppyDisk,
   ArrowLeft,
   Lightning,
   X,
@@ -23,11 +22,10 @@ import { AlternateBar } from "@/components/bids/alternate-bar";
 import { BulkBar } from "@/components/extraction/bulk-bar";
 import { LineItemRow } from "@/components/extraction/line-item-row";
 import { PartComposer } from "@/components/extraction/part-composer";
-import { useRowKeys } from "@/components/extraction/use-row-keys";
+import { useRowKeys } from "@/hooks/use-row-keys";
 import { useUiState } from "@/components/shell/ui-state";
+import { proxyFetcher } from "@/lib/proxy-fetcher";
 import type { BidDocument, Job, LineItem, LineItemsResponse } from "@/lib/types";
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 // pdf.js touches DOMMatrix at module scope, so the viewer cannot be evaluated
 // during server rendering.
@@ -78,8 +76,14 @@ export function ExtractionClient({
   // Poll while Claude is working so the screen fills in as it goes.
   const { data: jobData } = useSWR<{ jobs: Job[] }>(
     `/api/proxy/jobs?project=${code}&limit=1`,
-    fetcher,
-    { refreshInterval: 4000, fallbackData: initialJob ? { jobs: [initialJob] } : undefined },
+    proxyFetcher,
+    {
+      refreshInterval: (latest) => {
+        const current = latest?.jobs?.[0] ?? initialJob;
+        return current?.status === "running" || current?.status === "queued" ? 4000 : 0;
+      },
+      fallbackData: initialJob ? { jobs: [initialJob] } : undefined,
+    },
   );
   const job = jobData?.jobs?.[0] ?? null;
   const running = job?.status === "running" || job?.status === "queued";
@@ -89,14 +93,20 @@ export function ExtractionClient({
 
   const { data, mutate } = useSWR<LineItemsResponse>(
     `/api/proxy/projects/${code}/line-items?filter=${filter}${alternateQuery}`,
-    fetcher,
+    proxyFetcher,
     { refreshInterval: running ? 4000 : 0 },
+  );
+
+  const { data: alternateData, mutate: mutateAlternates } = useSWR<{ alternates: { name: string | null; label: string }[] }>(
+    `/api/proxy/projects/${code}/alternates`,
+    proxyFetcher,
   );
 
   const refresh = useCallback(() => {
     mutate();
+    mutateAlternates();
     router.refresh();
-  }, [mutate, router]);
+  }, [mutate, mutateAlternates, router]);
 
   const items = data?.lineItems ?? [];
   const counts = data?.counts;
@@ -113,7 +123,13 @@ export function ExtractionClient({
 
   const confirmOne = useCallback(
     async (item: LineItem) => {
-      await fetch(`/api/proxy/projects/${code}/line-items/${item.id}/confirm`, { method: "POST" });
+      const response = await fetch(`/api/proxy/projects/${code}/line-items/${item.id}/confirm`, {
+        method: "POST",
+      });
+      if (!response.ok) {
+        toast.error("Could not confirm that line");
+        return;
+      }
       mutate();
     },
     [code, mutate],
@@ -128,6 +144,31 @@ export function ExtractionClient({
       setShowSheet(true);
     },
   });
+
+  async function assignAlternate(alternateName: string | null) {
+    if (picked.size === 0) return;
+    setBusy(true);
+    const response = await fetch(`/api/proxy/projects/${code}/alternates/assign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ids: [...picked],
+        alternate: alternateName,
+        scope: "line-items",
+      }),
+    });
+    setBusy(false);
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({ detail: response.statusText }));
+      toast.error("Could not move those lines", { description: String(body.detail) });
+      return;
+    }
+    const result = await response.json();
+    toast.success(`Moved ${result.moved} line${result.moved === 1 ? "" : "s"}`);
+    setPicked(new Set());
+    refresh();
+  }
 
   async function bulk(action: "confirm" | "delete") {
     setBusy(true);
@@ -374,10 +415,12 @@ export function ExtractionClient({
               selected={picked.size}
               total={items.length}
               busy={busy}
+              alternates={alternateData?.alternates}
               onSelectAll={() => setPicked(new Set(items.map((i) => i.id)))}
               onConfirm={() => bulk("confirm")}
               onRemove={() => bulk("delete")}
               onClear={() => setPicked(new Set())}
+              onAssignAlternate={assignAlternate}
             />
           </div>
 
@@ -425,13 +468,13 @@ export function ExtractionClient({
         </span>
 
         <button
-          onClick={() => post("/line-items/rerun", "Saved")}
+          onClick={() => post("/line-items/rerun", "Re-extraction queued")}
           disabled={busy || running}
           className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] disabled:opacity-50"
           style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
         >
-          <FloppyDisk size={14} weight="duotone" />
-          Save draft
+          <ArrowsClockwise size={14} weight="duotone" />
+          Re-run extraction
         </button>
 
         <button

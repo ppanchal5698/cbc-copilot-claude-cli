@@ -35,5 +35,16 @@ storage/
 # Rendered PDF page cache
 .cache/
 
+# The catalog search index: derived from pricebooks/, rebuilt with
+# `python -m catalog_index.rebuild`. Never the source of truth.
+.index/
+
 # Terminal recordings of Claude Code runs - large, regenerated per run
 projects/*/.runs/
+
+# Artifact-storage SHA history - runtime only
+projects/*/.versions/
+
+# Test scratch workspaces
+tests/fixtures/scratch/
+tests/fixtures/projects/.runs/

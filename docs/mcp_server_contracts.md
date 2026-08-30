@@ -1,6 +1,6 @@
 # MCP Server Contracts
 
-Five stdio servers. Every tool that reads a PDF returns `source_page` (NFR-3).
+Six stdio servers. Every tool that reads a PDF returns `source_page` (NFR-3).
 Schemas live in each server's `tools.py`; this document is the reference.
 
 ---
@@ -39,6 +39,25 @@ Falls back to OCR only when a page has no extractable text.
 { "file": "...", "query": "DOOR SCHEDULE", "hit_count": 14,
   "hits": [{ "source_page": 14, "offset": 2086, "context": "..." }] }
 ```
+
+### `find_sheets(file_path, queries?)`
+Ranks pages by how many schedule-related terms they carry. Cheap first step before
+`extract_tables`.
+
+```json
+{ "file": "...", "pages": [{ "source_page": 15, "score": 12, "terms": ["door", "schedule"] }],
+  "not_found": [] }
+```
+
+### `get_page_size(file_path, page_number)`
+Page dimensions in PDF points - required to interpret bbox coordinates.
+
+```json
+{ "source_page": 15, "width": 2592.0, "height": 1728.0, "page_count": 30 }
+```
+
+Row objects from `extract_tables` also include `bbox`, `cell_boxes` and
+`page_size` for NFR-3 provenance.
 
 ---
 
@@ -174,10 +193,35 @@ stay available.
 
 ---
 
+## catalog
+
+**READ-ONLY.** Live MongoDB catalog for Ops-Hub pricing passes. The API and
+ingest jobs own writes; Claude reads current multipliers and product costs here
+during `match_and_price` jobs.
+
+### `search_products(query, division?, manufacturer?, limit=20)`
+```json
+{ "query": "4040XP", "hit_count": 3,
+  "hits": [{ "part": "4040XP", "manufacturer": "LCN", "cost": 412.50,
+             "list_price": 1375.00, "multiplier": 0.30, "price_book": "..." }] }
+```
+
+### `get_product(part)`
+Exact part lookup with price book, multiplier tier, and cross-references.
+
+### `get_multiplier(vendor, category?)`
+Returns the current tier for a vendor (and category when applicable). Unknown
+tiers return `null` with a note — never a guess.
+
+### `list_price_books(vendor?)`
+All price books and multiplier programs with effective dates and staleness hints.
+
+---
+
 ## Shared runtime
 
-`mcp-servers/_runtime.py` provides `serve(name, TOOLS, HANDLERS)` - the stdio
-wiring and error envelope shared by all five servers. A handler exception is
+`mcp-servers/_runtime.py` provides `serve(name, TOOLS, HANDLERS)` — the stdio
+wiring and error envelope shared by all six servers. A handler exception is
 returned as `{"error": ..., "tool": ..., "arguments": ...}` with `is_error: true`
 rather than crashing the server.
 

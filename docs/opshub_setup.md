@@ -48,24 +48,33 @@ Still supported, and what `docs/headless_setup.md` assumes:
 ## First run
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
-```bash
-python -m pip install -e mcp-servers && python -m pip install fastapi uvicorn motor bcrypt python-multipart
-```
+On first start, `docker/entrypoint.sh` runs [`scripts/bootstrap.py`](../scripts/bootstrap.py) when
+`AUTO_BOOTSTRAP=1` (the default):
+
+- Seeds users, price books, and sample catalog rows when the database is empty
+- Builds the SQLite catalog index when `CATALOG_INDEX_PATH` does not exist yet
+
+Sign in with `rgilbert@hamiltonparker.com` / `opshub`.
+
+For a non-Docker local setup:
 
 ```bash
-python scripts/seed_db.py --reset --demo
-```
-
-```bash
+python -m pip install -e mcp-servers && python -m pip install -r requirements.txt
+python scripts/bootstrap.py
 npm --prefix web install
 ```
 
-Then start the API, the web app and the worker in three terminals.
+Then start the API, the web app, and the worker in three terminals.
 
-Sign in with `rgilbert@hamiltonparker.com` / `opshub`.
+To reset everything manually:
+
+```bash
+python scripts/seed_db.py --reset --demo
+python -m catalog_index.rebuild
+```
 
 ## Configuring Claude Code
 
@@ -79,6 +88,7 @@ the app and unfixable from outside it.
 | Anthropic API key | `ANTHROPIC_API_KEY` (x-api-key) | per-token billing |
 | Amazon Bedrock | `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION` | Fargate, via the task role |
 | Gateway | `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` (Bearer) | LiteLLM, self-hosted |
+| Ollama | `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN=ollama` + `ANTHROPIC_MODEL` | local dev with host Ollama |
 
 These variables are **not interchangeable**. `ANTHROPIC_AUTH_TOKEN` goes in
 `Authorization: Bearer`, `ANTHROPIC_API_KEY` in `x-api-key`. A credential in the
@@ -100,7 +110,42 @@ back. The resulting one-year token is stored encrypted.
 
 Local development only; it is refused when `APP_ENV=production`.
 
-### Non-Claude models
+### Ollama (local dev)
+
+Ollama on the host speaks the Anthropic Messages API directly — no LiteLLM
+container is required. The api and worker reach it through
+`host.docker.internal:11434` when running in Docker.
+
+1. Install Ollama on the host ([ollama.com](https://ollama.com)).
+2. Pull a model: `ollama pull qwen2.5-coder:32b` or `ollama pull glm-5:cloud`.
+3. Start Ollama with enough context for CAD extractions:
+   `OLLAMA_CONTEXT_LENGTH=65536 ollama serve` (or set the equivalent in your
+   Ollama service).
+4. **Settings → Claude Code → Ollama** — set the base URL, pick a model (Refresh
+   models from Ollama), Test connection, Save.
+5. Confirm the worker: `docker compose exec worker python worker/main.py --preflight`.
+
+Local models use names like `qwen2.5-coder:32b`. Ollama Cloud models use a
+`:cloud` suffix (e.g. `glm-5:cloud`, `kimi-k2.5:cloud`) and are pulled through
+the same host daemon.
+
+Set the background model to the same model or a smaller local one so session
+title calls do not try to reach Anthropic Haiku. When Ollama mode is active, the
+provider also maps the `sonnet`, `opus`, and `haiku` aliases — and
+`CLAUDE_CODE_SUBAGENT_MODEL` — to your configured model so phase agents in
+`.claude/agents/` do not try to call `claude-sonnet-5` on Anthropic.
+
+**Agent-tool fidelity:** Ollama and other non-Anthropic models can run the
+pipeline, but Agent delegation often fails (missing parameters, unrecognized
+model aliases). Worker preflight and completed jobs surface warnings when this
+is likely. For production pipeline jobs, Anthropic Sonnet is strongly
+recommended; check job logs for `claude-code:unrecognized_model` or
+`InputValidationError` on Agent calls.
+
+Override the default host URL with `OLLAMA_BASE_URL` in `.env` when api/worker
+run in Docker.
+
+### Non-Claude models (LiteLLM gateway)
 
 ```bash
 docker compose --profile oss up -d litellm
@@ -155,7 +200,7 @@ way is paid for on every job forever. Only `cbc_process_flow.md` earns it. The
 rest are plain paths, readable on demand. `tests/test_workflow_cost.py` fails if
 that creeps back.
 
-Each job also gets only the servers its phase uses (`worker/toolsets.py`), passed
+Each job also gets only the servers its phase uses (`cbc_core/toolsets.py`), passed
 with `--strict-mcp-config`. An extraction sees pdf-tools and artifact-storage and
 nothing else - which is a quality lever before it is a cost one, because the only
 tools on offer are the right ones. `WebSearch` and `WebFetch` are removed

@@ -14,7 +14,8 @@ import {
 import { auth } from "@/auth";
 import { PageHeader } from "@/components/shell/page-header";
 import { NewBidDialog } from "@/components/bids/new-bid-dialog";
-import { ApiError, api, formatMoneyShort } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
+import { formatMoneyShort } from "@/lib/format";
 import type { Project } from "@/lib/types";
 
 export const dynamic = "force-dynamic";

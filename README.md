@@ -22,7 +22,7 @@ python mcp-servers/main.py --selftest
 ```
 
 ```bash
-bash scripts/init_project.sh dutch_bros_macarthur_2026 building-plans/1_Architectural.pdf
+bash scripts/init_project.sh dutch_bros_macarthur_2026 tests/fixtures/pdfs/1_Architectural.pdf
 ```
 
 ```bash
@@ -32,24 +32,35 @@ bash workflows/run_full_pipeline.sh dutch_bros_macarthur_2026
 The run ends with `quotation.html`, a review summary, an audit trail, and the
 message **"Draft ready for estimator review"**.
 
+### Ops-Hub (web UI)
+
+```bash
+docker compose up -d --build
+```
+
+Open `http://localhost:3000`. Full setup: [docs/opshub_setup.md](docs/opshub_setup.md).
+
 ## What is here
 
 | Path | Contents |
 |---|---|
 | `CLAUDE.md` | Project index - the guardrails and scope in under 200 lines |
-| `.claude/agents/` | 9 sub-agents, one per process phase |
+| `.claude/agents/` | 10 sub-agents (9 pipeline phases + pricebook-ingestor) |
 | `.claude/skills/` | 9 task workflows with scripts and references |
 | `.claude/rules/` | 8 auto-loaded constraints |
 | `.claude/hooks/` | 5 executable guardrails (Python) |
 | `.claude/memory/` | 13 business-rule and reference files |
-| `mcp-servers/` | 5 stdio MCP servers - pdf, pricebook, calc, storage, P21 |
-| `workflows/` | Headless orchestration - full pipeline, per-phase, watcher |
-| `pricebooks/` | 26 vendor price books across 10 vendors, read-only |
-| `reference-library/` | 10 structured JSON files - margins, multipliers, finishes, frame depths, adders |
+| `mcp-servers/` | 6 stdio MCP servers — pdf, pricebook, catalog, calc, storage, P21 |
+| `api/` | FastAPI backend for Ops-Hub (MongoDB, jobs, sync) |
+| `web/` | Next.js 15 UI — dashboard, bid board, catalog, price books |
+| `worker/` | Job worker — runs `claude --print`, syncs disk → MongoDB |
+| `workflows/` | Headless orchestration — full pipeline, per-phase, watcher |
+| `pricebooks/` | 26 vendor price books across 10 vendors, read-only at runtime |
+| `reference-library/` | Structured JSON — margins, multipliers, finishes, frame depths |
 | `templates/` | Quotation, review interface, email draft |
-| `scripts/` | init, pre-flight validation, audit report, price-book staleness |
-| `docs/` | Architecture, process flow, requirements matrix, guardrails, MCP contracts, headless setup |
-| `tests/` | 48 pytest checks plus 23 guardrail checks |
+| `scripts/` | init, validate, audit export, price-book refresh, DB seed |
+| `docs/` | Architecture, process flow, guardrails, MCP contracts, Ops-Hub setup |
+| `tests/` | Unified pytest tree — `tests/pipeline/` + `tests/api/` + fixtures |
 | `projects/` | Per-bid working directories |
 
 ## The pipeline
@@ -81,7 +92,7 @@ uploads/raw/*.pdf
 Verify the two that are enforced by hooks:
 
 ```bash
-bash tests/test_guardrails/test_no_auto_send.sh && bash tests/test_guardrails/test_file_safety.sh
+bash tests/pipeline/test_guardrails/test_no_auto_send.sh && bash tests/pipeline/test_guardrails/test_file_safety.sh
 ```
 
 ## Scope
@@ -131,9 +142,11 @@ Extraction tests run against the real Dutch Bros bid set, not a synthetic sample
 ## Documentation
 
 - [Architecture](docs/architecture.md)
+- [Folder conventions](docs/folder_conventions.md)
 - [CBC process flow](docs/cbc_process_flow.md)
 - [Requirements matrix](docs/requirements_matrix.md)
 - [Guardrails](docs/guardrails.md)
 - [MCP server contracts](docs/mcp_server_contracts.md)
+- [Ops-Hub setup](docs/opshub_setup.md)
 - [Headless setup](docs/headless_setup.md)
-- [Development description](docs/development-description.md)
+- [Development description](docs/development_description.md)

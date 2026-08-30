@@ -14,10 +14,10 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
-import { formatMoney } from "@/lib/api";
+import { formatMoney } from "@/lib/format";
 import type { ProposalResponse } from "@/lib/types";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+import { proxyFetcher } from "@/lib/proxy-fetcher";
 
 const MARKUPS = [
   { value: 0, label: "None" },
@@ -37,7 +37,7 @@ export function ProposalClient({ code }: { code: string }) {
   const [handOff, setHandOff] = useState<HandOffResult | null>(null);
   const { data, mutate } = useSWR<ProposalResponse>(
     `/api/proxy/projects/${code}/proposal`,
-    fetcher,
+    proxyFetcher,
   );
 
   if (!data) {

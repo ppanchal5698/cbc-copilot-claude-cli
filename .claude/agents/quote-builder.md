@@ -30,7 +30,10 @@ Ext       = Sale $ EA x Qty
 Sub-total = SUM(Ext) per group
 Grand tot = SUM(sub-totals) + tax
 ```
-Use `mcp__calc-engine__compute_totals`. Do not total by hand anywhere. There is
+Use `mcp__calc-engine__compute_totals` only on lines where `sale_ea` and
+`ext_price` are set. For mixed priced/manual quotes, run
+`python scripts/validate_and_render_quote.py <project>` instead of hand-totalling.
+Do not total by hand anywhere. There is
 **no unit-weight column** - it was legacy from truck-loading and was removed.
 
 ## Freight
@@ -51,8 +54,10 @@ three visible gaps is useful; a quote with three silently guessed numbers is
 dangerous.
 
 ## Where you stop
-Write `quotation.html` through `mcp__artifact-storage__save_artifact` so it is
-versioned, then stop. Do not convert it, route it, attach it or send it.
+Run `python scripts/validate_and_render_quote.py <project>` to produce
+`quotation.html` (do not hand-write HTML). Then save through
+`mcp__artifact-storage__save_artifact` so it is versioned, and stop. Do not
+convert it, route it, attach it or send it.
 
 ## Rules you must follow
 - @.claude/rules/human-in-the-loop.md
@@ -64,5 +69,6 @@ versioned, then stop. Do not convert it, route it, attach it or send it.
 - @.claude/memory/process_flow.md
 
 ## Output
-`projects/{project}/quotation.html`, rendered from `templates/quotation.html` via
-@.claude/skills/generate-quotation/scripts/render_quote.py
+`projects/{project}/quotation.html`, rendered via
+`python scripts/validate_and_render_quote.py <project>` (which calls
+`.claude/skills/generate-quotation/scripts/render_quote.py`).

@@ -6,6 +6,10 @@
  * calc-engine, behind the API, so the numbers on a quote have one implementation.
  */
 
+import { auth } from "@/auth";
+import { internalApiHeaders } from "@/lib/internal-api";
+import { formatApiDetail } from "@/lib/format";
+
 export const API_BASE = process.env.API_BASE_URL ?? "http://127.0.0.1:8001";
 
 export class ApiError extends Error {
@@ -23,7 +27,12 @@ type Options = RequestInit & { actor?: string };
 async function request<T>(path: string, options: Options = {}): Promise<T> {
   const { actor, ...init } = options;
   const url = new URL(path.startsWith("http") ? path : `${API_BASE}${path}`);
-  if (actor) url.searchParams.set("actor", actor);
+
+  let resolvedActor = actor;
+  if (!resolvedActor) {
+    const session = await auth();
+    resolvedActor = session?.user?.email ?? undefined;
+  }
 
   let response: Response;
   try {
@@ -31,6 +40,7 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
       ...init,
       headers: {
         ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+        ...internalApiHeaders(resolvedActor),
         ...init.headers,
       },
       cache: "no-store",
@@ -51,7 +61,7 @@ async function request<T>(path: string, options: Options = {}): Promise<T> {
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail), response.status);
+    throw new ApiError(formatApiDetail(detail, response.statusText), response.status);
   }
 
   if (response.status === 204) return undefined as T;
@@ -72,19 +82,4 @@ export const api = {
 /** Absolute URL for a document the browser fetches directly (PDF viewer). */
 export function documentUrl(code: string, documentId: string): string {
   return `/api/proxy/projects/${code}/documents/${documentId}/file`;
-}
-
-export function formatMoney(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "—";
-  return value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-export function formatMoneyShort(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "—";
-  return `$${Math.round(value).toLocaleString("en-US")}`;
-}
-
-export function formatPercent(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "—";
-  return `${Math.round(value * 100)}%`;
 }

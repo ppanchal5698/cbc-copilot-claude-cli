@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import {
@@ -18,10 +18,9 @@ import { toast } from "sonner";
 
 import { AlternateBar } from "@/components/bids/alternate-bar";
 import { useUiState } from "@/components/shell/ui-state";
-import { formatMoney, formatPercent } from "@/lib/api";
+import { formatMoney, formatPercent } from "@/lib/format";
+import { proxyFetcher } from "@/lib/proxy-fetcher";
 import type { Job, QuoteLine, QuoteResponse } from "@/lib/types";
-
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const TAX_OPTIONS = [
   { key: "OH", label: "Ohio 8.0%" },
@@ -49,9 +48,11 @@ function Cell({
   const [draft, setDraft] = useState<string>(value === null ? "" : String(value));
   const [editing, setEditing] = useState(false);
 
-  if (!editing && draft !== (value === null ? "" : String(value))) {
-    setDraft(value === null ? "" : String(value));
-  }
+  useEffect(() => {
+    if (!editing) {
+      setDraft(value === null ? "" : String(value));
+    }
+  }, [value, editing]);
 
   function commit() {
     setEditing(false);
@@ -106,18 +107,25 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
   const router = useRouter();
   const { openNotes } = useUiState();
   const [busy, setBusy] = useState(false);
+  const [alternate, setAlternate] = useState<string | null | undefined>(undefined);
 
   const { data: jobData } = useSWR<{ jobs: Job[] }>(
     `/api/proxy/jobs?project=${code}&limit=1`,
-    fetcher,
-    { refreshInterval: 4000, fallbackData: initialJob ? { jobs: [initialJob] } : undefined },
+    proxyFetcher,
+    {
+      refreshInterval: (latest) => {
+        const current = latest?.jobs?.[0] ?? initialJob;
+        return current?.status === "running" || current?.status === "queued" ? 4000 : 0;
+      },
+      fallbackData: initialJob ? { jobs: [initialJob] } : undefined,
+    },
   );
   const job = jobData?.jobs?.[0] ?? null;
   const running = job?.status === "running" || job?.status === "queued";
 
   const { data, mutate } = useSWR<QuoteResponse>(
     `/api/proxy/projects/${code}/quote`,
-    fetcher,
+    proxyFetcher,
     { refreshInterval: running ? 4000 : 0 },
   );
 
@@ -127,7 +135,15 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
   }, [mutate, router]);
 
   const totals = data?.totals;
-  const groups = data?.groups ?? [];
+  const groups = (data?.groups ?? [])
+    .map((group) => ({
+      ...group,
+      lines:
+        alternate === undefined
+          ? group.lines
+          : group.lines.filter((line) => (line.alternateGroup ?? null) === (alternate ?? null)),
+    }))
+    .filter((group) => group.lines.length > 0);
 
   async function patchLine(line: QuoteLine, body: Record<string, unknown>) {
     const response = await fetch(`/api/proxy/projects/${code}/quote/lines/${line.id}`, {
@@ -170,21 +186,29 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
   }
 
   async function setFreight(value: number | null) {
-    await fetch(`/api/proxy/projects/${code}/quote/settings`, {
+    const response = await fetch(`/api/proxy/projects/${code}/quote/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ freight: value }),
     });
+    if (!response.ok) {
+      toast.error("Could not update freight");
+      return;
+    }
     toast.success(value ? "Freight added to the quote" : "Freight back to TBD");
     mutate();
   }
 
   async function setTax(state: string) {
-    await fetch(`/api/proxy/projects/${code}/quote/settings`, {
+    const response = await fetch(`/api/proxy/projects/${code}/quote/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ taxJurisdiction: state }),
     });
+    if (!response.ok) {
+      toast.error("Could not update tax jurisdiction");
+      return;
+    }
     mutate();
   }
 
@@ -206,7 +230,7 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
   return (
     <>
       <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
-        <AlternateBar code={code} active={undefined} onChange={() => undefined} showTotals />
+        <AlternateBar code={code} active={alternate} onChange={setAlternate} showTotals />
 
         <div
           className="flex flex-col rounded-xl"

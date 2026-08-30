@@ -46,7 +46,7 @@ RUN pip install -e ./mcp-servers
 
 # The mounted data directories must exist and be writable before the volumes are
 # attached, or the first upload fails on a root-owned mount point.
-RUN mkdir -p /app/projects /app/pricebooks /app/.cache /home/cbc/.claude \
+RUN mkdir -p /app/projects /app/pricebooks /app/.cache /app/.index /home/cbc/.claude \
     && chown -R cbc:cbc /app /home/cbc
 
 USER cbc

@@ -6,10 +6,10 @@ import { Package, Plus, Trash, FloppyDisk, MagnifyingGlass } from "@phosphor-ico
 import { toast } from "sonner";
 
 import { AddToBid } from "@/components/catalog/add-to-bid";
-import { formatMoney } from "@/lib/api";
+import { formatMoney } from "@/lib/format";
 import type { Product } from "@/lib/types";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+import { proxyFetcher } from "@/lib/proxy-fetcher";
 
 interface Response {
   products: Product[];
@@ -27,8 +27,12 @@ const EDIT_FIELDS = [
   { key: "availability", label: "Availability", type: "text" },
 ] as const;
 
-export function CatalogClient() {
-  const [query, setQuery] = useState("");
+export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) {
+  const [query, setQuery] = useState(initialQuery);
+
+  useEffect(() => {
+    if (initialQuery) setQuery(initialQuery);
+  }, [initialQuery]);
   const [division, setDivision] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -40,7 +44,7 @@ export function CatalogClient() {
 
   const { data, mutate } = useSWR<Response>(
     `/api/proxy/catalog/products?${params.toString()}`,
-    fetcher,
+    proxyFetcher,
   );
 
   const products = data?.products ?? [];

@@ -24,9 +24,25 @@ The estimator drives the pipeline through a web app; Claude Code works behind it
 
 - **`web/`** — Next.js 15 UI (dashboard, bid board, the four bid stages, catalog, price books)
 - **`api/`** — FastAPI. Owns MongoDB and every business rule. Quote arithmetic is
-  delegated to `calc-engine`, so the numbers have one implementation.
+  delegated to `cbc_core/calc.py`, so the numbers have one implementation.
 - **`worker/`** — claims queued jobs and runs `claude --print`, then syncs what
   Claude wrote on disk into MongoDB.
+- **`catalog_index/`** — the product search index. Vendor PDFs in `pricebooks/`
+  are the source of truth; this keeps a **rebuildable** SQLite FTS5 index of what
+  is in them, so a search costs a fraction of a millisecond instead of re-reading
+  1 391 pages. Uploading a sheet queues `index_catalog`; deleting one queues
+  `delete_catalog` and the cascade removes its search records. There is no product
+  table to maintain by hand — `python -m catalog_index.rebuild` reconstructs the
+  lot. The index lives on a **named volume**, never a bind mount: SQLite needs
+  dependable locking and WAL needs shared memory, and `/app/projects` is 9p.
+- **`cbc_core/`** — what `api` and `worker` both need and neither should own:
+  the money math, the PDF page operations, credential redaction, and the one
+  place that spawns the CLI. It imports from neither of them, which is what keeps
+  the dependency direction one-way — `tests/api/test_layering.py` asserts it.
+  The `calc-engine` and `pdf-tools` MCP servers are adapters over the same
+  modules, so a price a run computes and a price the API computes cannot drift.
+  `pdfrows` is shared with `catalog_index` for the same reason: a price book and a
+  bid set must not disagree about what a page says.
 - **MongoDB** — the system of record between the two actors. PDFs stay on the
   filesystem under `projects/{slug}/uploads/raw/`, which is what the skills expect.
 

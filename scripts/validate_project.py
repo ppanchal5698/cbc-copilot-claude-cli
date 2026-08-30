@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Pre-flight and extraction checks for the CBC Estimating Copilot.
+"""Pre-flight and artifact checks for the CBC Estimating Copilot.
 
     python scripts/validate_project.py --all
     python scripts/validate_project.py --check-extraction <project>
+    python scripts/validate_project.py --check-pricing <project>
+    python scripts/validate_project.py --check-proposal <project>
     python scripts/validate_project.py --demo
 
 --all runs the pre-flight: reference-library JSON valid, price books present and
@@ -10,7 +12,8 @@ not stale, MCP servers importable, hooks present.
 
 --check-extraction validates one project's extracted/*.json against the required
 fields. It is also invoked by the post_extraction_validate.py PostToolUse hook,
-which warns rather than blocks.
+which warns rather than blocks. The worker calls validate_job_artifacts() before
+sync and fails the job on errors.
 """
 from __future__ import annotations
 
@@ -52,6 +55,9 @@ REQUIRED_REFERENCE = [
 HARD_FIELDS = ("door_number", "source_page")
 SOFT_FIELDS = ("handing", "finish", "fire_rating", "hardware_set")
 
+PRICING_LINE_FIELDS = ("line_id", "group", "group_type", "quantity", "cost_source")
+PRICING_GROUP_TYPES = frozenset({"door", "accessories", "frp", "other"})
+
 
 def _emit(problems: list[str], warnings: list[str]) -> int:
     for warning in warnings:
@@ -63,6 +69,32 @@ def _emit(problems: list[str], warnings: list[str]) -> int:
         return 1
     print(f"\nOK - {len(warnings)} warning(s).")
     return 0
+
+
+def _valid_bbox(box: Any) -> bool:
+    return (
+        isinstance(box, list)
+        and len(box) == 4
+        and all(isinstance(v, (int, float)) for v in box)
+        and box[2] > box[0]
+        and box[3] > box[1]
+    )
+
+
+def _valid_page_size(page_size: Any) -> bool:
+    if not isinstance(page_size, dict):
+        return False
+    width, height = page_size.get("width"), page_size.get("height")
+    return isinstance(width, (int, float)) and isinstance(height, (int, float)) and width > 0 and height > 0
+
+
+def _normalize_opening(opening: dict[str, Any]) -> dict[str, Any]:
+    """Apply field aliases in place for validation."""
+    if opening.get("hardware_set") is None and opening.get("hw_set") is not None:
+        opening["hardware_set"] = opening["hw_set"]
+    if opening.get("door_number") is None and opening.get("mark"):
+        opening["door_number"] = opening["mark"]
+    return opening
 
 
 def check_all() -> int:
@@ -129,31 +161,51 @@ def check_all() -> int:
     return _emit(problems, warnings)
 
 
-def check_extraction(project: str) -> int:
+def check_extraction(project: str, *, require_scope: bool = False) -> tuple[list[str], list[str]]:
+    """Return (problems, warnings) for extraction artifacts."""
     problems: list[str] = []
     warnings: list[str] = []
     extracted = ROOT / "projects" / project / "extracted"
 
     if not extracted.exists():
-        print(f"WARN  no extracted/ directory for project {project} yet")
-        return 0
+        problems.append(f"{project}: no extracted/ directory")
+        return problems, warnings
+
+    if require_scope:
+        for name in ("scope_metadata.json", "scope_summary.json"):
+            if not (extracted / name).exists():
+                problems.append(f"{project}: missing extracted/{name}")
 
     schedule_path = extracted / "door_schedule.json"
     if not schedule_path.exists():
-        warnings.append(f"{project}: door_schedule.json not written yet")
-        return _emit(problems, warnings)
+        problems.append(f"{project}: door_schedule.json not written")
+        return problems, warnings
 
     try:
         payload = json.loads(schedule_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        return _emit([f"{project}: door_schedule.json is not valid JSON: {exc}"], warnings)
+        problems.append(f"{project}: door_schedule.json is not valid JSON: {exc}")
+        return problems, warnings
+
+    if isinstance(payload, list):
+        problems.append(
+            f"{project}: door_schedule.json must be {{\"openings\": [...]}}, not a bare array"
+        )
+        return problems, warnings
+
+    if not isinstance(payload, dict):
+        problems.append(f"{project}: door_schedule.json must be a JSON object")
+        return problems, warnings
 
     openings = payload.get("openings", [])
     if not openings:
         problems.append(f"{project}: door_schedule.json contains no openings")
 
     for opening in openings:
+        opening = _normalize_opening(opening)
         label = opening.get("door_number") or opening.get("raw_row", "?")[:30]
+        if opening.get("hw_set") and not opening.get("hardware_set"):
+            warnings.append(f"{project}: opening {label} uses hw_set; prefer hardware_set")
         for field in HARD_FIELDS:
             if not opening.get(field):
                 problems.append(f"{project}: opening {label} is missing {field}")
@@ -161,6 +213,10 @@ def check_extraction(project: str) -> int:
             problems.append(f"{project}: opening {label} has no resolvable size")
         if opening.get("confidence") is None:
             problems.append(f"{project}: opening {label} has no confidence score (NFR-2)")
+        if not _valid_bbox(opening.get("bbox")):
+            problems.append(f"{project}: opening {label} has no valid bbox (NFR-3)")
+        if not _valid_page_size(opening.get("page_size")):
+            problems.append(f"{project}: opening {label} has no valid page_size (NFR-3)")
         for field in SOFT_FIELDS:
             if opening.get(field) is None:
                 warnings.append(f"{project}: opening {label} is missing {field}")
@@ -171,45 +227,154 @@ def check_extraction(project: str) -> int:
         if frp.get("status") == "PENDING_CONSTANTS":
             warnings.append(f"{project}: FRP quantities blocked - conversion constants pending (Open Item 5)")
 
-    return _emit(problems, warnings)
+    return problems, warnings
+
+
+def check_pricing(project: str, *, require_hardware_sets: bool = False) -> tuple[list[str], list[str]]:
+    """Return (problems, warnings) for priced artifacts."""
+    problems: list[str] = []
+    warnings: list[str] = []
+    root = ROOT / "projects" / project
+
+    if require_hardware_sets:
+        hw_path = root / "extracted" / "hardware_sets.json"
+        if not hw_path.exists():
+            problems.append(f"{project}: missing extracted/hardware_sets.json")
+
+    priced_path = root / "priced" / "line_items.json"
+    if not priced_path.exists():
+        problems.append(f"{project}: priced/line_items.json not written")
+        return problems, warnings
+
+    try:
+        payload = json.loads(priced_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        problems.append(f"{project}: priced/line_items.json is not valid JSON: {exc}")
+        return problems, warnings
+
+    if not isinstance(payload, dict):
+        problems.append(f"{project}: priced/line_items.json must be a JSON object")
+        return problems, warnings
+
+    lines = payload.get("lines")
+    if not isinstance(lines, list) or not lines:
+        problems.append(f"{project}: priced/line_items.json must contain a non-empty lines array")
+        return problems, warnings
+
+    for index, line in enumerate(lines, start=1):
+        label = line.get("line_id") or line.get("description", f"line {index}")[:40]
+        for field in PRICING_LINE_FIELDS:
+            if line.get(field) is None or line.get(field) == "":
+                problems.append(f"{project}: priced line {label} is missing {field}")
+        group_type = line.get("group_type")
+        if group_type and group_type not in PRICING_GROUP_TYPES:
+            warnings.append(f"{project}: priced line {label} has unusual group_type {group_type!r}")
+        cost = line.get("cost")
+        if cost is not None:
+            try:
+                parsed = float(cost)
+            except (TypeError, ValueError):
+                problems.append(f"{project}: priced line {label} has unreadable cost")
+            else:
+                if parsed < 0:
+                    problems.append(f"{project}: priced line {label} has negative cost")
+                elif line.get("sale_ea") is None or line.get("ext_price") is None:
+                    problems.append(
+                        f"{project}: priced line {label} has cost but missing sale_ea or ext_price"
+                    )
+
+    return problems, warnings
+
+
+def check_proposal(project: str) -> tuple[list[str], list[str]]:
+    """Return (problems, warnings) for proposal artifacts."""
+    problems: list[str] = []
+    warnings: list[str] = []
+    root = ROOT / "projects" / project
+
+    if not (root / "quotation.html").exists():
+        problems.append(f"{project}: quotation.html not written")
+    if not (root / "review" / "review_flags.json").exists():
+        problems.append(f"{project}: review/review_flags.json not written")
+    if not (root / "review" / "review_summary.html").exists():
+        warnings.append(f"{project}: review/review_summary.html not written")
+    if not (root / "review" / "quotation_email_draft.md").exists():
+        warnings.append(f"{project}: review/quotation_email_draft.md not written")
+
+    return problems, warnings
+
+
+def validate_job_artifacts(job_type: str, project_slug: str) -> None:
+    """Raise ValueError if job artifacts fail validation (worker gate)."""
+    problems: list[str] = []
+    warnings: list[str] = []
+
+    if job_type in ("extract_bid_set", "rerun_extraction"):
+        p, w = check_extraction(project_slug, require_scope=job_type == "extract_bid_set")
+        problems.extend(p)
+        warnings.extend(w)
+    elif job_type == "match_and_price":
+        p, w = check_pricing(project_slug, require_hardware_sets=True)
+        problems.extend(p)
+        warnings.extend(w)
+    elif job_type == "build_proposal":
+        p, w = check_proposal(project_slug)
+        problems.extend(p)
+        warnings.extend(w)
+    else:
+        return
+
+    for warning in warnings:
+        print(f"WARN  {warning}", file=sys.stderr)
+
+    if problems:
+        detail = "; ".join(problems[:5])
+        if len(problems) > 5:
+            detail += f" (+{len(problems) - 5} more)"
+        raise ValueError(f"artifact validation failed: {detail}")
 
 
 def _demo() -> None:
     """Runnable check: the extraction validator's field logic."""
-    import tempfile
+    import shutil
 
-    with tempfile.TemporaryDirectory() as tmp:
-        project_dir = ROOT / "projects" / "_validate_demo"
-        (project_dir / "extracted").mkdir(parents=True, exist_ok=True)
-        target = project_dir / "extracted" / "door_schedule.json"
-        try:
-            target.write_text(
-                json.dumps(
-                    {
-                        "openings": [
-                            {
-                                "door_number": "01",
-                                "size": "3670",
-                                "source_page": 14,
-                                "confidence": 0.55,
-                                "handing": None,
-                            }
-                        ]
-                    }
-                ),
-                encoding="utf-8",
-            )
-            assert check_extraction("_validate_demo") == 0, "soft-missing fields must warn, not fail"
+    project_dir = ROOT / "projects" / "_validate_demo"
+    (project_dir / "extracted").mkdir(parents=True, exist_ok=True)
+    target = project_dir / "extracted" / "door_schedule.json"
+    try:
+        target.write_text(
+            json.dumps(
+                {
+                    "openings": [
+                        {
+                            "door_number": "01",
+                            "size": "3670",
+                            "source_page": 14,
+                            "confidence": 0.55,
+                            "bbox": [10, 20, 100, 40],
+                            "page_size": {"width": 2592, "height": 1728},
+                            "handing": None,
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        problems, warnings = check_extraction("_validate_demo")
+        assert not problems, problems
+        assert warnings, "soft-missing fields must warn"
 
-            target.write_text(
-                json.dumps({"openings": [{"size": "3670", "confidence": 0.9}]}), encoding="utf-8"
-            )
-            assert check_extraction("_validate_demo") == 1, "missing door_number must be an error"
-        finally:
-            import shutil
+        target.write_text(
+            json.dumps({"openings": [{"size": "3670", "confidence": 0.9}]}), encoding="utf-8"
+        )
+        problems, _ = check_extraction("_validate_demo")
+        assert problems, "missing door_number must be an error"
 
-            shutil.rmtree(project_dir, ignore_errors=True)
-        _ = tmp
+        target.write_text(json.dumps([{"door_number": "01"}]), encoding="utf-8")
+        problems, _ = check_extraction("_validate_demo")
+        assert any("bare array" in p for p in problems)
+    finally:
+        shutil.rmtree(project_dir, ignore_errors=True)
     print("validate_project demo OK")
 
 
@@ -217,6 +382,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--all", action="store_true", help="Run the pre-flight checks")
     parser.add_argument("--check-extraction", metavar="PROJECT")
+    parser.add_argument("--check-pricing", metavar="PROJECT")
+    parser.add_argument("--check-proposal", metavar="PROJECT")
     parser.add_argument("--demo", action="store_true")
     args = parser.parse_args()
 
@@ -224,7 +391,14 @@ def main() -> int:
         _demo()
         return 0
     if args.check_extraction:
-        return check_extraction(args.check_extraction)
+        problems, warnings = check_extraction(args.check_extraction)
+        return _emit(problems, warnings)
+    if args.check_pricing:
+        problems, warnings = check_pricing(args.check_pricing, require_hardware_sets=True)
+        return _emit(problems, warnings)
+    if args.check_proposal:
+        problems, warnings = check_proposal(args.check_proposal)
+        return _emit(problems, warnings)
     return check_all()
 
 

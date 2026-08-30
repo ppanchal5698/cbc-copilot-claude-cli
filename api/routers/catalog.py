@@ -13,8 +13,9 @@ from fastapi import APIRouter, HTTPException, Query
 from pymongo.errors import DuplicateKeyError
 
 from api.db import db, oid, serialise
-from api.models import ProductCreate, ProductUpdate
-from api.services import audit, pricing
+from api.deps import Actor
+from api.schemas import ProductCreate, ProductUpdate
+from api.services import audit, catalog_search, pricing
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -42,29 +43,26 @@ async def search_products(
     manufacturer: str | None = None,
     limit: int = Query(default=50, le=200),
 ) -> dict[str, Any]:
-    query: dict[str, Any] = {}
-    if division:
-        query["division"] = division
-    if manufacturer:
-        query["manufacturer"] = manufacturer
-    if q:
-        # Prefix match on part number first - an estimator typing "150CX" wants
-        # that part, not every description containing the word.
-        query["$or"] = [
-            {"part": {"$regex": f"^{q}", "$options": "i"}},
-            {"part": {"$regex": q, "$options": "i"}},
-            {"description": {"$regex": q, "$options": "i"}},
-            {"manufacturer": {"$regex": q, "$options": "i"}},
-        ]
+    """Search the vendor catalogs and the estimator's own parts together.
 
-    products = await db.products.find(query).sort("part", 1).to_list(limit)
+    The vendor half comes from the SQLite FTS index, not from a product table
+    somebody has to maintain: the PDFs are the source of truth and the index is
+    rebuilt from them. That is why indexed rows come back `editable: false` - an
+    edit here would be overwritten by the next reindex.
+    """
+    found = await catalog_search.search(
+        q, division=division, manufacturer=manufacturer, limit=limit
+    )
     divisions = await db.products.aggregate(
         [{"$group": {"_id": "$division", "n": {"$sum": 1}}}, {"$sort": {"_id": 1}}]
     ).to_list(50)
 
     return {
-        "products": [{**serialise(p), "sellAt": _derive_sell(p)} for p in products],
-        "total": await db.products.count_documents(query),
+        **found,
+        "products": [
+            {**row, "sellAt": row.get("sellAt") if row["source"] == "manual" else _derive_sell(row)}
+            for row in found["products"]
+        ],
         "divisions": [
             {"division": row["_id"], "count": row["n"]} for row in divisions if row["_id"]
         ],
@@ -96,14 +94,31 @@ def _coerce_book_id(changes: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.post("/products", status_code=201)
-async def create_product(body: ProductCreate, actor: str = "estimator") -> dict:
+async def create_product(body: ProductCreate, actor: Actor) -> dict:
     document = _coerce_book_id(
         {**body.model_dump(exclude_none=True), "updatedAt": _now(), "updatedBy": actor}
     )
+
+    # A part number is only unique within its manufacturer - Hager's 1234 and
+    # Rockwood's 1234 are different parts and both belong in the catalog. But a
+    # part added without saying whose it is cannot be told apart from one that is
+    # already here, so that is refused rather than quietly becoming a second row.
+    if not body.manufacturer:
+        clash = await db.products.find_one({"part": body.part})
+        if clash:
+            raise HTTPException(
+                409,
+                f"part {body.part} already exists under "
+                f"{clash.get('manufacturer') or 'no manufacturer'}. Give a "
+                "manufacturer to add it as a different vendor's part.",
+            )
     try:
         result = await db.products.insert_one(document)
     except DuplicateKeyError:
-        raise HTTPException(409, f"part {body.part} already exists in the catalog")
+        raise HTTPException(
+            409,
+            f"part {body.part} already exists for {body.manufacturer}",
+        )
 
     document["_id"] = result.inserted_id
     await audit.record("catalog.create", actor, {"productId": result.inserted_id}, after=body.part)
@@ -111,7 +126,7 @@ async def create_product(body: ProductCreate, actor: str = "estimator") -> dict:
 
 
 @router.patch("/products/{product_id}")
-async def update_product(product_id: str, body: ProductUpdate, actor: str = "estimator") -> dict:
+async def update_product(product_id: str, body: ProductUpdate, actor: Actor) -> dict:
     product = await db.products.find_one({"_id": oid(product_id)})
     if not product:
         raise HTTPException(404, "product not found")
@@ -135,7 +150,7 @@ async def update_product(product_id: str, body: ProductUpdate, actor: str = "est
 
 
 @router.delete("/products/{product_id}", status_code=204)
-async def delete_product(product_id: str, actor: str = "estimator") -> None:
+async def delete_product(product_id: str, actor: Actor) -> None:
     product = await db.products.find_one({"_id": oid(product_id)})
     if not product:
         raise HTTPException(404, "product not found")

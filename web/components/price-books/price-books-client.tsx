@@ -12,10 +12,14 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
-import { formatMoney } from "@/lib/api";
+import { formatMoney } from "@/lib/format";
 import type { PriceBook, Product } from "@/lib/types";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+import { proxyFetcher } from "@/lib/proxy-fetcher";
+
+function formatMultiplier(value: number | null | undefined): string {
+  return typeof value === "number" && !Number.isNaN(value) ? value.toFixed(3) : "—";
+}
 
 interface ListResponse {
   priceBooks: PriceBook[];
@@ -28,12 +32,12 @@ export function PriceBooksClient() {
   const [adding, setAdding] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const { data, mutate } = useSWR<ListResponse>("/api/proxy/price-books", fetcher);
+  const { data, error, mutate } = useSWR<ListResponse>("/api/proxy/price-books", proxyFetcher);
   const { data: detail, mutate: mutateDetail } = useSWR<{
     priceBook: PriceBook;
     parts: Product[];
     partCount: number;
-  }>(selectedId ? `/api/proxy/price-books/${selectedId}` : null, fetcher);
+  }>(selectedId ? `/api/proxy/price-books/${selectedId}` : null, proxyFetcher);
 
   const books = data?.priceBooks ?? [];
   const selected = detail?.priceBook;
@@ -145,7 +149,19 @@ export function PriceBooksClient() {
   }
 
   return (
-    <main className="flex min-h-0 flex-1 gap-4 overflow-hidden p-4">
+    <main className="relative flex min-h-0 flex-1 gap-4 overflow-hidden p-4">
+      {error && (
+        <div
+          className="absolute inset-x-4 top-4 z-10 rounded-lg px-4 py-3 text-[12.5px]"
+          style={{
+            background: "var(--app-neg-soft)",
+            border: "1px solid var(--app-neg-line)",
+            color: "var(--app-neg)",
+          }}
+        >
+          Could not load price books: {error.message}
+        </div>
+      )}
       <section className="flex w-[340px] shrink-0 flex-col gap-3">
         <div className="flex items-end justify-between">
           <div>
@@ -235,7 +251,7 @@ export function PriceBooksClient() {
                 </span>
               </span>
               <span className="tnum text-[14px] font-semibold">
-                {book.multiplier === null ? "—" : book.multiplier.toFixed(3)}
+                {formatMultiplier(book.multiplier)}
               </span>
             </button>
           ))}
@@ -273,7 +289,7 @@ export function PriceBooksClient() {
                   Multiplier
                 </span>
                 <span className="tnum text-[32px] font-bold leading-none">
-                  {selected.multiplier === null ? "—" : selected.multiplier.toFixed(3)}
+                  {formatMultiplier(selected.multiplier)}
                 </span>
               </div>
             </div>

@@ -46,6 +46,7 @@ HANDING = re.compile(r"\b(LHR|RHR|LH|RH)\b")
 FIRE_RATING = re.compile(r"\b(20|45|60|90|180)\s*(?:MIN|MINUTE)?\b", re.IGNORECASE)
 HW_GROUP = re.compile(r"\b(?:GROUP|HW|HDW|HG)[\s-]*(\d+)\b", re.IGNORECASE)
 FINISH = re.compile(r"\b(US\d{1,2}[A-Z]?|6\d{2})\b")
+DOOR_MARK = re.compile(r"^\s*(\d{2,3}[A-Z]?)\b")
 
 
 def _open(pdf_path: str) -> fitz.Document:
@@ -204,6 +205,30 @@ def highlight_bbox(row: dict[str, Any]) -> list[float] | None:
     ]
 
 
+def _door_number_from_row(row: dict[str, Any]) -> str | None:
+    cells = row.get("cells") or []
+    for cell in cells[:4]:
+        cell_text = str(cell).strip()
+        if re.fullmatch(r"\d{2,3}[A-Z]?", cell_text):
+            return cell_text
+        lead = DOOR_MARK.match(cell_text)
+        if lead:
+            return lead.group(1)
+    lead = DOOR_MARK.match(row.get("text", "").strip())
+    return lead.group(1) if lead else None
+
+
+def _row_is_opening(row: dict[str, Any]) -> bool:
+    text = row.get("text", "")
+    has_explicit = bool(SIZE_EXPLICIT.search(text))
+    has_4digit = bool(SIZE_4DIGIT.search(text))
+    has_group = bool(HW_GROUP.search(text))
+    if has_explicit and has_group:
+        return True
+    # 4-digit shorthand without inline hardware group, but with a real door mark.
+    return bool(has_4digit and not has_explicit and _door_number_from_row(row))
+
+
 def parse_opening(row: dict[str, Any]) -> dict[str, Any]:
     """Best-effort field extraction from one clustered row.
 
@@ -218,6 +243,7 @@ def parse_opening(row: dict[str, Any]) -> dict[str, Any]:
     finish = FINISH.search(text)
 
     opening = {
+        "door_number": _door_number_from_row(row),
         "size": size["size"],
         "width": size["width"],
         "height": size["height"],
@@ -244,12 +270,21 @@ def parse_opening(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def schedule_rows(pdf_path: str, page_number: int) -> list[dict[str, Any]]:
-    """Rows that plausibly describe an opening: they carry a size and a hardware group."""
+    """Rows that plausibly describe an opening: size notation with optional hardware group."""
     out = []
     for row in cluster_rows(pdf_path, page_number):
-        if HW_GROUP.search(row["text"]) and SIZE_EXPLICIT.search(row["text"]):
+        if _row_is_opening(row):
             out.append(parse_opening(row))
     return out
+
+
+def openings_envelope(pdf_path: str, page_number: int, source_file: str | None = None) -> dict[str, Any]:
+    """Full door_schedule.json payload with provenance on every opening."""
+    return {
+        "source_file": source_file,
+        "source_page": page_number,
+        "openings": schedule_rows(pdf_path, page_number),
+    }
 
 
 def _demo() -> None:
@@ -270,6 +305,7 @@ def _demo() -> None:
         "cell_boxes": [[640.2, 609.8, 690.0, 619.1]],
     }
     opening = parse_opening(row)
+    assert opening["door_number"] == "01"
     assert opening["hardware_set"] == "GROUP 1"
     assert opening["fire_rating"] is None
     assert "fire_rating_missing" in opening["flags"]
@@ -305,7 +341,10 @@ def main() -> int:
 
     payload = schedule_rows(args.pdf, args.page) if args.openings else cluster_rows(args.pdf, args.page)
     if args.json:
-        print(json.dumps(payload, indent=2))
+        if args.openings:
+            print(json.dumps(openings_envelope(args.pdf, args.page, source_file=args.pdf), indent=2))
+        else:
+            print(json.dumps(payload, indent=2))
     else:
         for item in payload:
             print(item.get("raw_row") or item.get("text"))

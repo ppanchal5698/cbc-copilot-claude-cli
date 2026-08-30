@@ -14,7 +14,8 @@ from fastapi.responses import FileResponse
 
 from api.config import settings
 from api.db import db, oid, serialise
-from api.models import PriceBookCreate, PriceBookUpdate
+from api.deps import Actor, AdminActor
+from api.schemas import PriceBookCreate, PriceBookUpdate
 from api.services import audit, jobs, storage
 
 router = APIRouter(prefix="/api/price-books", tags=["price-books"])
@@ -75,7 +76,7 @@ async def get_price_book(book_id: str) -> dict[str, Any]:
 
 
 @router.post("", status_code=201)
-async def create_price_book(body: PriceBookCreate, actor: str = "purchasing") -> dict:
+async def create_price_book(body: PriceBookCreate, actor: Actor) -> dict:
     document = {**body.model_dump(exclude_none=True), "partCount": 0, "updatedAt": _now()}
     result = await db.price_books.insert_one(document)
     document["_id"] = result.inserted_id
@@ -88,21 +89,20 @@ async def create_price_book(body: PriceBookCreate, actor: str = "purchasing") ->
 @router.post("/{book_id}/file", status_code=201)
 async def upload_price_book_file(
     book_id: str,
+    actor: Actor,
     file: UploadFile = File(...),
-    actor: str = Form("purchasing"),
 ) -> dict:
     """Attach the sheet and ask Claude to read it into the catalog."""
     book = await db.price_books.find_one({"_id": oid(book_id)})
     if not book:
         raise HTTPException(404, "price book not found")
 
-    payload = await file.read()
-    if len(payload) > settings.max_upload_bytes:
-        raise HTTPException(413, f"file exceeds {settings.max_upload_mb} MB")
-
     settings.pricebook_dir.mkdir(parents=True, exist_ok=True)
     target = storage.unique_filename(settings.pricebook_dir, file.filename or "pricebook.pdf")
-    target.write_bytes(payload)
+    try:
+        size = await storage.receive_upload(file, target, settings.max_upload_bytes)
+    except ValueError as exc:
+        raise HTTPException(413, str(exc)) from exc
 
     await db.price_books.update_one(
         {"_id": book["_id"]},
@@ -110,15 +110,19 @@ async def upload_price_book_file(
             "$set": {
                 "filename": target.name,
                 "path": storage.relative(target),
-                "bytes": len(payload),
+                "bytes": size,
                 "uploadedAt": _now(),
                 "updatedAt": _now(),
             }
         },
     )
 
+    # Deterministic extraction into the search index. `ingest_pricebook` - the
+    # Claude pass - remains available as the adapter of last resort for a layout
+    # the generic extractor cannot read, but it is no longer the default: it costs
+    # minutes and tokens per book to do what parsing does in seconds.
     job = await jobs.enqueue(
-        "ingest_pricebook",
+        "index_catalog",
         payload={"priceBookId": str(book["_id"]), "filename": target.name},
         actor=actor,
     )
@@ -139,7 +143,7 @@ async def download_price_book(book_id: str) -> FileResponse:
 
 
 @router.patch("/{book_id}")
-async def update_price_book(book_id: str, body: PriceBookUpdate, actor: str = "purchasing") -> dict:
+async def update_price_book(book_id: str, body: PriceBookUpdate, actor: Actor) -> dict:
     book = await db.price_books.find_one({"_id": oid(book_id)})
     if not book:
         raise HTTPException(404, "price book not found")
@@ -179,7 +183,7 @@ async def update_price_book(book_id: str, body: PriceBookUpdate, actor: str = "p
 
 
 @router.post("/{book_id}/mark-reviewed")
-async def mark_reviewed(book_id: str, actor: str = "purchasing") -> dict:
+async def mark_reviewed(book_id: str, actor: Actor) -> dict:
     book = await db.price_books.find_one({"_id": oid(book_id)})
     if not book:
         raise HTTPException(404, "price book not found")
@@ -193,7 +197,7 @@ async def mark_reviewed(book_id: str, actor: str = "purchasing") -> dict:
 
 
 @router.delete("/{book_id}", status_code=204)
-async def delete_price_book(book_id: str, actor: str = "purchasing") -> None:
+async def delete_price_book(book_id: str, actor: AdminActor) -> None:
     """Remove the program. Products priced under it are kept but marked orphaned.
 
     Deleting a book must not silently vaporise catalog rows a live quote points at.
@@ -206,6 +210,16 @@ async def delete_price_book(book_id: str, actor: str = "purchasing") -> None:
         {"priceBookId": book["_id"]},
         {"$set": {"priceBookId": None, "orphanedFrom": book.get("vendor"), "updatedAt": _now()}},
     )
+
+    # Remove what was indexed from this book's PDF, so a deleted catalog stops
+    # appearing in search. Queued rather than done inline: the worker is the only
+    # writer to the index, and deletion has to be verified, not assumed.
+    if book.get("catalogId"):
+        await jobs.enqueue(
+            "delete_catalog",
+            payload={"catalogId": book["catalogId"], "priceBookId": str(book["_id"])},
+            actor=actor,
+        )
     await db.price_books.delete_one({"_id": book["_id"]})
     await audit.record(
         "price_book.delete",

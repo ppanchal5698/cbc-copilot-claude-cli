@@ -1,12 +1,15 @@
 """Job status - what the header pill and the run banner read."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, HTTPException
 
 from api.db import db, oid, serialise
-from api.models import JobCreate
+from api.deps import Actor
+from api.schemas import JobCreate
 from api.routers.projects import load
-from api.services import jobs as job_service
+from api.services import audit, jobs as job_service
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -32,7 +35,7 @@ async def get_job(job_id: str) -> dict:
 
 
 @router.post("", status_code=201)
-async def create_job(body: JobCreate, actor: str = "estimator") -> dict:
+async def create_job(body: JobCreate, actor: Actor) -> dict:
     project_id = None
     if body.projectId:
         project_id = (await load(body.projectId))["_id"]
@@ -41,12 +44,26 @@ async def create_job(body: JobCreate, actor: str = "estimator") -> dict:
 
 
 @router.post("/{job_id}/cancel")
-async def cancel_job(job_id: str, actor: str = "estimator") -> dict:
+async def cancel_job(job_id: str, actor: Actor) -> dict:
     job = await db.jobs.find_one({"_id": oid(job_id)})
     if not job:
         raise HTTPException(404, "job not found")
     if job["status"] not in ("queued", "running"):
         raise HTTPException(409, f"job is already {job['status']}")
 
-    await db.jobs.update_one({"_id": job["_id"]}, {"$set": {"status": "cancelled"}})
+    await db.jobs.update_one(
+        {"_id": job["_id"]},
+        {
+            "$set": {
+                "status": "cancelled",
+                "cancelledAt": datetime.now(timezone.utc),
+                "cancelledBy": actor,
+            }
+        },
+    )
+    await audit.record(
+        "job.cancel",
+        actor,
+        {"jobId": job["_id"], "projectId": job.get("projectId")},
+    )
     return serialise(await db.jobs.find_one({"_id": job["_id"]}))

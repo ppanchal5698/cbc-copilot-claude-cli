@@ -17,7 +17,13 @@ These are CAD exports, not documents. A single sheet can carry over 13,000 vecto
 line segments, so **ruling-based table detection is unreliable** - one sheet in
 the Dutch Bros fixture yields 35 table candidates of which roughly one is real.
 Use `mcp__pdf-tools__extract_tables`, which clusters positioned words into rows,
-or the `extract-door-schedule` skill's `parse_schedule.py`.
+or run the `extract-door-schedule` skill's `parse_schedule.py`:
+
+    python .claude/skills/extract-door-schedule/scripts/parse_schedule.py <pdf> \
+      --page <n> --openings --json
+
+That script returns bbox, row_bbox, cell_boxes and page_size on every opening.
+Do not write inline Python or Bash parsers for schedule rows.
 
 Find the schedule sheet first. Spec pages *mention* the door schedule; the
 schedule itself lives on a details/schedules sheet (A2.x in the fixture, page 14).
@@ -63,4 +69,5 @@ location. A visible gap is strictly better than a plausible guess.
 ## Output
 `extracted/door_schedule.json` - schema in
 @.claude/skills/extract-door-schedule/SKILL.md. Every opening carries
-`source_page`, `confidence` and a `flags` array.
+`door_number`, `source_page`, `bbox`, `page_size`, `confidence` and a `flags`
+array. The Ops-Hub sheet viewer cannot highlight a row without bbox and page_size.

@@ -7,6 +7,7 @@ import {
   ArrowSquareOut,
   CheckCircle,
   Cloud,
+  HardDrives,
   Key,
   Lock,
   Plugs,
@@ -14,9 +15,9 @@ import {
   Warning,
 } from "@phosphor-icons/react/dist/ssr";
 
-import type { ClaudeSettings, ProviderTest } from "@/lib/types";
+import type { ClaudeSettings, OllamaModelsResponse, ProviderTest } from "@/lib/types";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+import { proxyFetcher } from "@/lib/proxy-fetcher";
 
 type Mode = ClaudeSettings["mode"];
 
@@ -49,6 +50,12 @@ const MODES: {
     label: "Gateway / self-hosted",
     blurb: "Any endpoint that speaks the Anthropic Messages API.",
     Icon: Plugs,
+  },
+  {
+    key: "ollama",
+    label: "Ollama (local dev)",
+    blurb: "Host-installed Ollama — local or :cloud models.",
+    Icon: HardDrives,
   },
 ];
 
@@ -83,6 +90,36 @@ const FIELD_LABELS: Record<string, { label: string; hint?: string; placeholder?:
   },
 };
 
+function fieldMeta(
+  mode: Mode,
+  key: string,
+): { label: string; hint?: string; placeholder?: string } {
+  if (mode === "ollama") {
+    if (key === "baseUrl") {
+      return {
+        label: "Ollama base URL",
+        placeholder: "http://host.docker.internal:11434",
+        hint: "Docker: host.docker.internal:11434. Native dev on the host: http://localhost:11434.",
+      };
+    }
+    if (key === "model") {
+      return {
+        label: "Model",
+        placeholder: "qwen2.5-coder:32b",
+        hint: "Local: qwen2.5-coder:32b. Cloud: glm-5:cloud, kimi-k2.5:cloud (requires ollama pull).",
+      };
+    }
+    if (key === "smallFastModel") {
+      return {
+        label: "Background model",
+        placeholder: "gemma4:31b-cloud",
+        hint: "Maps to the haiku alias. Sonnet, opus, and subagents use the main model automatically.",
+      };
+    }
+  }
+  return FIELD_LABELS[key] ?? { label: key };
+}
+
 /**
  * Which Claude Code this installation talks to.
  *
@@ -93,9 +130,9 @@ const FIELD_LABELS: Record<string, { label: string; hint?: string; placeholder?:
  * ignored.
  */
 export function ClaudeSettingsClient() {
-  const { data, mutate, isLoading } = useSWR<ClaudeSettings>(
+  const { data, error, mutate, isLoading } = useSWR<ClaudeSettings>(
     "/api/proxy/settings/claude",
-    fetcher,
+    proxyFetcher,
   );
 
   const [mode, setMode] = useState<Mode>("subscription");
@@ -105,6 +142,8 @@ export function ClaudeSettingsClient() {
   const [result, setResult] = useState<ProviderTest | null>(null);
   const [signIn, setSignIn] = useState<{ session: string; url: string } | null>(null);
   const [code, setCode] = useState("");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
 
   // Re-seed the form whenever the server's view of the mode changes.
   useEffect(() => {
@@ -126,6 +165,28 @@ export function ClaudeSettingsClient() {
     setDraft(Object.fromEntries(Object.entries(next).map(([k, f]) => [k, f.value ?? ""])));
     setResult(null);
   }, [mode]);
+
+  // Provider credentials are not an estimator's to read or change, so the API
+  // refuses them. Say which it is rather than sitting on "Reading…" for ever.
+  if (error) {
+    const forbidden = (error as { status?: number }).status === 403;
+    return (
+      <div className="px-7 py-6">
+        <div
+          className="rounded-lg px-4 py-3 text-[12.5px]"
+          style={{
+            background: "var(--app-neg-soft)",
+            border: "1px solid var(--app-neg-line)",
+            color: "var(--app-neg)",
+          }}
+        >
+          {forbidden
+            ? "You do not have permission to configure the provider. Ask whoever administers this installation."
+            : `Could not read the configuration: ${(error as Error).message}`}
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading || !data) {
     return (
@@ -192,6 +253,39 @@ export function ClaudeSettingsClient() {
     }
   }
 
+  async function refreshOllamaModels() {
+    setLoadingModels(true);
+    try {
+      const params = new URLSearchParams();
+      const baseUrl = draft.baseUrl?.trim();
+      if (baseUrl) params.set("baseUrl", baseUrl);
+      const query = params.toString();
+      const response = await fetch(
+        `/api/proxy/settings/ollama/models${query ? `?${query}` : ""}`,
+      );
+      const body: OllamaModelsResponse & { detail?: string } = await response.json();
+      if (!response.ok) {
+        toast.error("Could not list Ollama models", {
+          description: String(body.detail ?? "Is Ollama running on the host?"),
+        });
+        return;
+      }
+      const names = body.models.map((entry) => entry.name).filter(Boolean) as string[];
+      setOllamaModels(names);
+      if (names.length === 0) {
+        toast.message("No models found", {
+          description: "Pull one on the host: ollama pull qwen2.5-coder:32b",
+        });
+      } else {
+        toast.success(`Found ${names.length} model${names.length === 1 ? "" : "s"}`);
+      }
+    } catch {
+      toast.error("Could not reach the API");
+    } finally {
+      setLoadingModels(false);
+    }
+  }
+
   async function startSignIn() {
     const response = await fetch("/api/proxy/settings/claude/oauth/start", { method: "POST" });
     const body = await response.json();
@@ -251,7 +345,7 @@ export function ClaudeSettingsClient() {
         )}
       </header>
 
-      <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-5">
         {MODES.map(({ key, label, blurb, Icon }) => {
           const on = mode === key;
           return (
@@ -282,6 +376,22 @@ export function ClaudeSettingsClient() {
           );
         })}
       </div>
+
+      {mode === "ollama" && (
+        <p
+          className="flex items-start gap-2 rounded-lg px-3.5 py-2.5 text-[12px] leading-relaxed"
+          style={{ background: "var(--app-warn-soft)", color: "var(--app-warn)" }}
+        >
+          <Warning size={15} weight="duotone" className="mt-px shrink-0" />
+          <span>
+            Ollama runs on the host — no Ollama container is bundled. Use a model with 64k+
+            context (<code>OLLAMA_CONTEXT_LENGTH=65536</code> before starting Ollama). Phase
+            agents declare <code>model: sonnet</code>; in Ollama mode those aliases are routed
+            to your configured model automatically. Tool-call fidelity may degrade with
+            non-Claude models; check anything these models produce against the drawing.
+          </span>
+        </p>
+      )}
 
       {mode === "gateway" && (
         <p
@@ -364,7 +474,8 @@ export function ClaudeSettingsClient() {
         >
           {fieldKeys.map((key) => {
             const field = fields[key];
-            const meta = FIELD_LABELS[key] ?? { label: key };
+            const meta = fieldMeta(mode, key);
+            const showModelPicker = mode === "ollama" && key === "model";
             return (
               <label key={key} className="flex flex-col gap-1">
                 <span className="flex items-center gap-1.5 text-[12px] font-medium">
@@ -382,20 +493,54 @@ export function ClaudeSettingsClient() {
                     </span>
                   )}
                 </span>
-                <input
-                  value={draft[key] ?? ""}
-                  disabled={field.locked}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, [key]: event.target.value }))
-                  }
-                  placeholder={meta.placeholder}
-                  className="rounded-md px-2.5 py-1.5 text-[12.5px] outline-none disabled:opacity-60"
-                  style={{
-                    background: "var(--app-panel-2)",
-                    border: "1px solid var(--app-line)",
-                    color: "var(--app-tx)",
-                  }}
-                />
+                {showModelPicker && ollamaModels.length > 0 ? (
+                  <select
+                    value={draft[key] ?? ""}
+                    disabled={field.locked}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, [key]: event.target.value }))
+                    }
+                    className="rounded-md px-2.5 py-1.5 text-[12.5px] outline-none disabled:opacity-60"
+                    style={{
+                      background: "var(--app-panel-2)",
+                      border: "1px solid var(--app-line)",
+                      color: "var(--app-tx)",
+                    }}
+                  >
+                    <option value="">Select a model…</option>
+                    {ollamaModels.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={draft[key] ?? ""}
+                    disabled={field.locked}
+                    onChange={(event) =>
+                      setDraft((current) => ({ ...current, [key]: event.target.value }))
+                    }
+                    placeholder={meta.placeholder}
+                    className="rounded-md px-2.5 py-1.5 text-[12.5px] outline-none disabled:opacity-60"
+                    style={{
+                      background: "var(--app-panel-2)",
+                      border: "1px solid var(--app-line)",
+                      color: "var(--app-tx)",
+                    }}
+                  />
+                )}
+                {showModelPicker && (
+                  <button
+                    type="button"
+                    onClick={refreshOllamaModels}
+                    disabled={loadingModels || field.locked}
+                    className="self-start rounded-md px-2.5 py-1 text-[11.5px] disabled:opacity-60"
+                    style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+                  >
+                    {loadingModels ? "Refreshing…" : "Refresh models from Ollama"}
+                  </button>
+                )}
                 {meta.hint && (
                   <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
                     {meta.hint}

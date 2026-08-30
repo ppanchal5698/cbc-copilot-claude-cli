@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
 
 import { UploadPanel } from "@/components/intake/upload-panel";
+import { VersionsPanel } from "@/components/intake/versions-panel";
 import { PageHeader } from "@/components/shell/page-header";
 import { runPillFor } from "@/lib/run-pill";
 import { StageBar } from "@/components/shell/stage-bar";
@@ -61,7 +62,10 @@ export default async function IntakePage({ params }: { params: Promise<{ code: s
 
       <main className="min-h-0 flex-1 overflow-auto p-4">
         <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 340px" }}>
-          <UploadPanel code={project.code} initialDocuments={documents} />
+          <div className="flex flex-col gap-4">
+            <UploadPanel code={project.code} initialDocuments={documents} />
+            <VersionsPanel code={project.code} />
+          </div>
 
           <aside
             className="h-fit rounded-xl"

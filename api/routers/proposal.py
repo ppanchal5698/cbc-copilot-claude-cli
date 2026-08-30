@@ -5,7 +5,7 @@ the copilot drafts, sources and calculates - a human sends.
 """
 from __future__ import annotations
 
-import sys
+import asyncio
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -14,12 +14,10 @@ from fastapi.responses import HTMLResponse, Response
 
 from api.config import settings
 from api.db import db, serialise
-from api.models import HandOff, ProposalSettings
+from api.deps import Actor
+from api.schemas import HandOff, ProposalSettings
 from api.routers.projects import load
-from api.routers.quote import _lines, _recompute
-from api.services import audit
-
-sys.path.insert(0, str(settings.repo_root / "mcp-servers"))
+from api.services import audit, quote as quote_service
 
 router = APIRouter(prefix="/api/projects/{code}/proposal", tags=["proposal"])
 
@@ -80,8 +78,9 @@ def _section_of(division: str | None) -> str:
 
 
 async def _build(project: dict[str, Any], markup: float = 0.0) -> dict[str, Any]:
-    totals = await _recompute(project)
-    lines = await _lines(project["_id"])
+    # Computed, not stored - see api/services/quote.py. Rendering a proposal used
+    # to re-price and re-store the whole quote, and `/pdf` did it twice.
+    totals, lines = await quote_service.totals_for(project)
 
     sections: dict[str, dict[str, Any]] = {}
     for line in lines:
@@ -126,7 +125,11 @@ async def _build(project: dict[str, Any], markup: float = 0.0) -> dict[str, Any]
 
 @router.get("")
 async def get_proposal(code: str) -> dict[str, Any]:
-    project = await load(code)
+    return await _proposal_payload(await load(code))
+
+
+async def _proposal_payload(project: dict[str, Any]) -> dict[str, Any]:
+    """The proposal as rendered. Takes the project so callers do not re-load it."""
     stored = await db.proposals.find_one({"projectId": project["_id"]}) or {}
     built = await _build(project, stored.get("markup", 0.0))
 
@@ -164,7 +167,7 @@ async def get_proposal(code: str) -> dict[str, Any]:
 
 
 @router.patch("")
-async def update_proposal(code: str, body: ProposalSettings, actor: str = "estimator") -> dict:
+async def update_proposal(code: str, body: ProposalSettings, actor: Actor) -> dict:
     project = await load(code)
     changes = body.model_dump(exclude_unset=True)
 
@@ -182,7 +185,7 @@ async def update_proposal(code: str, body: ProposalSettings, actor: str = "estim
         upsert=True,
     )
     await audit.record("proposal.update", actor, {"projectId": project["_id"]}, after=changes)
-    return await get_proposal(code)
+    return await _proposal_payload(project)
 
 
 @router.get("/render", response_class=HTMLResponse)
@@ -195,7 +198,7 @@ async def render_proposal(code: str, autoprint: bool = False) -> HTMLResponse:
     from jinja2 import Environment, FileSystemLoader, select_autoescape
 
     project = await load(code)
-    data = await get_proposal(code)
+    data = await _proposal_payload(project)
 
     env = Environment(
         loader=FileSystemLoader(str(settings.templates_dir)),
@@ -267,6 +270,7 @@ async def proposal_pdf(code: str) -> Response:
     Rendered locally - no converter is fetched from the internet. If no renderer
     is installed the caller is told plainly rather than handed a broken file.
     """
+    project = await load(code)
     html = (await render_proposal(code)).body.decode("utf-8")
 
     try:
@@ -281,8 +285,11 @@ async def proposal_pdf(code: str) -> Response:
             f"runtime on Windows). Underlying error: {exc}",
         ) from exc
 
-    pdf_bytes = HTML(string=html, base_url=str(settings.repo_root)).write_pdf()
-    project = await load(code)
+    # WeasyPrint is CPU-bound and takes seconds on a long proposal; inline it
+    # blocked every other request for the duration.
+    pdf_bytes = await asyncio.to_thread(
+        HTML(string=html, base_url=str(settings.repo_root)).write_pdf
+    )
     return Response(
         pdf_bytes,
         media_type="application/pdf",
@@ -291,7 +298,7 @@ async def proposal_pdf(code: str) -> Response:
 
 
 @router.post("/complete")
-async def mark_complete(code: str, body: HandOff | None = None, actor: str = "estimator") -> dict:
+async def mark_complete(code: str, actor: Actor, body: HandOff | None = None) -> dict:
     """Sign off and route the bid to the sales initiator - inside this app only.
 
     NFR-1 is untouched: the estimator approves, the bid appears in the named
@@ -350,7 +357,7 @@ async def mark_complete(code: str, body: HandOff | None = None, actor: str = "es
 async def email_draft(code: str) -> dict:
     """The prepared body, for the estimator to copy into their own mail client."""
     project = await load(code)
-    data = await get_proposal(code)
+    data = await _proposal_payload(project)
     stored = await db.proposals.find_one({"projectId": project["_id"]}) or {}
 
     flags = []

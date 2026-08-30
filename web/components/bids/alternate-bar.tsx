@@ -5,9 +5,9 @@ import useSWR from "swr";
 import { Plus, Warning } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
-import { formatMoneyShort } from "@/lib/api";
+import { formatMoneyShort } from "@/lib/format";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+import { proxyFetcher } from "@/lib/proxy-fetcher";
 
 export interface Alternate {
   name: string | null;
@@ -43,7 +43,7 @@ export function AlternateBar({
   const [adding, setAdding] = useState(false);
   const { data, mutate } = useSWR<{ alternates: Alternate[]; pending: string }>(
     `/api/proxy/projects/${code}/alternates`,
-    fetcher,
+    proxyFetcher,
   );
 
   const alternates = data?.alternates ?? [];
@@ -78,7 +78,6 @@ export function AlternateBar({
     });
     setAdding(false);
     mutate();
-    onChange(name.trim());
   }
 
   return (
@@ -133,21 +132,30 @@ export function AlternateBar({
       })}
 
       {adding ? (
-        <input
-          autoFocus
-          placeholder="Alternate 1"
-          onKeyDown={(event) => {
-            if (event.key === "Enter") create(event.currentTarget.value);
-            if (event.key === "Escape") setAdding(false);
+        <form
+          className="inline-flex"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const name = new FormData(event.currentTarget).get("name");
+            if (typeof name === "string") create(name);
           }}
-          onBlur={() => setAdding(false)}
-          className="w-[120px] rounded-md px-2 py-1 text-[12px] outline-none"
-          style={{
-            background: "var(--app-panel-2)",
-            border: "1px solid var(--app-accent-line)",
-            color: "var(--app-tx)",
-          }}
-        />
+        >
+          <input
+            name="name"
+            autoFocus
+            placeholder="Alternate 1"
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setAdding(false);
+            }}
+            onBlur={() => setAdding(false)}
+            className="w-[120px] rounded-md px-2 py-1 text-[12px] outline-none"
+            style={{
+              background: "var(--app-panel-2)",
+              border: "1px solid var(--app-accent-line)",
+              color: "var(--app-tx)",
+            }}
+          />
+        </form>
       ) : (
         <button
           onClick={() => setAdding(true)}

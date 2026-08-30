@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { PlusCircle } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
-import { formatMoney } from "@/lib/api";
+import { formatMoney } from "@/lib/format";
 import type { Product } from "@/lib/types";
 
 /**
@@ -83,7 +83,7 @@ export function PartComposer({ code, onAdded }: { code: string; onAdded: () => v
           onFocus={() => setFocused(true)}
           onBlur={() => setTimeout(() => setFocused(false), 160)}
           onKeyDown={(event) => {
-            if (event.key === "Enter") add(hits[0]);
+            if (event.key === "Enter") add();
           }}
           placeholder="Add anything the drawings do not carry — search a part number or type a description"
           className="flex-1 bg-transparent text-[13px] outline-none"
@@ -93,7 +93,7 @@ export function PartComposer({ code, onAdded }: { code: string; onAdded: () => v
           ↵ add
         </span>
         <button
-          onClick={() => add(hits[0])}
+          onClick={() => add()}
           disabled={busy || query.trim().length === 0}
           className="rounded-md px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50"
           style={{ background: "var(--app-neg)", color: "#fff" }}

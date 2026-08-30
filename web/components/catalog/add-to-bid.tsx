@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 import type { Product, Project } from "@/lib/types";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+import { proxyFetcher } from "@/lib/proxy-fetcher";
 
 /**
  * Put a catalog part straight onto an open bid.
@@ -22,7 +22,7 @@ export function AddToBid({ product }: { product: Product }) {
 
   const { data } = useSWR<{ projects: Project[] }>(
     open ? "/api/proxy/projects?limit=50" : null,
-    fetcher,
+    proxyFetcher,
   );
 
   // A finished bid is the wrong place to drop a new line.

@@ -10,13 +10,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from bson import ObjectId
+from pymongo.errors import DuplicateKeyError
 
 from api.db import db
+from api.schemas.common import EXCLUSIVE_JOB_TYPES
 from api.services import audit
 
-# One in-flight job of the same type per project. A second "re-run extraction"
-# click while the first is still running is a double-click, not a second job.
-EXCLUSIVE = {"extract_bid_set", "rerun_extraction", "match_and_price", "build_proposal"}
+EXCLUSIVE = set(EXCLUSIVE_JOB_TYPES)
 
 
 async def enqueue(
@@ -49,7 +49,19 @@ async def enqueue(
         "startedAt": None,
         "finishedAt": None,
     }
-    result = await db.jobs.insert_one(job)
+    try:
+        result = await db.jobs.insert_one(job)
+    except DuplicateKeyError:
+        existing = await db.jobs.find_one(
+            {
+                "projectId": project_id,
+                "type": job_type,
+                "status": {"$in": ["queued", "running"]},
+            }
+        )
+        if existing:
+            return existing
+        raise
     job["_id"] = result.inserted_id
 
     await audit.record(
@@ -62,6 +74,14 @@ async def enqueue(
 
 async def latest_for_project(project_id: ObjectId) -> dict[str, Any] | None:
     return await db.jobs.find_one({"projectId": project_id}, sort=[("createdAt", -1)])
+
+
+async def active_for_project(project_id: ObjectId) -> dict[str, Any] | None:
+    """Most recent queued or running job on this bid."""
+    return await db.jobs.find_one(
+        {"projectId": project_id, "status": {"$in": ["queued", "running"]}},
+        sort=[("createdAt", -1)],
+    )
 
 
 async def active_count(project_id: ObjectId | None = None) -> int:

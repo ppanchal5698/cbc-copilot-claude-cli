@@ -29,4 +29,8 @@ if not project.get("hasTrustDialogAccepted"):
     print("[entrypoint] /app marked as a trusted workspace")
 PY
 
+if [ "${AUTO_BOOTSTRAP:-1}" != "0" ]; then
+  python /app/scripts/bootstrap.py || echo "[entrypoint] bootstrap skipped (MongoDB may still be starting)"
+fi
+
 exec "$@"
