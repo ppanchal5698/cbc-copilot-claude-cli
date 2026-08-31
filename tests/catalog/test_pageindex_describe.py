@@ -186,3 +186,95 @@ def test_the_read_only_uri_authenticates_where_the_user_was_made() -> None:
         pytest.skip("no mongodb configured here")
     assert f"authSource={settings.mongodb_db}" in uri
     assert "authSource=admin" not in uri
+
+
+def test_a_hit_names_where_the_file_is_not_just_what_it_is_called() -> None:
+    """A page nobody can open is a page nobody found.
+
+    `find_pages` returned a bare filename, so a run had to guess the directory -
+    and guessed the project's own uploads folder. The page was right; the file
+    was not there; the line went MANUAL.
+    """
+    from cbc.pageindex.models import PageEntry, PageIndexDocument
+    from cbc.pageindex.query import PRICEBOOK_DIR, rank_pages
+
+    document = PageIndexDocument(
+        catalog_id="hager_price_book_18",
+        vendor="hager",
+        file_name="hager_price_book_18.pdf",
+        file_hash="sha256:x",
+        pages=[
+            PageEntry(
+                pdf_page=297,
+                printed_page="23",
+                title="Locks - 3400 Series",
+                code_prefixes=["3400"],
+                has_prices=True,
+                confidence=0.9,
+            )
+        ],
+    )
+    hit = rank_pages([document], "3400")["pages"][0]
+
+    assert hit["file_path"] == f"{PRICEBOOK_DIR}/hager_price_book_18.pdf"
+    assert "uploads" not in hit["file_path"]
+    assert hit["pdf_page"] == 297
+
+
+def test_a_whole_part_number_finds_the_page_that_holds_its_family() -> None:
+    """The index stores families; a bid asks for whole part numbers.
+
+    Page 23 of the Pemko book carries the 4131 series. Querying `4131` found it
+    and querying `4131CNBL36` - an actual code printed on that page - found
+    nothing, because the match only ran family-starts-with-query. So the pricing
+    pass got no page for the part it was asked to price, and invented a cost
+    instead. Both directions have to match.
+    """
+    from cbc.pageindex.models import PageEntry, PageIndexDocument
+    from cbc.pageindex.query import rank_pages
+
+    document = PageIndexDocument(
+        catalog_id="pemko_markar_price_book_2026",
+        vendor="pemko",
+        file_name="pemko_markar_price_book_2026.pdf",
+        file_hash="sha256:x",
+        pages=[
+            PageEntry(
+                pdf_page=23,
+                printed_page="23",
+                title="Pemko Thresholds and Weatherstripping",
+                code_prefixes=["4131", "18041"],
+                has_prices=True,
+                confidence=0.9,
+            )
+        ],
+    )
+
+    for part in ("4131CNBL36", "18041BSPNB", "4131"):
+        result = rank_pages([document], part)
+        assert result["count"] == 1, f"{part} found no page"
+        assert result["pages"][0]["pdf_page"] == 23
+
+
+def test_a_part_from_another_family_still_does_not_match() -> None:
+    """Matching both ways must not turn into matching anything."""
+    from cbc.pageindex.models import PageEntry, PageIndexDocument
+    from cbc.pageindex.query import rank_pages
+
+    document = PageIndexDocument(
+        catalog_id="pemko_markar_price_book_2026",
+        vendor="pemko",
+        file_name="pemko_markar_price_book_2026.pdf",
+        file_hash="sha256:x",
+        pages=[
+            PageEntry(
+                pdf_page=23,
+                printed_page="23",
+                title="Pemko Thresholds and Weatherstripping",
+                code_prefixes=["4131"],
+                has_prices=True,
+                confidence=0.9,
+            )
+        ],
+    )
+    assert rank_pages([document], "8400")["count"] == 0

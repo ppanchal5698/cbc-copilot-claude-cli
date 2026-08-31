@@ -142,10 +142,21 @@ The estimator has confirmed the openings in {project_dir}/extracted/door_schedul
   2. `pricing-engineer` -> {project_dir}/priced/line_items.json,
                             {project_dir}/priced/margin_applied.json
 
-Use the `catalog` MCP server first for products, multipliers and price-book
-programs - it reads the live database purchasing maintains, so it is current.
-Fall back to the `pricebook` MCP server when you need page-level traceability
-from the source PDF.
+The `catalog` server does not return prices. It tells you which page of which
+vendor book to open, and you read the price off that page:
+
+  1. `mcp__catalog__find_pages` with the part number or series, and `vendor`.
+     Each hit carries `file_path`, `pdf_page` and a `locator`.
+  2. `mcp__pdf-tools__extract_tables` with that `file_path` and `pdf_page`,
+     exactly as given. Do not build the path yourself - the books are not under
+     this project's uploads.
+  3. `mcp__catalog__get_multiplier` for the tier. Hager prices by product
+     category, so pass one (`locks`, `door_controls`, `exit_devices`, ...).
+  4. `mcp__calc-engine__calculate_line` for the arithmetic.
+
+If find_pages returns nothing, or the page turns out not to carry the part, that
+is a MANUAL line. Try the next hit before giving up; do not settle for a nearby
+row on the wrong page.
 
 Write priced/line_items.json with a `lines` array. Each line needs: line_id,
 group, group_type (door | accessories | frp), part_number, description,
@@ -153,9 +164,27 @@ division, quantity, cost, margin, sale_ea, ext_price, cost_source,
 cost_source_detail, multiplier, multiplier_tier, multiplier_effective_date,
 price_book_version, source_page, flags.
 
-An item you cannot price gets cost: null and cost_source: "MANUAL" with a
-plain-language reason in cost_source_detail. Never extrapolate a price from a
-similar SKU.
+Two rules are checked in code before this job is accepted, and a run that
+breaks either is rejected outright:
+
+- **A MANUAL line must have cost: null.** MANUAL means nobody could price it.
+  Putting a number there - a typical price, a round figure, anything "standard"
+  for that size - is inventing a cost, and it is worse than an empty cell
+  because it looks finished. Say why in cost_source_detail instead.
+- **A LIST_X_MULTIPLIER line must name the sheet it was read from.** Put the
+  `file_path` and `locator` from find_pages in cost_source_detail verbatim.
+  "Based on the Pemko catalog" names no page anyone can check.
+
+The two provenances are different fields and both are required (NFR-3):
+`source_page` is the **drawing** page the item was specified on - copy it from
+extracted/hardware_sets.json, and every line has one including a MANUAL line.
+`cost_source_detail` is where the **price** came from. A MANUAL line has no
+price page, which is exactly why it still needs its drawing page: that is how an
+estimator finds the item to price it.
+
+Never extrapolate a price from a similar SKU, and never give the same part two
+different costs on one quote. Twenty honest MANUAL lines are a usable day's work
+for an estimator; twenty invented ones are a quote that has to be thrown away.
 
 Every line names what it is: carry `part_number` and `description` across from
 extracted/hardware_sets.json (`specified`) even when nothing matched. A MANUAL

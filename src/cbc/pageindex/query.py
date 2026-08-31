@@ -16,6 +16,10 @@ from typing import Any
 from cbc.pageindex import store
 from cbc.pageindex.models import PageEntry, PageIndexDocument
 
+# Where the vendor books live, relative to the repository root - which is what
+# pdf-tools resolves against.
+PRICEBOOK_DIR = "pricebooks"
+
 # Words that match every page of every price book and so separate nothing.
 _STOPWORDS = frozenset(
     """a an and or the for of with to in on at by from price prices list cost
@@ -52,7 +56,17 @@ def score_page(page: PageEntry, terms: list[str]) -> tuple[float, list[str]]:
     for term in terms:
         if term.lower() in _STOPWORDS:
             continue
-        code_hit = any(prefix == term or prefix.startswith(term) for prefix in prefixes)
+        # Both directions. The index stores *families* - "this page is where the
+        # 4131 series lives" - but a bid asks for a whole part number, and
+        # `4131CNBL36` does not start-with-match a stored `4131` the other way
+        # round. That asymmetry meant a real code on a real indexed page scored
+        # zero, find_pages returned nothing, and the pricing pass - having no
+        # page to read - invented a number instead. Family-to-code is the common
+        # query, so it is the one that has to work.
+        code_hit = any(
+            prefix == term or prefix.startswith(term) or term.startswith(prefix)
+            for prefix in prefixes
+        )
         if code_hit:
             score += 5.0 if _looks_like_code(term) else 2.0
             why.append(f"{term} in part families")
@@ -123,6 +137,12 @@ def rank_pages(
                     "catalog_id": document.catalog_id,
                     "vendor": document.vendor,
                     "file": document.file_name,
+                    # The path pdf-tools takes, not just the name. Handing back a
+                    # bare filename left the run to guess the directory, and it
+                    # guessed the project's own uploads folder - so the page it
+                    # had correctly found could not be opened, and the line went
+                    # MANUAL. A tool that names a page should name where it is.
+                    "file_path": f"{PRICEBOOK_DIR}/{document.file_name}",
                     "pdf_page": page.pdf_page,
                     "printed_page": page.printed_page,
                     "locator": page.locator(),
@@ -205,6 +225,7 @@ async def get_page(catalog_id: str, pdf_page: int) -> dict[str, Any]:
                 "found": True,
                 "catalog_id": document.catalog_id,
                 "file": document.file_name,
+                "file_path": f"{PRICEBOOK_DIR}/{document.file_name}",
                 "pdf_page": page.pdf_page,
                 "printed_page": page.printed_page,
                 "locator": page.locator(),
