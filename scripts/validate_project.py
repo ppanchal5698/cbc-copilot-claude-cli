@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from datetime import date, datetime
@@ -58,6 +59,12 @@ SOFT_FIELDS = ("handing", "finish", "fire_rating", "hardware_set")
 PRICING_LINE_FIELDS = ("line_id", "group", "group_type", "quantity", "cost_source")
 PRICING_GROUP_TYPES = frozenset({"door", "accessories", "frp", "other"})
 
+
+
+# A citation that names a sheet somebody can open, rather than a vendor's name.
+# "Price based on Pemko catalog" is not a citation; "pemko_markar_price_book_2026.pdf
+# PDF p67" is - and it is exactly what find_pages hands back.
+_CATALOG_FILE = re.compile(r"[\w.-]+\.(?:pdf|xlsx|xls)", re.IGNORECASE)
 
 
 def _added_by_hand(row: dict) -> bool:
@@ -338,6 +345,37 @@ def check_pricing(project: str, *, require_hardware_sets: bool = False) -> tuple
                 f"{project}: MANUAL line {label} records no reason - say why it "
                 "cannot be priced automatically"
             )
+
+        # A MANUAL line carries no cost. MANUAL *means* nobody could price it, so
+        # a number there is one the pass made up - and a run did exactly that:
+        # 27 of 34 lines came back MANUAL with round costs and details reading
+        # "Estimated standard cost for 36x84 HM door". A quote that looks complete
+        # and is invented is far worse than one that says what it does not know,
+        # and no prompt reliably prevents it. This does (NFR-2).
+        if line.get("cost_source") == "MANUAL" and line.get("cost") is not None:
+            problems.append(
+                f"{project}: MANUAL line {label} carries a cost of {line['cost']} - "
+                "MANUAL means the estimator prices it. Leave cost null and say why "
+                "in cost_source_detail; do not estimate one"
+            )
+
+        # A computed cost has to name the sheet it was read from.
+        #
+        # The same run put three different costs on one part number and cited
+        # `source_page: 14` for all of them - the bid set's door-schedule page,
+        # not a price book. `cost_source_detail` said "Price based on Pemko
+        # catalog", which names no page anyone can open. The catalog tools hand
+        # back a file name and a locator precisely so this citation is available
+        # (NFR-3).
+        if line.get("cost_source") == "LIST_X_MULTIPLIER":
+            detail = str(line.get("cost_source_detail") or "")
+            if not _CATALOG_FILE.search(detail):
+                problems.append(
+                    f"{project}: line {label} claims list x multiplier but its "
+                    f"cost_source_detail ({detail[:48]!r}) names no price-book file. "
+                    "Quote the file_path and locator find_pages returned, so the "
+                    "number can be checked against the page it came from"
+                )
         if line.get("cost") is not None:
             priced_count += 1
         group_type = line.get("group_type")

@@ -276,3 +276,102 @@ def test_a_drawing_opening_still_needs_its_provenance(validate_project):
     problems, _ = check_extraction(validate_project)
     assert any("missing source_page" in p for p in problems), problems
     assert any("bbox" in p for p in problems), problems
+
+
+def test_a_manual_line_may_not_carry_an_invented_cost(validate_project):
+    """MANUAL means nobody could price it. A number there is one the pass made up.
+
+    A real run returned 27 of 34 lines as MANUAL with round costs and details
+    reading "Estimated standard cost for 36x84 HM door". A quote that looks
+    complete and is invented is far worse than one that says what it does not
+    know - and no wording in a prompt reliably prevents it (NFR-2).
+    """
+    _write(
+        validate_project,
+        "priced/line_items.json",
+        {
+            "lines": [
+                _priced(
+                    group="Door 01",
+                    group_type="door",
+                    part_number="HM-D3684",
+                    description="HM door",
+                    cost_source="MANUAL",
+                    cost_source_detail="Estimated standard cost for 36x84 HM door",
+                    cost=500.0,
+                    source_page=14,
+                )
+            ]
+        },
+    )
+    problems, _ = check_pricing(validate_project)
+    assert any("carries a cost" in p for p in problems), problems
+
+
+def test_a_manual_line_with_no_cost_is_fine(validate_project):
+    _write(
+        validate_project,
+        "priced/line_items.json",
+        {
+            "lines": [
+                _priced(
+                    group="Door 01",
+                    group_type="door",
+                    part_number="HM-D3684",
+                    description="HM door",
+                    cost_source="MANUAL",
+                    cost_source_detail="Custom size - vendor RFQ required",
+                    cost=None,
+                    source_page=14,
+                )
+            ]
+        },
+    )
+    problems, _ = check_pricing(validate_project)
+    assert not [p for p in problems if "carries a cost" in p], problems
+
+
+def test_a_computed_cost_must_name_the_sheet_it_was_read_from(validate_project):
+    """"Price based on Pemko catalog" names no page anyone can open.
+
+    The same run put three different costs on one part and cited the bid set's
+    door-schedule page for all of them. The catalog tools return a file name and
+    a locator so this citation is available (NFR-3).
+    """
+    _write(
+        validate_project,
+        "priced/line_items.json",
+        {
+            "lines": [
+                _priced(
+                    part_number="PEMKO-8400",
+                    cost_source="LIST_X_MULTIPLIER",
+                    cost_source_detail="Price based on Pemko catalog",
+                    cost=80.0,
+                    source_page=14,
+                )
+            ]
+        },
+    )
+    problems, _ = check_pricing(validate_project)
+    assert any("names no price-book file" in p for p in problems), problems
+
+
+def test_a_real_citation_passes(validate_project):
+    _write(
+        validate_project,
+        "priced/line_items.json",
+        {
+            "lines": [
+                _priced(
+                    part_number="PEMKO-8400",
+                    cost_source="LIST_X_MULTIPLIER",
+                    cost_source_detail="pemko_markar_price_book_2026.pdf PDF p67 (printed p60)",
+                    cost=80.0,
+                    source_page=67,
+                )
+            ]
+        },
+    )
+    problems, _ = check_pricing(validate_project)
+    assert not [p for p in problems if "price-book file" in p], problems
