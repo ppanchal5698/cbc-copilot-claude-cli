@@ -115,7 +115,17 @@ def test_confidence_threshold(confidence, should_flag):
 
 
 def test_search_finds_a_real_part_with_page_traceability(catalog):
-    result = catalog.search_product("4040XP", vendor="hager", limit=5)
+    """NFR-3: a hit must say which page it came from.
+
+    This searched for 4040XP, an LCN closer. Allegion is bought through a
+    distributor and has no price book here, so the search correctly returned
+    nothing - and the loop below ran zero times. The test asserted nothing at all
+    while reporting that traceability was covered. Search for a part the index
+    actually holds, and require at least one hit so it cannot go hollow again.
+    """
+    result = catalog.search_product("BB1279", vendor="hager", limit=5)
+
+    assert result["hit_count"] >= 1, "BB1279 is a stocked Hager hinge; expected a hit"
     for hit in result["hits"]:
         assert hit["source_page"] >= 1, "every hit must carry source_page (NFR-3)"
         assert 0.0 <= hit["score"] <= 1.0
