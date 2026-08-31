@@ -71,3 +71,9 @@ BUILD_PROMPT.md
 CBC_Req_Validation_v1_3.xlsx
 cbc_copilot_project_structure.md
 building-plans/
+
+# The audit hook writes projects/{project}/audit_trail.jsonl. Running with no
+# project in scope makes it fall back to the repo root, leaving a stray here that
+# is session noise rather than a record of a bid. The negation above still keeps
+# the real per-project trails tracked.
+/audit_trail.jsonl

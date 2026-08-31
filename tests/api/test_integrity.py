@@ -272,3 +272,161 @@ def test_mcp_p21_write_tool_name_is_blocked() -> None:
     )
     assert result.returncode == 2, result.stderr
     assert "NFR-5" in result.stderr
+
+
+# ── the guard blocks writes, and only writes ────────────────────────────────
+#
+# The rule these enforce is about *writing* to reference data. A pricing pass
+# exists to read price books, so a guard that blocks reads is not enforcing the
+# rule - it is breaking it. Both halves are pinned because the guard has been
+# wrong in both directions: a substring scan once blocked reads, unrelated home
+# directories, and any file whose text merely mentioned a protected path, while
+# the version before that let every write through that was not a deletion.
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo x > pricebooks/index.json",
+        "echo x >> pricebooks/index.json",
+        "cp evil.json pricebooks/index.json",
+        "cp evil.py .claude/hooks/pre_delete_guard.py",
+        "mv x.json reference-library/margins/x.json",
+        "sed -i s/a/b/ pricebooks/index.json",
+        "echo x | tee pricebooks/index.json",
+        "rm pricebooks/hager_price_book_18.pdf",
+    ],
+)
+def test_writing_into_reference_data_is_blocked(command: str) -> None:
+    """Not only deletion. Every one of these but the last was allowed before."""
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert result.returncode == 2, f"{command!r} should be blocked\n{result.stdout}"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat pricebooks/index.json",
+        "cp pricebooks/index.json /tmp/x.json",   # copies *out* of it
+        "sed s/a/b/ pricebooks/index.json",       # no -i, so it only reads
+        "grep -rn hager pricebooks/",
+        "ls reference-library/margins",
+        "git diff -- .claude/hooks/pre_delete_guard.py",
+        "echo x > projects/demo/notes.md",
+        "rm projects/demo/uploads/tmp.json",
+    ],
+)
+def test_reading_reference_data_is_allowed(command: str) -> None:
+    """The pipeline's actual job. Blocking these is the failure mode, not safety."""
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert result.returncode == 0, f"{command!r} should be allowed\n{result.stderr}"
+
+
+def test_prose_naming_a_protected_path_is_not_a_write() -> None:
+    """A command whose *text* mentions the rule is not an attempt to break it.
+
+    The substring branch matched the word anywhere in the command, so a heredoc
+    writing documentation about the guard was refused by the guard.
+    """
+    heredoc = (
+        "cat >> notes.md <<'EOF'\n"
+        "every write through that was not an `rm`\n"
+        'blocked: "cp evil.json pricebooks/index.json"\n'
+        "EOF"
+    )
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": heredoc}})
+    assert result.returncode == 0, result.stderr
+
+
+def test_an_mcp_read_tool_may_name_a_price_book() -> None:
+    """The counterpart to the save_artifact test above.
+
+    Scanning every argument of every MCP tool blocked `extract_text` on a vendor
+    sheet - the exact call a pricing pass exists to make.
+    """
+    result = _run_guard(
+        {
+            "tool_name": "mcp__pdf-tools__extract_text",
+            "tool_input": {"path": "pricebooks/hager_price_book_18.pdf", "page": 12},
+        }
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_an_mcp_write_tool_may_still_write_inside_a_project() -> None:
+    result = _run_guard(
+        {
+            "tool_name": "mcp__artifact-storage__save_artifact",
+            "tool_input": {
+                "project": "demo",
+                "path": "projects/demo/priced/line_items.json",
+                "content": "{}",
+            },
+        }
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "path", ["/tmp/pricebooks/scratch.pdf", "/home/cbc/.claude/settings.json"]
+)
+def test_a_protected_name_outside_the_project_is_not_protected(path: str) -> None:
+    """A directory of the same name elsewhere is not this repository's."""
+    result = _run_guard(
+        {"tool_name": "Bash", "tool_input": {"command": f"cp x.json {path}"}}, "/app"
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # The command word hidden behind shell punctuation or a wrapper word.
+        "(cp evil.json pricebooks/index.json)",
+        "(cp evil.json pricebooks/index.json 2>&1 || true)",
+        "sudo cp evil.json pricebooks/index.json",
+        "FOO=bar cp evil.json pricebooks/index.json",
+        "true && cp evil.json pricebooks/index.json",
+        "true; cp evil.json pricebooks/index.json",
+        "echo x >pricebooks/index.json",
+        "echo x | tee -a pricebooks/index.json",
+        "sed -i.bak s/a/b/ pricebooks/index.json",
+        "truncate -s 0 pricebooks/index.json",
+        "cp evil.json ./pricebooks/index.json",
+        "cp evil.json projects/../pricebooks/index.json",
+    ],
+)
+def test_a_write_hidden_behind_shell_syntax_is_still_blocked(command: str) -> None:
+    """The command word is not always the first word.
+
+    `(cp CLAUDE.md pricebooks/index.json 2>&1 || true)` tokenises with the paren
+    attached, so the name read as "(cp" and matched nothing - and `2>&1` then made
+    itself the last argument, hiding the real destination behind it. That pair is
+    not hypothetical: together they overwrote the price-book index during this
+    work, which is why each spelling is pinned separately.
+    """
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert result.returncode == 2, f"{command!r} should be blocked\n{result.stdout}"
+
+
+def test_a_quoted_absolute_path_into_reference_data_is_blocked() -> None:
+    """Resolution, not spelling: the absolute form is the same directory."""
+    target = (ROOT / "pricebooks" / "index.json").as_posix()
+    result = _run_guard(
+        {"tool_name": "Bash", "tool_input": {"command": f'cp evil.json "{target}"'}}
+    )
+    assert result.returncode == 2, result.stdout
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "(cat pricebooks/index.json || true)",
+        "sudo cat pricebooks/index.json",
+        "true && grep hager pricebooks/index.json",
+    ],
+)
+def test_a_read_hidden_behind_shell_syntax_is_still_allowed(command: str) -> None:
+    """Unwrapping the command must not turn reads into writes."""
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert result.returncode == 0, f"{command!r} should be allowed\n{result.stderr}"
