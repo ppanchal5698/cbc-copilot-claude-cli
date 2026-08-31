@@ -12,6 +12,7 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
+import { StatusBadge } from "@/components/ui/status-badge";
 import { formatMoney } from "@/lib/format";
 import type { PriceBookDetail, PriceBooksResponse } from "@/lib/types";
 
@@ -19,6 +20,10 @@ import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 
 function formatMultiplier(value: number | null | undefined): string {
   return typeof value === "number" && !Number.isNaN(value) ? value.toFixed(3) : "—";
+}
+
+function categoryLabel(key: string): string {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 export function PriceBooksClient() {
@@ -39,6 +44,10 @@ export function PriceBooksClient() {
 
   const books = data?.priceBooks ?? [];
   const selected = detail?.priceBook;
+  const categoryEntries = Object.entries(selected?.categories ?? {}).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  const usesCategoryMultipliers = categoryEntries.length > 0;
 
   async function upload(files: FileList | null) {
     if (!files?.length || !selectedId) return;
@@ -241,7 +250,7 @@ export function PriceBooksClient() {
             <button
               key={book.id}
               onClick={() => setSelectedId(book.id)}
-              className="flex w-full items-center gap-3 border-b px-4 py-3 text-left last:border-b-0"
+              className="flex w-full items-center gap-3 border-b px-4 py-3 text-left transition last:border-b-0 hover:bg-[var(--app-panel-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--app-accent)]"
               style={{
                 borderColor: "var(--app-line)",
                 background: selectedId === book.id ? "var(--app-panel-2)" : "transparent",
@@ -255,19 +264,26 @@ export function PriceBooksClient() {
                 <span className="truncate text-[11px]" style={{ color: "var(--app-tx-3)" }}>
                   {book.program ?? book.kind ?? "—"}
                 </span>
+                {(book.stale || book.undated) && (
+                  <StatusBadge variant="caution" className="mt-1">
+                    {book.undated ? "No effective date" : "Past review"}
+                  </StatusBadge>
+                )}
                 <span
-                  className="mt-0.5 text-[10.5px]"
-                  style={{ color: book.stale || book.undated ? "var(--app-neg)" : "var(--app-tx-3)" }}
+                  className="mt-0.5 block text-[10.5px]"
+                  style={{ color: "var(--app-tx-3)" }}
                 >
                   {book.undated
-                    ? "No effective date"
+                    ? "Upload or record an effective date"
                     : book.stale
-                      ? `Past review · ${book.effective}`
+                      ? `Effective ${book.effective}`
                       : `Reviewed ${book.lastReviewed ?? book.effective}`}
                 </span>
               </span>
               <span className="tnum text-[14px] font-semibold">
-                {formatMultiplier(book.multiplier)}
+                {book.categories && Object.keys(book.categories).length > 0
+                  ? "Per cat."
+                  : formatMultiplier(book.multiplier)}
               </span>
             </button>
           ))}
@@ -279,10 +295,11 @@ export function PriceBooksClient() {
         style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
       >
         {!selected ? (
-          <div className="grid flex-1 place-items-center gap-2 px-6 text-center">
-            <Books size={26} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
-            <span className="text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
-              Pick a program to see its multiplier, its parts, and to upload a newer sheet.
+          <div className="grid flex-1 place-items-center gap-2 px-6 py-16 text-center">
+            <Books size={32} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
+            <span className="text-[14px] font-semibold">Select a price book</span>
+            <span className="max-w-[320px] text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+              Pick a program from the list to review its multiplier, parts, and upload a newer sheet.
             </span>
           </div>
         ) : (
@@ -302,10 +319,10 @@ export function PriceBooksClient() {
                   className="block text-[10.5px] uppercase tracking-[0.07em]"
                   style={{ color: "var(--app-tx-3)" }}
                 >
-                  Multiplier
+                  {usesCategoryMultipliers ? "Category multipliers" : "Multiplier"}
                 </span>
                 <span className="tnum text-[32px] font-bold leading-none">
-                  {formatMultiplier(selected.multiplier)}
+                  {usesCategoryMultipliers ? "Per category" : formatMultiplier(selected.multiplier)}
                 </span>
               </div>
             </div>
@@ -356,32 +373,82 @@ export function PriceBooksClient() {
             )}
 
             <div className="mt-5 flex flex-wrap items-end gap-3">
-              <label className="flex flex-col">
-                <span className="text-[10.5px] uppercase tracking-[0.07em]" style={{ color: "var(--app-tx-3)" }}>
-                  Multiplier
-                </span>
-                <input
-                  type="number"
-                  step="0.001"
-                  defaultValue={selected.multiplier ?? ""}
-                  key={selected.id}
-                  disabled={busy}
-                  aria-label="Multiplier"
-                  onBlur={(event) => {
-                    const next = Number(event.target.value);
-                    if (event.target.value.trim() === "") return;
-                    if (!Number.isNaN(next) && next !== selected.multiplier) {
-                      patch({ multiplier: next }, "Multiplier updated and parts repriced");
-                    }
-                  }}
-                  className="tnum mt-1 w-[120px] rounded-md px-2.5 py-2 text-[13px] outline-none focus:ring-2"
-                  style={{
-                    background: "var(--app-panel-2)",
-                    border: "1px solid var(--app-line)",
-                    color: "var(--app-tx)",
-                  }}
-                />
-              </label>
+              {usesCategoryMultipliers ? (
+                <div className="flex w-full flex-col gap-2">
+                  <span
+                    className="text-[10.5px] uppercase tracking-[0.07em]"
+                    style={{ color: "var(--app-tx-3)" }}
+                  >
+                    Hager Advantage Program tiers
+                  </span>
+                  <div
+                    className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3"
+                    style={{ maxWidth: 720 }}
+                  >
+                    {categoryEntries.map(([key, value]) => (
+                      <label key={key} className="flex flex-col">
+                        <span className="text-[11px]" style={{ color: "var(--app-tx-2)" }}>
+                          {categoryLabel(key)}
+                        </span>
+                        <input
+                          type="number"
+                          step="0.001"
+                          defaultValue={value}
+                          key={`${selected.id}-${key}`}
+                          disabled={busy}
+                          aria-label={`${categoryLabel(key)} multiplier`}
+                          onBlur={(event) => {
+                            const next = Number(event.target.value);
+                            if (event.target.value.trim() === "" || Number.isNaN(next)) return;
+                            if (next === value) return;
+                            const categories = {
+                              ...(selected.categories ?? {}),
+                              [key]: next,
+                            };
+                            patch({ categories }, `${categoryLabel(key)} multiplier updated`);
+                          }}
+                          className="tnum mt-1 rounded-md px-2.5 py-2 text-[13px] outline-none focus:ring-2"
+                          style={{
+                            background: "var(--app-panel-2)",
+                            border: "1px solid var(--app-line)",
+                            color: "var(--app-tx)",
+                          }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <label className="flex flex-col">
+                  <span
+                    className="text-[10.5px] uppercase tracking-[0.07em]"
+                    style={{ color: "var(--app-tx-3)" }}
+                  >
+                    Multiplier
+                  </span>
+                  <input
+                    type="number"
+                    step="0.001"
+                    defaultValue={selected.multiplier ?? ""}
+                    key={selected.id}
+                    disabled={busy}
+                    aria-label="Multiplier"
+                    onBlur={(event) => {
+                      const next = Number(event.target.value);
+                      if (event.target.value.trim() === "") return;
+                      if (!Number.isNaN(next) && next !== selected.multiplier) {
+                        patch({ multiplier: next }, "Multiplier updated and parts repriced");
+                      }
+                    }}
+                    className="tnum mt-1 w-[120px] rounded-md px-2.5 py-2 text-[13px] outline-none focus:ring-2"
+                    style={{
+                      background: "var(--app-panel-2)",
+                      border: "1px solid var(--app-line)",
+                      color: "var(--app-tx)",
+                    }}
+                  />
+                </label>
+              )}
 
               <input
                 ref={fileRef}
@@ -428,8 +495,11 @@ export function PriceBooksClient() {
             </div>
 
             <p className="mt-3 text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
-              Changing the multiplier reprices every part on this program. Uploading a sheet queues
-              Claude to read it into the catalog, so the next bid prices off the newest data.
+              {usesCategoryMultipliers
+                ? "Category multipliers sync to vendor_tiers.json and drive list × category pricing."
+                : "Changing the multiplier reprices every part on this program."}{" "}
+              Uploading a sheet queues Claude to read it into the catalog, so the next bid prices off
+              the newest data.
             </p>
 
             <div className="mt-6">

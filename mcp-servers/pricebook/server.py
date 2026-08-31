@@ -42,6 +42,8 @@ _catalog = load_server("catalog")
 list_vendors = _catalog.list_vendors
 get_multiplier = _catalog.get_multiplier
 lookup_pricing = _catalog.lookup_pricing
+get_special_net = _catalog.get_special_net
+is_stock_item = _catalog.is_stock_item
 
 
 def search_product(

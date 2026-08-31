@@ -17,6 +17,8 @@ from api.db import db, oid, serialise
 from api.deps import Actor, AdminActor
 from api.schemas import PriceBookCreate, PriceBookUpdate
 from api.services import audit, jobs, storage
+from api.services.document_index import enqueue_index, inventory_kind, should_deep_index_pricebook
+from api.services.reference_library import sync_vendor_categories
 
 router = APIRouter(prefix="/api/price-books", tags=["price-books"])
 
@@ -126,8 +128,30 @@ async def upload_price_book_file(
         payload={"priceBookId": str(book["_id"]), "filename": target.name},
         actor=actor,
     )
+
+    deep_job = None
+    document_id = None
+    kind = inventory_kind(target.name) or book.get("kind") or "price_book"
+    if should_deep_index_pricebook(target.name, {**book, "kind": kind}):
+        document_id, deep_job = await enqueue_index(
+            source_path=storage.relative(target),
+            client_id=str(book.get("vendor", "unknown")).lower(),
+            document_type=kind,
+            effective_date=book.get("effective"),
+            actor=actor,
+            trigger="upload",
+            price_book_id=str(book["_id"]),
+        )
+
     await audit.record("price_book.upload", actor, {"priceBookId": book["_id"]}, after=target.name)
-    return {"priceBook": _decorate(await db.price_books.find_one({"_id": book["_id"]})), "job": serialise(job)}
+    response: dict[str, Any] = {
+        "priceBook": _decorate(await db.price_books.find_one({"_id": book["_id"]})),
+        "job": serialise(job),
+    }
+    if deep_job:
+        response["deepIndexJob"] = serialise(deep_job)
+        response["documentId"] = document_id
+    return response
 
 
 @router.get("/{book_id}/file")
@@ -153,6 +177,9 @@ async def update_price_book(book_id: str, body: PriceBookUpdate, actor: Actor) -
         return _decorate(book)
 
     await db.price_books.update_one({"_id": book["_id"]}, {"$set": {**changes, "updatedAt": _now()}})
+
+    if "categories" in changes and changes["categories"] is not None:
+        sync_vendor_categories(book.get("vendor", ""), changes["categories"])
 
     # A changed multiplier repricies every part on this program.
     if "multiplier" in changes and changes["multiplier"]:
@@ -218,6 +245,12 @@ async def delete_price_book(book_id: str, actor: AdminActor) -> None:
         await jobs.enqueue(
             "delete_catalog",
             payload={"catalogId": book["catalogId"], "priceBookId": str(book["_id"])},
+            actor=actor,
+        )
+    if book.get("documentIndexId"):
+        await jobs.enqueue(
+            "delete_document",
+            payload={"documentId": book["documentIndexId"]},
             actor=actor,
         )
     await db.price_books.delete_one({"_id": book["_id"]})

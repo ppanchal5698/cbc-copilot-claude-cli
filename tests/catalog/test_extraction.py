@@ -169,6 +169,52 @@ def test_the_adapter_matches_the_file_type(tmp_path) -> None:
         extractors.choose(tmp_path / "notes.docx")
 
 
+# ── delimited (CSV / TSV) sheets ────────────────────────────────
+
+
+def test_a_delimited_sheet_gets_the_csv_adapter(tmp_path) -> None:
+    assert extractors.choose(tmp_path / "multiplier.csv") is extractors.extract_csv
+    assert extractors.choose(tmp_path / "cross.tsv") is extractors.extract_csv
+
+
+def test_a_csv_net_sheet_is_read(tmp_path) -> None:
+    """A vendor exports the net sheet as CSV; it indexes row-for-row like a spreadsheet."""
+    sheet = tmp_path / "bobrick_net.csv"
+    sheet.write_text(
+        "part,description,list,net\n"
+        "B-2888,Bobrick surface dispenser,120.00,72.00\n"
+        "B-4388,Bobrick recessed dispenser,210.50,126.30\n",
+        encoding="utf-8",
+    )
+    result = extractors.extract_csv(sheet, "bobrick")
+    priced = {r.product_code: r.price for r in result.records}
+    assert priced.get("B-2888") == 72.00
+    assert priced.get("B-4388") == 126.30
+    assert result.pages_read == 1
+
+
+def test_a_semicolon_delimited_csv_is_sniffed(tmp_path) -> None:
+    """European Excel exports use ';'. The delimiter is detected, not assumed."""
+    sheet = tmp_path / "vendor.csv"
+    sheet.write_text(
+        "part;description;net\n"
+        "B-2888;Bobrick dispenser;72.00\n"
+        "B-4388;Bobrick recessed;126.30\n"
+        "B-6699;Bobrick grab bar;41.10\n",
+        encoding="utf-8",
+    )
+    result = extractors.extract_csv(sheet, "bobrick")
+    assert any(r.product_code == "B-2888" and r.price == 72.00 for r in result.records)
+
+
+def test_a_csv_with_a_utf8_bom_is_read(tmp_path) -> None:
+    """Excel's 'CSV UTF-8' writes a BOM; utf-8-sig strips it so the first code is clean."""
+    sheet = tmp_path / "bom.csv"
+    sheet.write_bytes("part,net\nB-2888,72.00\n".encode("utf-8-sig"))
+    result = extractors.extract_csv(sheet, "bobrick")
+    assert any(r.product_code == "B-2888" for r in result.records)
+
+
 # ── rendered pages must not land beside the drawings ───────────────────────
 
 

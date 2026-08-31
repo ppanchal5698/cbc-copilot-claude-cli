@@ -29,7 +29,7 @@ TEST_ACTOR = "test@example.com"
 
 @contextmanager
 def opshub_client(
-    db_name: str, *, isolated_storage: bool = False, role: str = "purchasing"
+    db_name: str, *, isolated_storage: bool = False, role: str = "admin"
 ) -> Iterator["object"]:
     from fastapi.testclient import TestClient
     from pymongo import MongoClient

@@ -33,7 +33,12 @@ from catalog_index import db as index_db  # noqa: E402
 from catalog_index import search as index_search  # noqa: E402
 
 TIERS_FILE = ROOT / "reference-library" / "multipliers" / "vendor_tiers.json"
+SPECIAL_NETS_FILE = ROOT / "reference-library" / "multipliers" / "hager_special_nets.json"
 STALE_DAYS = 180
+
+_special_nets: dict[str, dict[str, Any]] | None = None
+_special_nets_meta: dict[str, Any] | None = None
+STOCK_LIST_DIR = ROOT / "reference-library" / "hardware_sets"
 
 # A tool call must not be able to ask for an unbounded scan, and must not hang a
 # pricing pass if it tries. The cap is enforced here as well as in the query, and
@@ -165,6 +170,92 @@ def get_catalog_status(catalog_id: str) -> dict[str, Any]:
 # ── multipliers: curated data, not extracted ───────────────────────────────
 
 
+def _load_special_nets() -> dict[str, dict[str, Any]]:
+    """Part number → special net row for vendors that publish fixed net overrides."""
+    global _special_nets, _special_nets_meta
+    if _special_nets is not None:
+        return _special_nets
+
+    by_part: dict[str, dict[str, Any]] = {}
+    meta: dict[str, Any] = {}
+    if SPECIAL_NETS_FILE.exists():
+        payload = json.loads(SPECIAL_NETS_FILE.read_text(encoding="utf-8"))
+        meta = {
+            "vendor": payload.get("vendor", "hager"),
+            "effective_date": payload.get("effective_date"),
+            "source": payload.get("source"),
+        }
+        for row in payload.get("items", []):
+            part = str(row.get("part_number", "")).strip().upper()
+            if part:
+                by_part[part] = {**row, "vendor": meta["vendor"]}
+    _special_nets = by_part
+    _special_nets_meta = meta
+    return by_part
+
+
+def _part_lookup_keys(part_number: str) -> set[str]:
+    upper = str(part_number or "").strip().upper()
+    if not upper:
+        return set()
+    keys = {upper}
+    keys.add(upper.split("-")[0].split()[0])
+    return keys
+
+
+def get_special_net(vendor: str, part_number: str) -> dict[str, Any] | None:
+    """Fixed net price from the multiplier sheet, when one exists for this part."""
+    vendor_key = str(vendor or "").strip().lower()
+    if vendor_key != "hager":
+        return None
+    nets = _load_special_nets()
+    for key in _part_lookup_keys(part_number):
+        if key in nets:
+            row = nets[key]
+            return {
+                "vendor": vendor_key,
+                "part_number": key,
+                "net_price": row["net_price"],
+                "item_code": row.get("item_code"),
+                "section": row.get("section"),
+                "source_page": row.get("source_page"),
+                "effective_date": (_special_nets_meta or {}).get("effective_date"),
+                "source": (_special_nets_meta or {}).get("source"),
+            }
+    return None
+
+
+def is_stock_item(vendor: str, part_number: str) -> dict[str, Any]:
+    """NR-6 top-10 stock list lookup."""
+    vendor_key = str(vendor or "").strip().lower()
+    path = STOCK_LIST_DIR / f"{vendor_key}_top10_stock.json"
+    if not path.exists():
+        return {
+            "vendor": vendor_key,
+            "part_number": part_number,
+            "stock": None,
+            "note": "No top-10 stock list on file for this vendor (NR-6 pending).",
+        }
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    needle = part_number.strip().upper()
+    base = needle.split("-")[0].split()[0]
+    parts = {
+        str(item.get("part_number", "")).strip().upper()
+        for item in payload.get("items", [])
+        if item.get("part_number")
+    }
+    matched = needle in parts or base in parts
+    return {
+        "vendor": vendor_key,
+        "part_number": part_number,
+        "stock": matched,
+        "list_status": payload.get("status"),
+        "status_note": payload.get("status_note"),
+        "source": payload.get("source"),
+    }
+
+
 def get_multiplier(vendor: str, category: str | None = None) -> dict[str, Any]:
     """From the tier sheet purchasing maintains. Never inferred from a PDF."""
     if not TIERS_FILE.exists():
@@ -270,26 +361,40 @@ def lookup_pricing(part_number: str, vendor: str, category: str | None = None) -
     ]
     priced = [m for m in matches if m["list_price"] is not None]
 
+    special = get_special_net(vendor, part_number)
     tier = get_multiplier(vendor, category)
     multiplier = tier.get("multiplier")
     list_price = net_cost = None
-    if len(priced) == 1 and isinstance(multiplier, (int, float)):
+    cost_source = "MANUAL"
+    note = (
+        "Ambiguous, unpriced or missing - the estimator prices this line. "
+        "Adders (electrification, NRP, premium finish) are never included here."
+    )
+
+    if special is not None:
+        net_cost = float(special["net_price"])
+        cost_source = "SPECIAL_NET"
+        note = (
+            f"Special net from the Hager multiplier sheet (item {special.get('item_code')}, "
+            f"p {special.get('source_page')}). Overrides list × category."
+        )
+        if len(priced) == 1:
+            list_price = priced[0]["list_price"]
+    elif len(priced) == 1 and isinstance(multiplier, (int, float)):
         list_price = priced[0]["list_price"]
         net_cost = round(float(list_price) * float(multiplier), 2)
+        cost_source = "LIST_X_MULTIPLIER"
+        note = "Unambiguous single match priced at list x multiplier."
 
     return {
         "part_number": part_number, "vendor": vendor,
         "match_count": len(matches), "matches": matches[:10],
         "multiplier": multiplier, "multiplier_tier": tier.get("tier"),
         "multiplier_effective_date": tier.get("effective_date"),
+        "special_net": special,
         "list_price": list_price, "net_cost": net_cost,
-        "cost_source": "LIST_X_MULTIPLIER" if net_cost is not None else "MANUAL",
-        "note": (
-            "Unambiguous single match priced at list x multiplier."
-            if net_cost is not None
-            else "Ambiguous, unpriced or missing - the estimator prices this line. "
-                 "Adders (electrification, NRP, premium finish) are never included here."
-        ),
+        "cost_source": cost_source,
+        "note": note,
     }
 
 
@@ -300,6 +405,8 @@ HANDLERS = {
     "list_catalogs": list_catalogs,
     "get_catalog_status": get_catalog_status,
     "get_multiplier": get_multiplier,
+    "get_special_net": get_special_net,
+    "is_stock_item": is_stock_item,
     "search_product": search_product,
     "list_vendors": list_vendors,
     "lookup_pricing": lookup_pricing,

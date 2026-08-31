@@ -237,3 +237,38 @@ def test_bash_deletion_guard_still_applies() -> None:
         {"tool_name": "Bash", "tool_input": {"command": f"rm -rf {protected}"}}
     )
     assert result.returncode == 2
+
+
+def test_plain_rm_on_claude_hooks_is_blocked() -> None:
+    result = _run_guard(
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "rm .claude/hooks/pre_delete_guard.py"},
+        }
+    )
+    assert result.returncode == 2, result.stderr
+
+
+def test_mcp_argument_targeting_pricebooks_is_blocked() -> None:
+    result = _run_guard(
+        {
+            "tool_name": "mcp__artifact-storage__save_artifact",
+            "tool_input": {
+                "project": "demo",
+                "path": "pricebooks/hager.pdf",
+                "content": "{}",
+            },
+        }
+    )
+    assert result.returncode == 2, result.stderr
+
+
+def test_mcp_p21_write_tool_name_is_blocked() -> None:
+    result = _run_guard(
+        {
+            "tool_name": "mcp__p21-connector__update_item",
+            "tool_input": {"part_number": "3500"},
+        }
+    )
+    assert result.returncode == 2, result.stderr
+    assert "NFR-5" in result.stderr

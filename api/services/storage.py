@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,6 +37,26 @@ def slugify(name: str) -> str:
 
 def project_dir(slug: str) -> Path:
     return settings.storage_root / slug
+
+
+def purge_project(slug: str) -> None:
+    """Remove a project's entire directory tree from disk.
+
+    Human-initiated via the admin delete route — not something a pipeline agent
+    does during a run. Idempotent when the folder is already gone.
+    """
+    if not slug or not slug.strip():
+        raise ValueError("refusing to purge an empty project slug")
+
+    root = project_dir(slug).resolve()
+    storage_root = settings.storage_root.resolve()
+    if root == storage_root:
+        raise ValueError(f"refusing to delete the storage root: {storage_root}")
+    if not root.is_relative_to(storage_root):
+        raise ValueError(f"refusing to delete outside storage root: {root}")
+
+    if root.exists():
+        shutil.rmtree(root)
 
 
 def scaffold(slug: str) -> Path:

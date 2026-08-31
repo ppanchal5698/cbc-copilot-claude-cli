@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { CaretDown, CaretRight } from "@phosphor-icons/react/dist/ssr";
 
+import { StatusBadge } from "@/components/ui/status-badge";
 import { formatMoneyShort } from "@/lib/format";
 import type { Project } from "@/lib/types";
 
@@ -24,18 +25,12 @@ function initials(brand: string): string {
     .toUpperCase();
 }
 
-function statusOf(project: Project): { label: string; colour: string; soft: string } {
-  if (project.activeJob)
-    return { label: "Claude is reading", colour: "var(--app-warn)", soft: "var(--app-warn-soft)" };
+function statusOf(project: Project): { label: string; variant: "progress" | "review" | "ok" | "neutral" } {
+  if (project.activeJob) return { label: "Claude is reading", variant: "progress" };
   if (project.counts.needsLook > 0)
-    return {
-      label: `${project.counts.needsLook} to check`,
-      colour: "var(--app-neg)",
-      soft: "var(--app-neg-soft)",
-    };
-  if (project.counts.total > 0)
-    return { label: "All clear", colour: "var(--app-pos)", soft: "var(--app-pos-soft)" };
-  return { label: "No lines yet", colour: "var(--app-tx-3)", soft: "transparent" };
+    return { label: `${project.counts.needsLook} to check`, variant: "review" };
+  if (project.counts.total > 0) return { label: "All clear", variant: "ok" };
+  return { label: "No lines yet", variant: "neutral" };
 }
 
 /**
@@ -196,12 +191,7 @@ export function BoardGroups({ projects }: { projects: Project[] }) {
                           v{project.version ?? 1}
                         </span>
                         <span>
-                          <span
-                            className="rounded-full px-2 py-0.5 text-[11px]"
-                            style={{ background: status.soft, color: status.colour }}
-                          >
-                            {status.label}
-                          </span>
+                          <StatusBadge variant={status.variant}>{status.label}</StatusBadge>
                         </span>
                       </Link>
                     );

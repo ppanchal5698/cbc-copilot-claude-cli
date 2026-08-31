@@ -46,7 +46,7 @@ not cost. Price changes arrive as dated memos with a protection window.
 |---|---|---|
 | Locks | 0.290 | 50/42% |
 | Door controls | 0.300 | 50/40% |
-| Exit devices | 0.3005 | 50/40% |
+| Exit devices | 0.300 | 50/40% |
 | Electrified products | 0.410 | 50/18% |
 | Auto operators | 0.400 | 50/20% |
 | Architectural hinges | 0.210 | 50/58% |

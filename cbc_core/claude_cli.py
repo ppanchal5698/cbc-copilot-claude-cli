@@ -51,6 +51,7 @@ class RunResult:
     # are the same on the third attempt as on the first, and burning the attempt
     # budget on them only delays the error the estimator needs to read.
     permanent: bool = False
+    error_code: str | None = None
 
 
 def run_claude(
@@ -86,6 +87,7 @@ def run_claude(
             ),
             returncode=127,
             permanent=True,
+            error_code="cli_missing",
         )
 
     # Only the tools this phase uses, and a bound on how long it may go round.
@@ -193,11 +195,19 @@ def _interpret(
 
     if returncode == 124:
         return RunResult(
-            ok=False, output=output, error=f"timed out after {timeout}s", returncode=124
+            ok=False,
+            output=output,
+            error=f"timed out after {timeout}s",
+            returncode=124,
+            error_code="timeout",
         )
     if returncode == 130:
         return RunResult(
-            ok=False, output=output, error="cancelled by estimator", returncode=130
+            ok=False,
+            output=output,
+            error="cancelled by estimator",
+            returncode=130,
+            error_code="cancelled",
         )
 
     # The CLI exits 0 on an auth failure, so the exit code alone is not enough.
@@ -213,6 +223,7 @@ def _interpret(
                 ),
                 returncode=returncode,
                 permanent=True,
+                error_code="auth_failed",
             )
 
     if returncode != 0:
@@ -221,6 +232,7 @@ def _interpret(
             output=output,
             error=errors.strip() or f"claude exited {returncode}",
             returncode=returncode,
+            error_code="cli_exit",
         )
 
     return RunResult(ok=True, output=output, error=None, returncode=0)

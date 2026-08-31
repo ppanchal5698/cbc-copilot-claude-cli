@@ -320,6 +320,39 @@ def test_readers_cannot_write(tmp_path) -> None:
         writer.close()
 
 
+# ── a CSV net sheet, end to end ─────────────────────────────────────────────
+
+
+def test_a_csv_price_sheet_indexes_and_is_searchable(index, tmp_path) -> None:
+    """The client's real workflow: drop one CSV net sheet in and its parts are
+    searchable. The deterministic pipeline does the work - no Claude in the path."""
+    from catalog_index import pipeline
+
+    parts = [
+        ("B-2888", "Surface paper towel dispenser", "72.00"),
+        ("B-4388", "Recessed paper towel dispenser", "126.30"),
+        ("B-6806x36", "Grab bar 36 inch", "66.75"),
+        ("B-165", "Framed mirror 18 x 24", "58.40"),
+        ("B-2111", "Soap dispenser", "33.10"),
+        ("B-254", "Toilet tissue dispenser", "21.90"),
+    ]
+    sheet = tmp_path / "bobrick_net.csv"
+    sheet.write_text(
+        "part,description,net\n" + "".join(f"{c},{d},{p}\n" for c, d, p in parts),
+        encoding="utf-8",
+    )
+
+    report = pipeline.index_catalog(index, sheet, vendor="bobrick", effective_date="2026-01-01")
+
+    assert report["status"] == "ready"
+    assert report["extractor"] == "csv"
+    assert report["products"] >= 5
+
+    top = search.search(index, "b2888")["results"][0]
+    assert top["product_code"] == "B-2888"
+    assert top["page_number"] == 1, "a CSV row still carries its provenance (NFR-3)"
+
+
 def test_a_reader_sees_a_write_without_being_blocked_by_it(tmp_path) -> None:
     """WAL: the point of it is that the pricing pass keeps searching while a
     catalog indexes. `query_only` rather than `mode=ro` is what makes a reader

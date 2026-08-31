@@ -35,6 +35,7 @@ class Settings:
         self.repo_root = REPO_ROOT
         self.storage_root = _path("STORAGE_ROOT", "projects")
         self.pricebook_dir = _path("PRICEBOOK_DIR", "pricebooks")
+        self.document_index_root = _path("DOCUMENT_INDEX_ROOT", ".index/documents")
         self.reference_dir = _path("REFERENCE_DIR", "reference-library")
         self.templates_dir = _path("TEMPLATES_DIR", "templates")
         self.cors_origins = [

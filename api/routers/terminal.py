@@ -64,7 +64,7 @@ async def get_terminal(job_id: str) -> dict:
             "status": job.get("status"),
             "available": False,
             "reason": (
-                "This job ran before terminal recording existed."
+                "Detailed logs aren't available for this run."
                 if job.get("status") in ("done", "failed", "cancelled")
                 else "Nothing has been written yet."
             ),

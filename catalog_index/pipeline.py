@@ -58,7 +58,9 @@ def index_catalog(
 
     try:
         extract = extractors.choose(path)
-        kwargs = {} if extract is extractors.extract_spreadsheet else {"max_pages": max_pages}
+        # Only the PDF extractors paginate; spreadsheet and CSV read one whole table.
+        paginated = extract not in (extractors.extract_spreadsheet, extractors.extract_csv)
+        kwargs = {"max_pages": max_pages} if paginated else {}
         result = extract(path, vendor, **kwargs)
     except Exception as exc:
         registry.set_status(connection, catalog_id, "failed", f"extraction failed: {exc}")

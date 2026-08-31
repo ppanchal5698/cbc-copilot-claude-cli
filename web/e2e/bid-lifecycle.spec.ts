@@ -32,4 +32,12 @@ test.describe("Bid lifecycle", () => {
       timeout: 15_000,
     });
   });
+
+  test("shows inline validation when job name is empty", async ({ page }) => {
+    await page.goto("/bids");
+    await page.getByRole("button", { name: /new bid/i }).click();
+    await page.getByRole("button", { name: /create bid/i }).click();
+    await expect(page.getByText("Job name is required.")).toBeVisible();
+    await expect(page.getByRole("dialog", { name: /new bid/i })).toBeVisible();
+  });
 });

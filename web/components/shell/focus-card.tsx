@@ -1,5 +1,7 @@
 "use client";
 
+import { Moon, Sun } from "@phosphor-icons/react/dist/ssr";
+
 import { useUiState } from "@/components/shell/ui-state";
 
 /**
@@ -9,8 +11,8 @@ import { useUiState } from "@/components/shell/ui-state";
  * pass is not interrupted by a job finishing. It hides nothing that would let a
  * flagged line slip through - the counts on the extraction screen stay put.
  */
-export function FocusCard({ user }: { user: { name: string; email: string; initials: string } }) {
-  const { focusMode, toggleFocus } = useUiState();
+export function FocusCard({ user }: { user: { name: string; initials: string } }) {
+  const { focusMode, toggleFocus, theme, toggleTheme } = useUiState();
 
   return (
     <div
@@ -24,12 +26,7 @@ export function FocusCard({ user }: { user: { name: string; email: string; initi
         >
           {user.initials}
         </span>
-        <span className="flex min-w-0 flex-col leading-tight">
-          <span className="truncate text-[12.5px] font-semibold">{user.name}</span>
-          <span className="truncate text-[10.5px]" style={{ color: "var(--app-tx-3)" }}>
-            {user.email}
-          </span>
-        </span>
+        <span className="truncate text-[12.5px] font-semibold">{user.name}</span>
       </div>
 
       <div className="mt-3 flex items-center justify-between">
@@ -49,10 +46,22 @@ export function FocusCard({ user }: { user: { name: string; email: string; initi
         </button>
       </div>
 
+      <div className="mt-3 flex items-center justify-between">
+        <span className="text-[12px]">Theme</span>
+        <button
+          onClick={toggleTheme}
+          aria-label="Toggle theme"
+          className="grid h-7 w-7 place-items-center rounded-md"
+          style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+        >
+          {theme === "dark" ? <Sun size={14} weight="duotone" /> : <Moon size={14} weight="duotone" />}
+        </button>
+      </div>
+
       <p className="mt-1.5 text-[10.5px]" style={{ color: "var(--app-tx-3)" }}>
         {focusMode
-          ? "Run status and notifications are quiet."
-          : "Quiets run status and notifications."}
+          ? "Run status and the review queue badge are quiet."
+          : "Quiets run status and the review queue badge."}
       </p>
     </div>
   );

@@ -101,6 +101,11 @@ class Collections:
         """Installation settings - one document per concern, `_id` is the name."""
         return database()["settings"]
 
+    @property
+    def document_indexes(self):
+        """Deep-index metadata: progress, status, version pointers."""
+        return database()["documentIndexes"]
+
 
 db = Collections()
 
@@ -138,6 +143,12 @@ async def ensure_indexes() -> None:
     # Hager's 1234 and Rockwood's 1234 are different parts. A unique index on
     # `part` alone made the price-book ingest upsert one over the other, so the
     # second vendor's sheet silently replaced the first vendor's costs.
+    for legacy in ("part_1",):  # the old part-only unique index
+        try:
+            await db.products.drop_index(legacy)
+            log.info("dropped legacy index products.%s", legacy)
+        except OperationFailure:
+            pass
     await db.products.create_index([("part", ASCENDING)])
     await db.products.create_index([("division", ASCENDING)])
     try:
@@ -153,12 +164,6 @@ async def ensure_indexes() -> None:
             "the unique index could not be built. Run scripts/dedupe_products.py, "
             "then restart. Ingest is keyed on (manufacturer, part) either way."
         )
-    for legacy in ("part_1",):  # the old part-only unique index
-        try:
-            await db.products.drop_index(legacy)
-            log.info("dropped legacy index products.%s", legacy)
-        except OperationFailure:
-            pass
     await db.products.create_index(
         [("part", TEXT), ("description", TEXT), ("manufacturer", TEXT)],
         name="product_search",
@@ -192,6 +197,11 @@ async def ensure_indexes() -> None:
     # Alternates are queried per group on both the extraction and quote screens.
     await db.line_items.create_index([("projectId", ASCENDING), ("alternateGroup", ASCENDING)])
     await db.quote_lines.create_index([("projectId", ASCENDING), ("alternateGroup", ASCENDING)])
+    await db.document_indexes.create_index([("documentId", ASCENDING)], unique=True)
+    await db.document_indexes.create_index(
+        [("clientId", ASCENDING), ("documentType", ASCENDING), ("effectiveDate", DESCENDING)]
+    )
+    await db.document_indexes.create_index([("status", ASCENDING), ("updatedAt", DESCENDING)])
 
 
 def oid(value: str | ObjectId) -> ObjectId:

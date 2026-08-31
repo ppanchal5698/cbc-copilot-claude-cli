@@ -9,7 +9,7 @@ import { FetchError } from "@/components/ui/fetch-error";
 import { endpoints } from "@/lib/endpoints";
 import { swrKeys } from "@/lib/swr-keys";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
-import type { AuditEntry, PipelineSettings, UserRow } from "@/lib/types";
+import type { AuditEntry, IntegrationsResponse, PipelineSettings, UserRow } from "@/lib/types";
 
 export function AuditLogPanel() {
   const [project, setProject] = useState("");
@@ -33,7 +33,7 @@ export function AuditLogPanel() {
       <div className="border-b px-4 py-3.5" style={{ borderColor: "var(--app-line)" }}>
         <h2 className="text-[15px] font-semibold">Audit log</h2>
         <p className="mt-1 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
-          Who changed what — admin and purchasing only.
+          Who changed what — administrators only.
         </p>
         <input
           value={project}
@@ -194,7 +194,6 @@ export function UsersAdminPanel() {
             }}
           >
             <option value="estimator">estimator</option>
-            <option value="purchasing">purchasing</option>
             <option value="admin">admin</option>
           </select>
         </label>
@@ -245,7 +244,6 @@ export function UsersAdminPanel() {
               }}
             >
               <option value="estimator">estimator</option>
-              <option value="purchasing">purchasing</option>
               <option value="admin">admin</option>
             </select>
           </div>
@@ -337,6 +335,79 @@ export function PipelineSettingsPanel() {
           >
             {busy ? "Saving…" : data.autopilotDefault ? "Autopilot on" : "Autopilot off"}
           </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function IntegrationsPanel() {
+  const { data, error, isLoading } = useSWR<IntegrationsResponse>(
+    endpoints.integrations(),
+    proxyFetcher,
+  );
+  const p21 = data?.p21;
+
+  return (
+    <section
+      className="rounded-xl"
+      style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
+    >
+      <div className="border-b px-4 py-3.5" style={{ borderColor: "var(--app-line)" }}>
+        <h2 className="text-[15px] font-semibold">Integrations</h2>
+        <p className="mt-1 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+          External systems that feed Path 1 pricing and cost freshness.
+        </p>
+      </div>
+
+      {error && (
+        <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-neg)" }}>
+          Could not load integration status: {errorMessage(error)}
+        </p>
+      )}
+      {isLoading && !data && !error && (
+        <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+          Loading…
+        </p>
+      )}
+
+      {p21 && (
+        <div className="px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="max-w-[560px]">
+              <p className="text-[13px] font-semibold">{p21.title}</p>
+              <p className="mt-1 text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                {p21.summary}
+              </p>
+            </div>
+            <span
+              className="rounded-md px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.05em]"
+              style={{
+                background: p21.connected ? "var(--app-ok-soft)" : "var(--app-warn-soft)",
+                color: p21.connected ? "var(--app-ok)" : "var(--app-warn)",
+                border: `1px solid ${p21.connected ? "var(--app-ok-line)" : "var(--app-warn-line)"}`,
+              }}
+            >
+              {p21.connected ? "Connected" : "Deferred (NR-10)"}
+            </span>
+          </div>
+          <p
+            className="mt-3 rounded-md px-3 py-2 text-[12px] leading-relaxed"
+            style={{
+              background: "var(--app-panel-2)",
+              border: "1px solid var(--app-line)",
+              color: "var(--app-tx-2)",
+            }}
+          >
+            {p21.note}
+          </p>
+          {!p21.connected && p21.fallbacks && p21.fallbacks.length > 0 && (
+            <ul className="mt-2 list-disc pl-5 text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+              {p21.fallbacks.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </section>

@@ -44,17 +44,17 @@ APP_COLLECTIONS = (
 
 USERS = [
     {
-        "email": "rgilbert@hamiltonparker.com",
-        "name": "Rick Gilbert",
-        "initials": "RG",
+        "email": "estimator@cbc.com",
+        "name": "Estimator",
+        "initials": "ES",
         "role": "estimator",
         "password": "opshub",
     },
     {
-        "email": "kbaker@hamiltonparker.com",
-        "name": "Kevin Baker",
-        "initials": "KB",
-        "role": "purchasing",
+        "email": "admin@cbc.com",
+        "name": "Admin",
+        "initials": "AD",
+        "role": "admin",
         "password": "opshub",
     },
 ]
@@ -303,7 +303,7 @@ def main() -> int:
         code = seed_demo_project(db)
         print(f"demo project {code or 'skipped':>4}")
 
-    print("\nSign in with rgilbert@hamiltonparker.com / opshub")
+    print("\nSign in with estimator@cbc.com or admin@cbc.com / opshub")
     print(
         "Catalog rows tagged seedSource='prototype sample' carry illustrative "
         "figures - replace them by ingesting a real price book."

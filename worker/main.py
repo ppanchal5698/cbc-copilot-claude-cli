@@ -30,6 +30,7 @@ from cbc_core import claude_cli as runner, streaming  # noqa: E402
 from scripts.validate_project import validate_job_artifacts  # noqa: E402
 from worker import prompts  # noqa: E402
 from worker.handlers.catalog import delete_catalog, index_catalog  # noqa: E402
+from worker.handlers.document_index import delete_document, index_document  # noqa: E402
 from worker.handlers.ingest import ingest_pricebook  # noqa: E402
 
 logging.basicConfig(
@@ -174,6 +175,7 @@ async def finish(
     output: str,
     note: str = "",
     permanent: bool = False,
+    error_code: str | None = None,
 ) -> None:
     current = await db.jobs.find_one({"_id": job["_id"]}, {"status": 1})
     if current and current.get("status") == "cancelled":
@@ -224,10 +226,11 @@ async def finish(
     await db.jobs.update_one(
         {"_id": job["_id"]},
         {
-            "$set": {
-                "status": status,
-                "error": error,
-                "log": (output or "")[-8000:],
+                "$set": {
+                    "status": status,
+                    "error": error,
+                    "errorCode": error_code,
+                    "log": (output or "")[-8000:],
                 "note": note or None,
                 "heartbeatAt": None,
                 "nextAttemptAt": (
@@ -350,6 +353,8 @@ async def sync_results(job: dict, project: dict | None) -> str:
 LOCAL_HANDLERS = {
     "index_catalog": index_catalog,
     "delete_catalog": delete_catalog,
+    "index_document": index_document,
+    "delete_document": delete_document,
 }
 
 
@@ -365,8 +370,11 @@ async def process_locally(job: dict) -> None:
         # read exactly the same way on the third attempt. Retrying them spends the
         # attempt budget to reach the same conclusion more slowly.
         from catalog_index.pipeline import IndexingError
+        from document_index.pipeline import IndexingError as DocumentIndexingError
 
-        permanent = isinstance(exc, (ValueError, FileNotFoundError, IndexingError))
+        permanent = isinstance(
+            exc, (ValueError, FileNotFoundError, IndexingError, DocumentIndexingError)
+        )
         await finish(job, False, str(exc), "", permanent=permanent)
         return
     finally:
@@ -529,7 +537,14 @@ async def process(job: dict) -> None:
         recording_note = f"{recording_note}; {provider_note}" if recording_note else provider_note
 
     if not result.ok:
-        await finish(job, False, result.error, result.output, permanent=result.permanent)
+        await finish(
+            job,
+            False,
+            result.error,
+            result.output,
+            permanent=result.permanent,
+            error_code=result.error_code,
+        )
         return
 
     try:
@@ -539,7 +554,7 @@ async def process(job: dict) -> None:
             else await sync_results(job, project)
         )
     except Exception as exc:  # a sync failure is a real failure - do not mask it
-        await finish(job, False, f"result sync failed: {exc}", result.output)
+        await finish(job, False, f"result sync failed: {exc}", result.output, error_code="sync_failed")
         return
 
     combined = note

@@ -20,6 +20,7 @@ x-app-env: &app-env
   # there, and the failure mode is silent corruption rather than an error.
   # catalog_index/db.py refuses to open the database from such a filesystem.
   CATALOG_INDEX_PATH: /app/.index/catalog.sqlite3
+  DOCUMENT_INDEX_ROOT: /app/.index/documents
   # Encrypts provider credentials at rest. Override it anywhere real - losing it
   # only means re-entering the credentials, but sharing it means they are not secret.
   APP_SECRET_KEY: ${APP_SECRET_KEY:-cbc-local-dev-key-change-me}

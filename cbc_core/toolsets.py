@@ -29,6 +29,7 @@ SERVERS = {
     "artifact-storage": "./mcp-servers/artifact-storage/server.py",
     "p21-connector": "./mcp-servers/p21-connector/server.py",
     "catalog": "./mcp-servers/catalog/server.py",
+    "document-index": "./mcp-servers/document-index/server.py",
 }
 
 # Reading drawings and writing what was found. No pricing tools exist at this
@@ -68,16 +69,23 @@ def config_for(job_type: str, catalog_index_path: str | None = None) -> str:
     """The `--mcp-config` payload for a job type, as a JSON string.
 
     The catalog server reads the SQLite FTS index at ``CATALOG_INDEX_PATH``.
+    The document-index server reads deep indexes at ``DOCUMENT_INDEX_ROOT``.
     """
     names = PROFILES.get(job_type) or list(SERVERS)
     servers: dict[str, Any] = {}
     index_path = catalog_index_path or os.environ.get("CATALOG_INDEX_PATH")
+    document_root = os.environ.get("DOCUMENT_INDEX_ROOT")
     for name in names:
         if name not in SERVERS:
             continue
         entry: dict[str, Any] = {"command": "python", "args": [SERVERS[name]]}
+        env: dict[str, str] = {}
         if name == "catalog" and index_path:
-            entry["env"] = {"CATALOG_INDEX_PATH": index_path}
+            env["CATALOG_INDEX_PATH"] = index_path
+        if name == "document-index" and document_root:
+            env["DOCUMENT_INDEX_ROOT"] = document_root
+        if env:
+            entry["env"] = env
         servers[name] = entry
     return json.dumps({"mcpServers": servers})
 

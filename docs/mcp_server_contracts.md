@@ -97,7 +97,7 @@ Adders are never included.
 
 ### `get_multiplier(vendor, tier?)`
 Hager prices by category, so pass one: `locks` 0.290, `door_controls` 0.300,
-`exit_devices` 0.3005, `electrified_products` 0.410, `auto_operators` 0.400,
+`exit_devices` 0.300, `electrified_products` 0.410, `auto_operators` 0.400,
 `architectural_hinges` 0.210, `residential_hinges` 0.375.
 An unknown vendor or category returns `multiplier: null` plus a note - **never a guess**.
 

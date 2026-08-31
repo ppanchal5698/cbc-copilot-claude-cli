@@ -12,7 +12,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const user = {
     name: session.user.name ?? "Estimator",
-    email: session.user.email ?? "",
     initials:
       session.user.initials ??
       (session.user.name ?? "E")
@@ -21,6 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         .slice(0, 2)
         .join("")
         .toUpperCase(),
+    role: session.user.role ?? "estimator",
   };
 
   // A stale price book is a live risk to every quote, so the count rides the nav.
@@ -33,7 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <UiStateProvider>
+    <UiStateProvider userRole={user.role}>
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-[var(--app-panel)] focus:px-3 focus:py-2 focus:text-[13px] focus:shadow-lg"

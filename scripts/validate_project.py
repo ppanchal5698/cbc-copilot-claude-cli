@@ -376,7 +376,8 @@ ARTIFACT_CHECKS: dict[str, tuple] = {
 # Job types that write no project artifacts, so there is nothing to check. Listed
 # rather than defaulted, so adding a job type is a decision and not an omission.
 UNCHECKED_JOB_TYPES = frozenset(
-    {"ingest_pricebook", "ingest_addendum", "index_catalog", "delete_catalog"}
+    {"ingest_pricebook", "ingest_addendum", "index_catalog", "delete_catalog",
+     "index_document", "delete_document"}
 )
 
 

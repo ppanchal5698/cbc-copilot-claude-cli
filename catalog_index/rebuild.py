@@ -38,6 +38,8 @@ def catalogue_files(pricebook_dir: Path) -> list[dict[str, str]]:
     index_file = pricebook_dir / "index.json"
     if index_file.exists():
         for book in json.loads(index_file.read_text(encoding="utf-8")).get("pricebooks", []):
+            if book.get("kind") == "multiplier_sheet":
+                continue
             name = book.get("file")
             if not name or Path(name).suffix.lower() not in INDEXABLE:
                 continue

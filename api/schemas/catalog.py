@@ -51,6 +51,7 @@ class PriceBookBase(BaseModel):
     vendor: str = Field(min_length=1)
     program: str | None = None
     multiplier: float | None = None
+    categories: dict[str, float] | None = None
     effective: str | None = None
     protectedThrough: str | None = None
     lastReviewed: str | None = None
@@ -66,6 +67,7 @@ class PriceBookCreate(PriceBookBase):
 class PriceBookUpdate(BaseModel):
     program: str | None = None
     multiplier: float | None = None
+    categories: dict[str, float] | None = None
     effective: str | None = None
     protectedThrough: str | None = None
     lastReviewed: str | None = None

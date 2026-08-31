@@ -103,10 +103,10 @@ def test_calls_lifecycle(client, project):
     call = client.post(
         f"/api/projects/{code}/calls",
         json={"kind": "call", "text": "Spoke to the GC about the alternates.", "org": "Cortlandt"},
-        headers={"X-Actor": "rgilbert@hamiltonparker.com"},
+        headers={"X-Actor": "estimator@cbc.com"},
     )
     assert call.status_code == 201
-    assert call.json()["who"] == "rgilbert@hamiltonparker.com"
+    assert call.json()["who"] == "estimator@cbc.com"
 
     rfi = client.post(
         f"/api/projects/{code}/calls",

@@ -22,6 +22,7 @@ class Job(BaseModel):
     status: JobStatus = "queued"
     attempts: int = 0
     error: str | None = None
+    errorCode: str | None = None
     log: str | None = None
     createdBy: str | None = None
     createdAt: datetime

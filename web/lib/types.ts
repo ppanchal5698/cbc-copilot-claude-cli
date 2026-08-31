@@ -17,6 +17,7 @@ export interface Job {
   status: JobStatus;
   attempts: number;
   error: string | null;
+  errorCode?: string | null;
   log: string | null;
   note?: string | null;
   createdAt: string;
@@ -435,6 +436,116 @@ export interface PriceBookDetail {
   partCount: number;
 }
 
+export interface MarginBand {
+  key: string;
+  name: string;
+  margin: number;
+  divisor: number;
+  examples?: string[];
+}
+
+export interface MarginFramework {
+  bands: MarginBand[];
+  accessoriesDerived: number | null;
+  formula: string | null;
+  overridable: boolean | null;
+  governance: string | null;
+  source: string | null;
+  effective: Record<string, number>;
+}
+
+export interface TaxRates {
+  rates: Record<string, number>;
+  description: string | null;
+  source: string | null;
+  note: string | null;
+}
+
+export interface AdderItem {
+  name: string;
+  list_adder: number;
+}
+
+export interface AdderType {
+  type: string;
+  note: string;
+}
+
+export interface ManualAdders {
+  adderTypes: AdderType[];
+  hagerListAdders: {
+    source: string | null;
+    status: string | null;
+    application: string | null;
+    items: AdderItem[];
+  };
+  pending: string[];
+  rule: string | null;
+}
+
+export interface SpecialCustomer {
+  name: string;
+  margin: number | null;
+  note?: string | null;
+  source?: string | null;
+}
+
+export interface SpecialMargins {
+  customers: SpecialCustomer[];
+  rule: string | null;
+  status: string | null;
+  description: string | null;
+}
+
+export interface FinishEntry {
+  us_code: string;
+  numeric_code: string | null;
+  description: string | null;
+  premium: boolean | null;
+  note: string | null;
+}
+
+export interface FinishCrosswalk {
+  finishes: FinishEntry[];
+  warning?: string | null;
+  hager_rules?: string[];
+  premium_finish_rule?: string | null;
+}
+
+export interface WallTypeEntry {
+  type: string;
+  depth: string;
+  depth_inches: number;
+  note: string | null;
+}
+
+export interface FrameDepths {
+  wall_types: WallTypeEntry[];
+  custom_option?: boolean;
+  custom_max?: number;
+  adjustable_frames?: boolean;
+  adjustable_note?: string | null;
+  unknown_wall_type_rule?: string | null;
+}
+
+export interface FrpConstants {
+  status: string;
+  blocking?: string | null;
+  description?: string | null;
+  panel_size: string | null;
+  panel_size_note?: string;
+  waste_pct: number | null;
+  waste_pct_note?: string;
+  trim_stick_length: number | null;
+  trim_stick_length_note?: string;
+  adhesive_coverage_sqft_per_unit: number | null;
+  adhesive_coverage_note?: string;
+  opening_handling: string | null;
+  opening_handling_note?: string;
+  trim_types?: string[];
+  vendors?: string[];
+}
+
 export interface AuditEntry {
   id: string;
   at: string;
@@ -456,4 +567,19 @@ export interface PipelineSettings {
   note?: string;
   updatedAt?: string | null;
   updatedBy?: string | null;
+}
+
+export interface IntegrationStatus {
+  connected: boolean;
+  path?: number;
+  requirement?: string;
+  status: string;
+  title: string;
+  summary: string;
+  note: string;
+  fallbacks?: string[];
+}
+
+export interface IntegrationsResponse {
+  p21: IntegrationStatus;
 }

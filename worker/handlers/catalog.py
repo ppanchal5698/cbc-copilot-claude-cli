@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,8 +22,13 @@ from api.config import settings
 from api.db import db, oid
 from catalog_index import db as index_db
 from catalog_index import pipeline
+from catalog_index.pipeline import IndexingError
 
 log = logging.getLogger("cbc.worker.catalog")
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _index_sync(path: Path, vendor: str, effective_date: str | None) -> dict[str, Any]:
@@ -78,9 +84,36 @@ async def index_catalog(job: dict[str, Any]) -> str:
     # The SQLite connection is created, used and closed inside the thread: a
     # connection cannot be shared across threads, and a 744-page book would stall
     # the heartbeat and the cancel watcher if it ran on the event loop.
-    report = await asyncio.to_thread(
-        _index_sync, path, _vendor_for(book, safe), (book or {}).get("effective")
-    )
+    try:
+        report = await asyncio.to_thread(
+            _index_sync, path, _vendor_for(book, safe), (book or {}).get("effective")
+        )
+    except IndexingError as exc:
+        if book and payload.get("priceBookId"):
+            from api.services import storage as file_storage
+            from api.services.document_index import enqueue_index, inventory_kind
+
+            kind = inventory_kind(safe) or book.get("kind") or "price_book"
+            await db.price_books.update_one(
+                {"_id": book["_id"]},
+                {"$set": {"indexStatus": "deep_index_queued", "updatedAt": _now()}},
+            )
+            document_id, _ = await enqueue_index(
+                source_path=file_storage.relative(path),
+                client_id=_vendor_for(book, safe),
+                document_type=kind,
+                effective_date=book.get("effective"),
+                actor=job.get("createdBy") or "worker",
+                trigger="catalog_failed",
+                price_book_id=str(book["_id"]),
+            )
+            log.info(
+                "catalog index failed for %s — queued deep index %s: %s",
+                safe,
+                document_id,
+                exc,
+            )
+        raise
 
     # Mirror the outcome onto the price-book record the UI reads.
     if book:

@@ -26,7 +26,7 @@ rather than stopping at Path 1.
 `mcp__pricebook__lookup_pricing` for the list price and page, then
 `mcp__pricebook__get_multiplier` for the tier and its effective date.
 Hager prices **by category** - locks 0.290, door controls 0.300, exit devices
-0.3005, electrified 0.410, architectural hinges 0.210 - so pass the right one.
+0.300, electrified 0.410, architectural hinges 0.210 - so pass the right one.
 
 **Path 3 - distributor or vendor RFQ.** Distributor-bought lines (Banner
 Solutions, SecLock, J2, Pionite, Wilsonart) require **manual price entry** and

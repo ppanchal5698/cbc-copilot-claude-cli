@@ -43,7 +43,7 @@ def main() -> int:
         seed_users(db)
         seed_price_books(db)
         seed_products(db)
-        print("[bootstrap] sign in with rgilbert@hamiltonparker.com / opshub")
+        print("[bootstrap] sign in with estimator@cbc.com or admin@cbc.com / opshub")
     else:
         print("[bootstrap] users already present — skipping database seed")
 

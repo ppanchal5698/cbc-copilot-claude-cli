@@ -28,6 +28,7 @@ def test_reference_library_is_complete_and_valid():
         "hardware_sets/custom_other_matrix.json",
         "margins/margin_framework.json",
         "multipliers/vendor_tiers.json",
+        "multipliers/hager_special_nets.json",
         "multipliers/special_customer_margins.json",
         "frame_depths/wall_type_to_depth.json",
         "finishes/finish_crosswalk.json",
@@ -121,9 +122,24 @@ def test_search_finds_a_real_part_with_page_traceability(pricebook):
 
 
 def test_ambiguous_lookup_refuses_to_pick_a_price(pricebook):
-    """27 candidate rows must not collapse into one confident number."""
-    result = pricebook.lookup_pricing("3510", "hager", "locks")
+    """Many candidate rows must not collapse into one confident number."""
+    result = pricebook.lookup_pricing("3400", "hager", "locks")
     assert result["match_count"] > 1
     assert result["net_cost"] is None
     assert result["cost_source"] == "MANUAL"
     assert result["multiplier"] == 0.29, "the tier is still reported for the estimator"
+
+
+def test_hager_special_net_overrides_category_math(pricebook):
+    """Multiplier sheet pp 2-4 fixed nets beat list x category."""
+    result = pricebook.lookup_pricing("ECBB1100", "hager", "architectural_hinges")
+    assert result["net_cost"] == 3.23
+    assert result["cost_source"] == "SPECIAL_NET"
+    assert result["special_net"]["item_code"] == "075048"
+
+
+def test_stock_list_marks_known_hager_parts(pricebook):
+    hit = pricebook.is_stock_item("hager", "BB1279")
+    assert hit["stock"] is True
+    miss = pricebook.is_stock_item("hager", "NOT-A-REAL-PART-XYZ")
+    assert miss["stock"] is False

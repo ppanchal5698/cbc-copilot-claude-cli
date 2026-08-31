@@ -136,11 +136,11 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "lookup_pricing",
         "description": (
-            "List price for an exact part number, and net cost as list x the CBC "
-            "multiplier tier. Reads the index, not the PDF. Returns every candidate it "
-            "found with its page - it does not pick one when the answer is ambiguous. "
-            "Adders (electrification, NRP, premium finish) are NOT included; see "
-            "reference-library/adders/manual_adders.json"
+            "List price for an exact part number, and net cost. Special net items from "
+            "the multiplier sheet override list × category when present. Reads the index, "
+            "not the PDF. Returns every candidate it found with its page - it does not pick "
+            "one when the answer is ambiguous. Adders (electrification, NRP, premium finish) "
+            "are NOT included; see reference-library/adders/manual_adders.json"
         ),
         "inputSchema": {
             "type": "object",
@@ -150,6 +150,36 @@ TOOLS: list[dict[str, Any]] = [
                 "category": {"type": "string", "description": "Multiplier category"},
             },
             "required": ["part_number", "vendor"],
+        },
+    },
+    {
+        "name": "get_special_net",
+        "description": (
+            "Fixed net price from a vendor multiplier sheet when the part appears on the "
+            "special nets pages. Hager only today. Returns null when no override exists."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "vendor": {"type": "string"},
+                "part_number": {"type": "string"},
+            },
+            "required": ["vendor", "part_number"],
+        },
+    },
+    {
+        "name": "is_stock_item",
+        "description": (
+            "Whether a part is on the NR-6 top-10 stock list for a vendor. Returns null "
+            "when no curated list is on file yet."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "vendor": {"type": "string"},
+                "part_number": {"type": "string"},
+            },
+            "required": ["vendor", "part_number"],
         },
     },
 ]

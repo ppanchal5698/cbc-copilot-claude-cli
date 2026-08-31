@@ -34,6 +34,9 @@ interface UiState {
   /** Bumped whenever a note is logged, so counts refresh without a page reload. */
   notesVersion: number;
   bumpNotes: () => void;
+
+  /** Signed-in role — drives admin-only technical error details. */
+  userRole: string;
 }
 
 const Context = createContext<UiState | null>(null);
@@ -64,7 +67,13 @@ function remember(key: string, value: string): void {
   }
 }
 
-export function UiStateProvider({ children }: { children: React.ReactNode }) {
+export function UiStateProvider({
+  children,
+  userRole = "estimator",
+}: {
+  children: React.ReactNode;
+  userRole?: string;
+}) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [notesRef, setNotesRef] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -146,6 +155,7 @@ export function UiStateProvider({ children }: { children: React.ReactNode }) {
       toggleTheme,
       notesVersion,
       bumpNotes: () => setNotesVersion((v) => v + 1),
+      userRole,
     }),
     [
       notesOpen,
@@ -158,6 +168,7 @@ export function UiStateProvider({ children }: { children: React.ReactNode }) {
       theme,
       toggleTheme,
       notesVersion,
+      userRole,
     ],
   );
 

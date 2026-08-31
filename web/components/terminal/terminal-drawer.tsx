@@ -1,9 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import useSWR from "swr";
-import { X, Prohibit } from "@phosphor-icons/react/dist/ssr";
+import { X, Prohibit, CaretDown, CaretUp } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
 import { useUiState } from "@/components/shell/ui-state";
@@ -11,9 +11,13 @@ import { useDialog } from "@/hooks/use-dialog";
 import type { Job, JobStatus } from "@/lib/types";
 import { FetchError } from "@/components/ui/fetch-error";
 import { endpoints } from "@/lib/endpoints";
+import {
+  isAdminRole,
+  jobTypeLabel,
+  translateJobError,
+} from "@/lib/job-error";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 
-// xterm builds against the DOM, so it must never be evaluated on the server.
 const RunTerminal = dynamic(
   () => import("@/components/terminal/run-terminal").then((m) => m.RunTerminal),
   { ssr: false },
@@ -48,17 +52,15 @@ function statusLabel(status: JobStatus): string {
   }
 }
 
-/**
- * The run terminal, docked at the bottom of whatever bid is on screen.
- *
- * It defaults to the newest job for that bid, which is almost always the one you
- * want, and lets you page back through earlier runs of the same bid — a failed
- * extraction is usually diagnosed by reading the run before it.
- */
 export function TerminalDrawer({ code }: { code: string | null }) {
-  const { terminalOpen, setTerminalOpen } = useUiState();
+  const { terminalOpen, setTerminalOpen, userRole } = useUiState();
   const [selected, setSelected] = useState<string | null>(null);
   const [raw, setRaw] = useState(false);
+  const [showTechnicalLog, setShowTechnicalLog] = useState(isAdminRole(userRole));
+
+  useEffect(() => {
+    if (terminalOpen) setShowTechnicalLog(isAdminRole(userRole));
+  }, [terminalOpen, userRole]);
 
   const close = useCallback(() => setTerminalOpen(false), [setTerminalOpen]);
   const dialogRef = useDialog<HTMLDivElement>(terminalOpen, close);
@@ -76,12 +78,16 @@ export function TerminalDrawer({ code }: { code: string | null }) {
   const active = jobs.find((j) => j.id === selected) ?? jobs[0];
   const canCancel =
     active && (active.status === "queued" || active.status === "running");
+  const failureSummary =
+    active?.status === "failed"
+      ? translateJobError(active.error, userRole, { errorCode: active.errorCode })
+      : null;
 
   async function cancelActiveJob() {
     if (!active || !canCancel) return;
     if (
       !window.confirm(
-        `Cancel this ${active.type} run? Claude will stop after the current step finishes.`,
+        `Cancel this ${jobTypeLabel(active.type)} run? It will stop after the current step finishes.`,
       )
     ) {
       return;
@@ -102,7 +108,7 @@ export function TerminalDrawer({ code }: { code: string | null }) {
     <div
       ref={dialogRef}
       role="dialog"
-      aria-label={`Run terminal for ${code}`}
+      aria-label={`Run status for ${code}`}
       className="fixed inset-x-0 bottom-0 z-40 flex flex-col"
       style={{
         height: "min(52vh, 560px)",
@@ -115,7 +121,7 @@ export function TerminalDrawer({ code }: { code: string | null }) {
         className="flex flex-wrap items-center gap-2 px-3 py-2"
         style={{ borderBottom: "1px solid var(--app-line)" }}
       >
-        <span className="text-[12px] font-semibold">Run terminal</span>
+        <span className="text-[12px] font-semibold">Run status</span>
         <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
           {code}
         </span>
@@ -134,7 +140,7 @@ export function TerminalDrawer({ code }: { code: string | null }) {
                   border: `1px solid ${on ? "var(--app-accent-line)" : "var(--app-line)"}`,
                   color: on ? "var(--app-accent)" : "var(--app-tx-3)",
                 }}
-                title={`${job.type} · ${job.status}`}
+                title={`${jobTypeLabel(job.type)} · ${job.status}`}
               >
                 <span
                   className="h-1.5 w-1.5 rounded-full"
@@ -143,7 +149,7 @@ export function TerminalDrawer({ code }: { code: string | null }) {
                     boxShadow: job.status === "running" ? `0 0 6px ${color}` : undefined,
                   }}
                 />
-                <span>{job.type}</span>
+                <span>{jobTypeLabel(job.type)}</span>
                 {on ? (
                   <span className="text-[10px] opacity-80">{statusLabel(job.status)}</span>
                 ) : null}
@@ -169,39 +175,9 @@ export function TerminalDrawer({ code }: { code: string | null }) {
             {cancelling ? "Cancelling…" : "Cancel run"}
           </button>
         )}
-        <div
-          className="flex overflow-hidden rounded"
-          style={{ border: "1px solid var(--app-line)" }}
-        >
-          <button
-            onClick={() => setRaw(false)}
-            aria-pressed={!raw}
-            aria-label="Structured log view"
-            className="px-2 py-0.5 text-[11px]"
-            style={{
-              background: !raw ? "var(--app-accent-soft)" : "transparent",
-              color: !raw ? "var(--app-accent)" : "var(--app-tx-3)",
-            }}
-          >
-            Structured
-          </button>
-          <button
-            onClick={() => setRaw(true)}
-            aria-pressed={raw}
-            aria-label="Raw terminal output"
-            className="px-2 py-0.5 text-[11px]"
-            style={{
-              background: raw ? "var(--app-accent-soft)" : "transparent",
-              color: raw ? "var(--app-accent)" : "var(--app-tx-3)",
-              borderLeft: "1px solid var(--app-line)",
-            }}
-          >
-            Raw
-          </button>
-        </div>
         <button
           onClick={() => setTerminalOpen(false)}
-          aria-label="Close the run terminal"
+          aria-label="Close run status"
           className="rounded p-1"
           style={{ color: "var(--app-tx-3)" }}
         >
@@ -209,20 +185,103 @@ export function TerminalDrawer({ code }: { code: string | null }) {
         </button>
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div className="min-h-0 flex-1 overflow-auto">
         {error ? (
-          <FetchError
-            title="Could not load runs"
-            error={error}
-            onRetry={() => mutate()}
-          />
+          <FetchError title="Could not load runs" error={error} onRetry={() => mutate()} />
         ) : active ? (
-          <RunTerminal
-            key={`${active.id}-${raw}`}
-            jobId={active.id}
-            status={active.status}
-            raw={raw}
-          />
+          <div className="flex h-full flex-col">
+            {failureSummary && (
+              <div
+                className="mx-3 mt-3 rounded-lg px-3 py-2.5"
+                style={{
+                  background: "var(--app-neg-soft)",
+                  border: "1px solid var(--app-neg-line)",
+                }}
+              >
+                <p className="text-[12.5px] font-semibold" style={{ color: "var(--app-neg)" }}>
+                  {failureSummary.title}
+                </p>
+                <p className="mt-1 text-[11.5px]" style={{ color: "var(--app-tx-2)" }}>
+                  {failureSummary.message}
+                </p>
+                {isAdminRole(userRole) && failureSummary.technical && (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer text-[10.5px]" style={{ color: "var(--app-tx-3)" }}>
+                      Technical details
+                    </summary>
+                    <pre
+                      className="mt-1 overflow-x-auto whitespace-pre-wrap text-[10px]"
+                      style={{ color: "var(--app-tx-2)" }}
+                    >
+                      {failureSummary.technical}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setShowTechnicalLog((open) => !open)}
+              className="mx-3 mt-2 flex items-center gap-1 self-start text-[11px] font-medium"
+              style={{ color: "var(--app-accent)" }}
+            >
+              {showTechnicalLog ? <CaretUp size={12} /> : <CaretDown size={12} />}
+              {showTechnicalLog ? "Hide technical log" : "View technical log"}
+            </button>
+
+            {showTechnicalLog ? (
+              <div className="mt-2 min-h-0 flex-1 border-t" style={{ borderColor: "var(--app-line)" }}>
+                <div
+                  className="flex justify-end px-3 py-1"
+                  style={{ borderBottom: "1px solid var(--app-line)" }}
+                >
+                  <div
+                    className="flex overflow-hidden rounded"
+                    style={{ border: "1px solid var(--app-line)" }}
+                  >
+                    <button
+                      onClick={() => setRaw(false)}
+                      aria-pressed={!raw}
+                      className="px-2 py-0.5 text-[11px]"
+                      style={{
+                        background: !raw ? "var(--app-accent-soft)" : "transparent",
+                        color: !raw ? "var(--app-accent)" : "var(--app-tx-3)",
+                      }}
+                    >
+                      Structured
+                    </button>
+                    <button
+                      onClick={() => setRaw(true)}
+                      aria-pressed={raw}
+                      className="px-2 py-0.5 text-[11px]"
+                      style={{
+                        background: raw ? "var(--app-accent-soft)" : "transparent",
+                        color: raw ? "var(--app-accent)" : "var(--app-tx-3)",
+                        borderLeft: "1px solid var(--app-line)",
+                      }}
+                    >
+                      Raw
+                    </button>
+                  </div>
+                </div>
+                <RunTerminal
+                  key={`${active.id}-${raw}`}
+                  jobId={active.id}
+                  status={active.status}
+                  raw={raw}
+                />
+              </div>
+            ) : (
+              <p className="px-3 py-4 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+                {active.status === "running"
+                  ? "This run is in progress. Open the technical log to watch live output."
+                  : active.status === "done"
+                    ? "This run finished successfully."
+                    : "Summary shown above. Open the technical log for full output."}
+              </p>
+            )}
+          </div>
         ) : (
           <div className="px-3 py-4 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
             No runs yet for this bid.

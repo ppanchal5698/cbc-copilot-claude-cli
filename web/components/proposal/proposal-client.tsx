@@ -13,8 +13,10 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
+import { JobFailedBanner } from "@/components/jobs/job-failed-banner";
+import { useUiState } from "@/components/shell/ui-state";
 import { formatMoney } from "@/lib/format";
-import type { EmailDraft, HandOffResult, ProposalResponse } from "@/lib/types";
+import type { EmailDraft, HandOffResult, Job, ProposalResponse } from "@/lib/types";
 
 import { endpoints } from "@/lib/endpoints";
 import { errorMessage, proxyFetch, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
@@ -25,9 +27,30 @@ const MARKUPS = [
   { value: 0.05, label: "5%" },
 ];
 
-export function ProposalClient({ code }: { code: string }) {
+export function ProposalClient({
+  code,
+  initialJob,
+}: {
+  code: string;
+  initialJob?: Job | null;
+}) {
+  const { userRole } = useUiState();
   const [busy, setBusy] = useState(false);
   const [handOff, setHandOff] = useState<HandOffResult | null>(null);
+
+  const { data: jobData } = useSWR<{ jobs: Job[] }>(
+    `/api/proxy/jobs?project=${code}&limit=1`,
+    proxyFetcher,
+    {
+      refreshInterval: (latest) => {
+        const current = latest?.jobs?.[0] ?? initialJob;
+        return current?.status === "running" || current?.status === "queued" ? 4000 : 0;
+      },
+      fallbackData: initialJob ? { jobs: [initialJob] } : undefined,
+    },
+  );
+  const job = jobData?.jobs?.[0] ?? null;
+
   const { data, error, mutate } = useSWR<ProposalResponse>(
     `/api/proxy/projects/${code}/proposal`,
     proxyFetcher,
@@ -158,6 +181,19 @@ ${draft.body}`;
     }
   }
 
+  async function rebuildProposal() {
+    setBusy(true);
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/quote/continue-to-proposal`);
+      toast.success("Proposal rebuild queued");
+      mutate();
+    } catch (problem) {
+      toast.error("Could not queue the proposal", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const signoff = [
     {
       state: proposal.signoff.some((entry) => entry.role === "estimator") ? "done" : "todo",
@@ -193,8 +229,24 @@ ${draft.body}`;
 
   return (
     <>
-      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 xl:flex-row xl:overflow-hidden">
-        <section className="min-h-0 min-w-0 flex-1 xl:overflow-auto">
+      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 xl:flex-row xl:items-start">
+        <section className="isolate z-0 min-h-0 min-w-0 flex-1">
+          {job?.status === "failed" && job && (
+            <div className="mx-auto mb-3 max-w-[820px]">
+              <JobFailedBanner
+                job={job}
+                role={userRole}
+                stage="proposal"
+                onAction={(action) => {
+                  if (action.label === "Re-build proposal") rebuildProposal();
+                  else if (action.label === "Notify your admin") {
+                    toast.message("Ask your administrator to configure the AI provider in Settings.");
+                  }
+                }}
+              />
+            </div>
+          )}
+
           {handOff && (
             <div
               className="anim-fadein mx-auto mb-3 flex max-w-[820px] items-start gap-3 rounded-xl px-4 py-3"
@@ -367,7 +419,7 @@ ${draft.body}`;
               </section>
             ))}
 
-            <div className="mt-8 flex justify-end">
+            <div className="mt-8 flex justify-end pb-12">
               <table className="w-[300px] text-[11.5px]">
                 <tbody>
                   <tr>
@@ -425,7 +477,10 @@ ${draft.body}`;
           </article>
         </section>
 
-        <aside className="flex shrink-0 flex-col gap-3 xl:w-[320px] xl:overflow-auto">
+        <aside
+          className="z-10 flex shrink-0 flex-col gap-3 xl:sticky xl:top-4 xl:w-[320px] xl:self-start"
+          style={{ background: "var(--app-bg)" }}
+        >
           <div
             className="rounded-xl p-4"
             style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}

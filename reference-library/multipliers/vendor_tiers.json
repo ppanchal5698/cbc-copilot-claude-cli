@@ -18,7 +18,7 @@
       "categories": {
         "locks": 0.29,
         "door_controls": 0.3,
-        "exit_devices": 0.3005,
+        "exit_devices": 0.3,
         "l_dc_e_accessories": 0.3,
         "electrified_products": 0.41,
         "auto_operators": 0.4,

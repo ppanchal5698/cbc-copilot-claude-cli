@@ -26,6 +26,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 MARGIN_FILE = ROOT / "reference-library" / "margins" / "margin_framework.json"
+TAX_FILE = ROOT / "reference-library" / "tax" / "sales_tax_rates.json"
 
 # Fallback if the reference library is missing; the JSON file is the source of truth.
 DEFAULT_BANDS = {
@@ -37,15 +38,28 @@ DEFAULT_BANDS = {
 }
 
 # Sales tax applies only where CBC has nexus (.claude/memory/sales_tax_rules.md).
-TAX_RATES = {"OH": 0.08, "KY": 0.065}
+# The JSON file is the source of truth; this is the fallback if it is missing.
+DEFAULT_TAX_RATES = {"OH": 0.08, "KY": 0.065}
 
 
 def _money(value: float | Decimal) -> float:
     return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
 
+def _file_signature(path: Path) -> tuple[int, int]:
+    """Cache key for a reference file: (mtime, size).
+
+    mtime alone missed a second edit that landed inside the same filesystem tick -
+    a real risk for scripted or back-to-back updates, not just tests. Size moves
+    whenever the row set does, so an add or remove is always seen; a same-length
+    value edit within one tick is the only gap left, and no human UI writes that fast.
+    """
+    stat = path.stat()
+    return (stat.st_mtime_ns, stat.st_size)
+
+
 @lru_cache(maxsize=4)
-def _bands_at(_mtime_ns: int) -> dict[str, float]:
+def _bands_at(_signature: tuple[int, int]) -> dict[str, float]:
     data = json.loads(MARGIN_FILE.read_text(encoding="utf-8"))
     bands = {b["key"]: float(b["margin"]) for b in data.get("bands", []) if "key" in b}
     if "accessories_derived" in data:
@@ -64,11 +78,30 @@ def bands() -> dict[str, float]:
     without a restart.
     """
     try:
-        mtime = MARGIN_FILE.stat().st_mtime_ns
+        signature = _file_signature(MARGIN_FILE)
     except OSError:
         return dict(DEFAULT_BANDS)
     # Copied on the way out: the cached dict is shared by every caller.
-    return dict(_bands_at(mtime))
+    return dict(_bands_at(signature))
+
+
+@lru_cache(maxsize=4)
+def _tax_rates_at(_signature: tuple[int, int]) -> dict[str, float]:
+    data = json.loads(TAX_FILE.read_text(encoding="utf-8"))
+    # A present-but-empty table means "no nexus anywhere", so honour it verbatim;
+    # only a structurally broken file (no rates key) falls back to the default.
+    if "rates" not in data:
+        return dict(DEFAULT_TAX_RATES)
+    return {str(code).upper(): float(rate) for code, rate in (data["rates"] or {}).items()}
+
+
+def tax_rates() -> dict[str, float]:
+    """Nexus tax rates, re-read only when the file changes (see bands())."""
+    try:
+        signature = _file_signature(TAX_FILE)
+    except OSError:
+        return dict(DEFAULT_TAX_RATES)
+    return dict(_tax_rates_at(signature))
 
 
 def calculate_line(cost: float, margin: float, quantity: float = 1) -> dict[str, Any]:
@@ -165,7 +198,7 @@ def compute_totals(
 
     subtotal = _money(sum(g["subtotal"] for g in groups.values()))
     state = (project_state or "").upper()
-    tax_rate = TAX_RATES.get(state, 0.0)
+    tax_rate = tax_rates().get(state, 0.0)
     tax = _money(subtotal * tax_rate)
 
     return {

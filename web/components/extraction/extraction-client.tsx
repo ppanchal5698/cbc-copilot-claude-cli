@@ -22,6 +22,7 @@ import { AlternateBar } from "@/components/bids/alternate-bar";
 import { BulkBar } from "@/components/extraction/bulk-bar";
 import { LineItemRow, ROW_COLUMNS } from "@/components/extraction/line-item-row";
 import { PartComposer } from "@/components/extraction/part-composer";
+import { JobFailedBanner } from "@/components/jobs/job-failed-banner";
 import { useRowKeys } from "@/hooks/use-row-keys";
 import { useUiState } from "@/components/shell/ui-state";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
@@ -72,7 +73,7 @@ export function ExtractionClient({
   initialJob: Job | null;
 }) {
   const router = useRouter();
-  const { openNotes, focusMode } = useUiState();
+  const { openNotes, focusMode, userRole } = useUiState();
   const [filter, setFilter] = useState<string>("all");
   const [selected, setSelected] = useState<LineItem | null>(null);
   const [showSheet, setShowSheet] = useState(true);
@@ -338,26 +339,34 @@ export function ExtractionClient({
             </div>
           )}
 
-          {job?.status === "failed" && (
-            <div
-              className="rounded-xl px-4 py-3 text-[12.5px]"
-              style={{
-                background: "var(--app-neg-soft)",
-                border: "1px solid var(--app-neg-line)",
-                color: "var(--app-neg)",
+          {job?.status === "failed" && job && (
+            <JobFailedBanner
+              job={job}
+              role={userRole}
+              stage="extraction"
+              onAction={(action) => {
+                if (action.label === "Add lines by hand") {
+                  document.getElementById("add-by-hand")?.scrollIntoView({ behavior: "smooth" });
+                } else if (action.label === "Re-run extraction") {
+                  post("/line-items/rerun", "Claude is re-reading the drawings");
+                } else if (action.label === "Notify your admin") {
+                  toast.message("Ask your administrator to configure the AI provider in Settings.");
+                }
               }}
-            >
-              <strong>The last run failed.</strong> {job.error}
-            </div>
+            />
           )}
 
           <div
             className="min-h-[200px] flex-1 overflow-auto rounded-xl"
-            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
+            style={{
+              background: "var(--app-panel)",
+              border: "1px solid var(--app-line)",
+              boxShadow: "inset 8px 0 8px -8px rgba(0,0,0,0.08)",
+            }}
           >
-            <div style={{ minWidth: 760 }}>
+            <div style={{ minWidth: 820 }}>
             <div
-              className="sticky top-0 z-10 grid gap-3 border-b px-4 py-2.5 text-[10.5px] uppercase tracking-[0.07em]"
+              className="sticky top-0 z-20 grid gap-3 border-b px-4 py-2.5 text-[10.5px] uppercase tracking-[0.07em] backdrop-blur-sm"
               style={{
                 gridTemplateColumns: ROW_COLUMNS,
                 borderColor: "var(--app-line)",
@@ -453,7 +462,9 @@ export function ExtractionClient({
             />
           </div>
 
+          <div id="add-by-hand">
           <PartComposer code={code} onAdded={refresh} />
+          </div>
         </section>
 
         {showSheet && (

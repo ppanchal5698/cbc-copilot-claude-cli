@@ -59,17 +59,26 @@ export function VersionsPanel({ code }: { code: string }) {
   }
 
   async function reconcile(version: number) {
+    if (
+      !window.confirm(
+        "Mark this addendum as reviewed? This does not merge changes automatically — compare the diff manually before pricing.",
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     try {
       await proxyMutate(`/api/proxy/projects/${code}/versions/${version}/reconcile`);
-      toast.success(`Version ${version} marked reconciled`);
+      toast.success(`Version ${version} marked reviewed`);
       mutate();
     } catch (problem) {
-      toast.error("Could not mark reconciled", { description: errorMessage(problem) });
+      toast.error("Could not mark reviewed", { description: errorMessage(problem) });
     } finally {
       setBusy(false);
     }
   }
+
+  const unreconciled = (data?.unreconciled ?? 0) > 0;
 
   return (
     <section
@@ -128,7 +137,7 @@ export function VersionsPanel({ code }: { code: string }) {
                   style={{ background: "var(--app-accent)", color: "#fff" }}
                 >
                   <Checks size={12} weight="bold" />
-                  Reconcile
+                  Mark reviewed
                 </button>
               )}
             </div>
@@ -168,11 +177,15 @@ export function VersionsPanel({ code }: { code: string }) {
 
       <p
         className="flex items-center gap-1.5 border-t px-4 py-2.5 text-[10.5px]"
-        style={{ borderColor: "var(--app-line)", color: "var(--app-warn)" }}
+        style={{
+          borderColor: "var(--app-line)",
+          color: unreconciled ? "var(--app-warn)" : "var(--app-tx-3)",
+        }}
         title={data?.pending}
       >
-        <Warning size={12} weight="duotone" />
-        Reconciliation marks this version reviewed — merge rules are still pending (Matrix 4.1).
+        {unreconciled ? <Warning size={12} weight="duotone" /> : null}
+        Mark reviewed records that you compared this addendum against the prior version.
+        Automatic merge rules are not yet available — review changes manually before pricing.
       </p>
     </section>
   );

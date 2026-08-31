@@ -57,7 +57,18 @@ On first start, `docker/entrypoint.sh` runs [`scripts/bootstrap.py`](../scripts/
 - Seeds users, price books, and sample catalog rows when the database is empty
 - Builds the SQLite catalog index when `CATALOG_INDEX_PATH` does not exist yet
 
-Sign in with `rgilbert@hamiltonparker.com` / `opshub`.
+Deep document indexes (multiplier sheets, failed catalog layouts, bid PDFs) live
+under `DOCUMENT_INDEX_ROOT` (default `.index/documents/`). Uploading a multiplier
+sheet or a bid PDF enqueues an `index_document` job automatically. Manual rebuild:
+
+```bash
+python -m document_index.rebuild --client hager --type multiplier_sheet --file pricebooks/hager_multipliers.pdf --no-llm
+```
+
+Query via the `document-index` MCP server (`search_index` → `get_section_content`).
+Status: `GET /api/document-index/{document_id}/status`.
+
+Sign in with `estimator@cbc.com` or `admin@cbc.com` / `opshub`.
 
 For a non-Docker local setup:
 

@@ -12,6 +12,8 @@ costs minutes per book and its output needs the most validation.
 """
 from __future__ import annotations
 
+import csv
+import io
 import re
 from pathlib import Path
 from typing import Callable
@@ -181,6 +183,44 @@ def extract_spreadsheet(path: Path, vendor: str) -> ExtractionResult:
     return result
 
 
+def _sniff_delimiter(sample: str) -> str:
+    """The delimiter of a delimited file, defaulting to a comma when unsure."""
+    try:
+        return csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
+    except csv.Error:
+        return ","
+
+
+def _read_delimited(path: Path) -> list[list[str]]:
+    """Rows of a CSV/TSV, decoded tolerantly - latin-1 is the fallback that cannot fail."""
+    for encoding in ("utf-8-sig", "latin-1"):
+        try:
+            text = path.read_text(encoding=encoding)
+        except UnicodeDecodeError:
+            continue
+        delimiter = "\t" if path.suffix.lower() == ".tsv" else _sniff_delimiter(text[:8192])
+        return list(csv.reader(io.StringIO(text), delimiter=delimiter))
+    return []
+
+
+def extract_csv(path: Path, vendor: str) -> ExtractionResult:
+    """Delimited net and cross-reference sheets. One table, read like a spreadsheet."""
+    result = ExtractionResult(extractor="csv")
+    result.pages_read = 1
+    for row in _read_delimited(path):
+        cells = [str(value).strip() for value in row if str(value).strip()]
+        if not cells:
+            continue
+        record = _record_from_cells(cells, vendor, 1)
+        if record:
+            result.records.append(record)
+        else:
+            result.rejected["not_a_product_row"] = (
+                result.rejected.get("not_a_product_row", 0) + 1
+            )
+    return result
+
+
 def _is_description(cell: str) -> bool:
     """A multi-word cell whose first token is a part number - a product's own text."""
     words = cell.strip().split()
@@ -284,6 +324,9 @@ def needs_ocr(path: Path, sample_pages: int = 5) -> bool:
 
 
 SPREADSHEETS = {".xlsx", ".xlsm"}
+# Delimited exports of the same net and cross-reference sheets. Tabular already,
+# so they read row-for-row exactly like a spreadsheet.
+CSV_FILES = {".csv", ".tsv"}
 # Legacy .xls needs xlrd, which is a dependency for exactly one crossover sheet in
 # this corpus. Reported as unsupported rather than failing the rebuild every time.
 LEGACY_SPREADSHEETS = {".xls"}
@@ -293,6 +336,8 @@ def choose(path: Path) -> Callable[..., ExtractionResult]:
     """Which adapter reads this file."""
     if path.suffix.lower() in SPREADSHEETS:
         return extract_spreadsheet
+    if path.suffix.lower() in CSV_FILES:
+        return extract_csv
     if path.suffix.lower() in LEGACY_SPREADSHEETS:
         raise ValueError(
             f"{path.name} is the legacy .xls format, which openpyxl cannot read. "

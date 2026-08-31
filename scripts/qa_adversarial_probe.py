@@ -12,7 +12,7 @@ from api.config import settings
 from api.main import app
 
 TOKEN = settings.internal_api_token
-HEADERS = {"X-Internal-Token": TOKEN, "X-Actor": "rgilbert@hamiltonparker.com"}
+HEADERS = {"X-Internal-Token": TOKEN, "X-Actor": "estimator@cbc.com"}
 
 
 def main() -> int:
@@ -26,7 +26,7 @@ def main() -> int:
     pub = TestClient(app)
     login = pub.post(
         "/api/auth/verify",
-        json={"email": "rgilbert@hamiltonparker.com", "password": "opshub"},
+        json={"email": "estimator@cbc.com", "password": "opshub"},
     )
     print("login_seed_user", login.status_code, login.text[:120])
 

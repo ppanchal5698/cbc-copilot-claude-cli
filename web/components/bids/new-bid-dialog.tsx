@@ -35,12 +35,23 @@ export function NewBidDialog() {
   const [busy, setBusy] = useState(false);
   const [values, setValues] = useState<Record<string, string>>({});
   const [autopilot, setAutopilot] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const close = useCallback(() => setOpen(false), []);
   const dialogRef = useDialog<HTMLFormElement>(open, close);
 
   async function create(event: React.FormEvent) {
     event.preventDefault();
+
+    const errors: Record<string, string> = {};
+    if (!values.name?.trim()) {
+      errors.name = "Job name is required.";
+    }
+    if (values.state?.trim() && values.state.trim().length !== 2) {
+      errors.state = "Use a two-letter state code (e.g. OH).";
+    }
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     const body = Object.fromEntries(
       Object.entries(values).filter(([, value]) => value.trim() !== ""),
@@ -87,6 +98,7 @@ export function NewBidDialog() {
       <form
         ref={dialogRef}
         onSubmit={create}
+        noValidate
         role="dialog"
         aria-modal="true"
         aria-labelledby="new-bid-title"
@@ -121,20 +133,42 @@ export function NewBidDialog() {
               <input
                 id={`new-bid-${field.key}`}
                 type={field.type ?? "text"}
-                required={field.required}
-                aria-describedby={field.hint ? `new-bid-${field.key}-hint` : undefined}
+                aria-invalid={fieldErrors[field.key] ? true : undefined}
+                aria-describedby={
+                  fieldErrors[field.key]
+                    ? `new-bid-${field.key}-error`
+                    : field.hint
+                      ? `new-bid-${field.key}-hint`
+                      : undefined
+                }
                 placeholder={field.placeholder}
                 value={values[field.key] ?? ""}
-                onChange={(event) =>
-                  setValues((current) => ({ ...current, [field.key]: event.target.value }))
-                }
+                onChange={(event) => {
+                  setValues((current) => ({ ...current, [field.key]: event.target.value }));
+                  if (fieldErrors[field.key]) {
+                    setFieldErrors((current) => {
+                      const next = { ...current };
+                      delete next[field.key];
+                      return next;
+                    });
+                  }
+                }}
                 className="mt-1 w-full rounded-md px-2.5 py-2 text-[13px] outline-none focus:ring-2"
                 style={{
                   background: "var(--app-panel-2)",
-                  border: "1px solid var(--app-line)",
+                  border: `1px solid ${fieldErrors[field.key] ? "var(--app-neg-line)" : "var(--app-line)"}`,
                   color: "var(--app-tx)",
                 }}
               />
+              {fieldErrors[field.key] && (
+                <span
+                  id={`new-bid-${field.key}-error`}
+                  className="mt-1 block text-[11px]"
+                  style={{ color: "var(--app-neg)" }}
+                >
+                  {fieldErrors[field.key]}
+                </span>
+              )}
               {field.hint && (
                 <span
                   id={`new-bid-${field.key}-hint`}

@@ -62,6 +62,10 @@ audit_trail.jsonl     # Hook-written tool log (tracked for demo)
 Only the canonical demo project (`dutch_bros_macarthur_2026`) is committed with
 curated artifacts. API tests use `tests/fixtures/scratch/` via `isolated_storage`.
 
+Administrators can delete a bid from Ops-Hub intake. That removes the Mongo record,
+all child rows, job history, and the entire `projects/{slug}/` tree on disk — a
+deliberate human-initiated purge, distinct from pipeline file-safety during runs.
+
 ## Data directories
 
 | Path | Role |

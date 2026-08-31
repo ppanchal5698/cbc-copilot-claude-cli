@@ -24,6 +24,7 @@ export async function PageHeader({
         .slice(0, 2)
         .join("")
         .toUpperCase(),
+    role: session?.user?.role ?? "estimator",
   };
 
   return (

@@ -53,7 +53,7 @@ beats a padded one - the estimator quotes from what you write.
   "source_file": "pricebooks/hager_price_book_18.pdf",
   "effective_date": "2026-02-02",
   "multiplier": 0.29,
-  "categories": { "locks": 0.29, "door_controls": 0.30, "exit_devices": 0.3005 },
+  "categories": { "locks": 0.29, "door_controls": 0.30, "exit_devices": 0.30 },
   "products": [
     {
       "part": "ECBB1100-4.5X4.5-26D-NRP",

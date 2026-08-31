@@ -12,6 +12,7 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
+import { StatusBadge } from "@/components/ui/status-badge";
 import { errorMessage, proxyMutate } from "@/lib/proxy-fetcher";
 import type { LineItem, LineStatus } from "@/lib/types";
 
@@ -247,13 +248,9 @@ export function LineItemRow({
           {item.flags.length > 0 && (
             <span className="mt-0.5 flex flex-wrap gap-1">
               {item.flags.slice(0, 3).map((flag) => (
-                <span
-                  key={flag}
-                  className="rounded px-1.5 text-[10px]"
-                  style={{ background: "var(--app-warn-soft)", color: "var(--app-warn)" }}
-                >
+                <StatusBadge key={flag} variant="caution" dashed>
                   {flag.replace(/_/g, " ")}
-                </span>
+                </StatusBadge>
               ))}
             </span>
           )}

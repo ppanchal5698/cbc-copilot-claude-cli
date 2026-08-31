@@ -23,6 +23,16 @@ from api.schemas.documents import Document
 from api.schemas.jobs import Job, JobCreate
 from api.schemas.line_items import BulkAction, LineItem, LineItemCreate, LineItemUpdate
 from api.schemas.projects import Project, ProjectCreate, ProjectUpdate
+from api.schemas.reference import (
+    FinishesUpdate,
+    FrameDepthsUpdate,
+    FrpConstantsUpdate,
+    HagerAddersUpdate,
+    MarginFrameworkUpdate,
+    SpecialCustomerMargin,
+    SpecialMarginsUpdate,
+    TaxRatesUpdate,
+)
 from api.schemas.quote import (
     HandOff,
     ProposalSettings,
@@ -47,7 +57,11 @@ __all__ = [
     "Document",
     "EstimateVersion",
     "Evidence",
+    "FinishesUpdate",
+    "FrameDepthsUpdate",
+    "FrpConstantsUpdate",
     "HandOff",
+    "HagerAddersUpdate",
     "Job",
     "JobCreate",
     "JobStatus",
@@ -56,6 +70,7 @@ __all__ = [
     "LineItemCreate",
     "LineItemUpdate",
     "LineStatus",
+    "MarginFrameworkUpdate",
     "PriceBook",
     "PriceBookBase",
     "PriceBookCreate",
@@ -75,6 +90,9 @@ __all__ = [
     "QuoteSettings",
     "QuoteTotals",
     "Stage",
+    "SpecialCustomerMargin",
+    "SpecialMarginsUpdate",
+    "TaxRatesUpdate",
     "UserPublic",
     "UserCreate",
     "UserUpdate",

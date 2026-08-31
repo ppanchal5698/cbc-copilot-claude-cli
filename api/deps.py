@@ -25,7 +25,7 @@ Actor = Annotated[str, Depends(get_actor)]
 # from the database, not from a header: the internal token authenticates the
 # Next.js server, not the person behind it, so trusting a caller-supplied role
 # would make every signed-in estimator an administrator.
-ADMIN_ROLES = frozenset({"admin", "purchasing"})
+ADMIN_ROLES = frozenset({"admin"})
 
 
 async def require_admin(request: Request) -> str:

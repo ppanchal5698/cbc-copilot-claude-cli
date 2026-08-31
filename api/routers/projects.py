@@ -10,7 +10,7 @@ from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 from api.db import db, oid, serialise
-from api.deps import Actor
+from api.deps import AdminActor, Actor
 from api.schemas import ProjectCreate, ProjectUpdate
 from api.services import audit, storage
 
@@ -249,21 +249,26 @@ async def update_project(code: str, body: ProjectUpdate, actor: Actor) -> dict:
 
 
 @router.delete("/{code}", status_code=204)
-async def delete_project(code: str, actor: Actor) -> None:
-    """Remove the bid record. Uploaded documents stay on disk deliberately.
+async def delete_project(code: str, actor: AdminActor) -> None:
+    """Remove the bid record and all files under projects/{slug}/.
 
-    Raw uploads are immutable evidence (file-safety rule); deleting a database
-    row must not quietly destroy the drawings a quote was built from.
+    Admin-only. Cancels outstanding jobs, purges Mongo child collections and
+    job history, then deletes the project directory from disk.
     """
     project = await load(code)
     project_id = project["_id"]
+    slug = project.get("slug") or ""
 
-    # An outstanding job outlives the bid otherwise: the worker claims it, finds no
-    # project, and the exclusive-job index keeps the slot held in the meantime.
     await db.jobs.update_many(
         {"projectId": project_id, "status": {"$in": ["queued", "running"]}},
-        {"$set": {"status": "cancelled", "cancelledAt": datetime.now(timezone.utc),
-                  "cancelledBy": actor, "note": "project deleted"}},
+        {
+            "$set": {
+                "status": "cancelled",
+                "cancelledAt": datetime.now(timezone.utc),
+                "cancelledBy": actor,
+                "note": "project deleted",
+            }
+        },
     )
     for collection in (
         db.line_items,
@@ -275,11 +280,26 @@ async def delete_project(code: str, actor: Actor) -> None:
         db.calls,
     ):
         await collection.delete_many({"projectId": project_id})
+    await db.jobs.delete_many({"projectId": project_id})
     await db.projects.delete_one({"_id": project_id})
+
+    try:
+        if slug:
+            storage.purge_project(slug)
+    except OSError as exc:
+        raise HTTPException(
+            500,
+            detail=(
+                f"{project.get('code')} was removed from the board but its files "
+                f"could not be deleted from disk: {exc}. Ask an operator to remove "
+                f"projects/{slug}/ manually."
+            ),
+        ) from exc
+
     await audit.record(
         "project.delete",
         actor,
         {"projectId": project_id},
         before=project.get("code"),
-        note="files retained on disk",
+        note="database and project files purged",
     )
