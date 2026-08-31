@@ -57,6 +57,42 @@ _NOT_A_HEADING = re.compile(
 )
 
 
+# Lines that read like a product category rather than a table cell or furniture.
+# ASI puts "TOILET TISSUE DISPENSERS" a dozen lines down under a CATEGORY label,
+# so a description built only from the page header knows nothing about what is
+# actually being sold on the page - and a search for "hand dryer" finds nothing.
+_CATEGORY_NOISE = frozenset(
+    """model number category price each shipping continued description item
+    product name page total list net cu.ft wt-lbs finish size qty""".split()
+)
+
+
+def _keywords(body: list[str], limit: int = 6) -> list[str]:
+    """What is being sold on this page, in the catalog's own words.
+
+    Heading-shaped lines from anywhere on the page, not just the top: the section
+    name is as likely to sit halfway down under a column label as in the running
+    header, and it is the only thing that answers "which page has hand dryers".
+    """
+    seen: dict[str, int] = {}
+    for line in body:
+        text = re.sub(r"\(continued\)", "", line, flags=re.IGNORECASE).strip(" -:|")
+        if not (4 <= len(text) <= 60) or not any(c.isalpha() for c in text):
+            continue
+        words = [w for w in re.split(r"[^A-Za-z]+", text) if len(w) > 2]
+        if len(words) < 2 or len(words) > 7:
+            continue
+        # Headings are set apart by case; a sentence of prose is not a category.
+        if not (text.isupper() or text.istitle()):
+            continue
+        if all(w.lower() in _CATEGORY_NOISE for w in words):
+            continue
+        key = " ".join(words).upper()
+        seen[key] = seen.get(key, 0) + 1
+    ranked = sorted(seen.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [k for k, _ in ranked[:limit]]
+
+
 def _first_heading(lines: list[str], limit: int = 8) -> str | None:
     """The first line that reads like a section name rather than furniture.
 
@@ -179,7 +215,10 @@ def _code_prefixes(body: list[str], pattern: str | None, limit: int = 8) -> list
     return [stem for stem, _ in ranked[:limit]]
 
 
-def _summarise(title: str, body: list[str], kind: PageKind, has_prices: bool) -> str:
+def _summarise(
+    title: str, body: list[str], kind: PageKind, has_prices: bool,
+    keywords: list[str] | None = None,
+) -> str:
     """Two lines: what is on the page, and what you get if you open it.
 
     Built from the page's own words. A generated sentence would read better and
@@ -204,6 +243,8 @@ def _summarise(title: str, body: list[str], kind: PageKind, has_prices: bool) ->
     parts = [f"{what}{f' - {subject}' if subject else ''}."]
     if detail:
         parts.append(f"Begins: {detail}.")
+    if keywords:
+        parts.append("Covers: " + ", ".join(k.title() for k in keywords[:4]) + ".")
     if has_prices:
         parts.append("Carries prices.")
     return " ".join(parts)[:400]
@@ -237,6 +278,7 @@ def describe_page(
 
     has_prices = bool(_PRICE.search("\n".join(body)))
     prefixes = _code_prefixes(body, profile.code_pattern)
+    keywords = _keywords(body)
     kind, confidence = _classify(body, has_prices, len(prefixes))
 
     # A title the profile found is real evidence; inferring one from the page is
@@ -252,8 +294,9 @@ def describe_page(
         pdf_page=pdf_page,
         printed_page=printed,
         title=title,
-        description=_summarise(title, body, kind, has_prices),
+        description=_summarise(title, body, kind, has_prices, keywords),
         code_prefixes=prefixes,
+        keywords=keywords,
         has_prices=has_prices,
         kind=kind,
         confidence=round(confidence, 2),

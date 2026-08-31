@@ -73,6 +73,10 @@ class PageEntry(BaseModel):
     title: str = ""
     description: str = ""
     code_prefixes: list[str] = Field(default_factory=list)
+    # What is sold on this page, in the catalog's own words. The section name
+    # is often not in the header - ASI puts it under a CATEGORY label halfway
+    # down - and without it a search for "hand dryer" matches nothing.
+    keywords: list[str] = Field(default_factory=list)
     has_prices: bool = False
     kind: PageKind = "unknown"
     # How much the profile actually resolved here. A scanned page that fell back
@@ -151,6 +155,7 @@ class PageIndexDocument(BaseModel):
                     "title": p.title,
                     "description": p.description,
                     "codePrefixes": p.code_prefixes,
+                    "keywords": p.keywords,
                     "hasPrices": p.has_prices,
                     "kind": p.kind,
                     "confidence": p.confidence,
@@ -199,6 +204,7 @@ class PageIndexDocument(BaseModel):
                     title=p.get("title", ""),
                     description=p.get("description", ""),
                     code_prefixes=p.get("codePrefixes", []),
+                    keywords=p.get("keywords", []),
                     has_prices=p.get("hasPrices", False),
                     kind=p.get("kind", "unknown"),
                     confidence=p.get("confidence", 0.0),
