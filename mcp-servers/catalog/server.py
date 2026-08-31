@@ -30,6 +30,7 @@ sys.path.insert(0, str(ROOT / "mcp-servers"))
 from _runtime import serve  # noqa: E402
 from tools import TOOLS  # noqa: E402
 
+from cbc.catalog import basis as price_basis_of  # noqa: E402
 from cbc.catalog import db as index_db  # noqa: E402
 from cbc.catalog import search as index_search  # noqa: E402
 
@@ -307,7 +308,11 @@ def search_product(
             "vendor": r["vendor"], "source_file": r["source_file"],
             "source_page": r["page_number"], "effective_date": r["effective_date"],
             "line": " ".join(str(p) for p in (r["product_code"], r["product_name"]) if p)[:200],
-            "price": r["price"], "score": r["relevance_score"],
+            "price": r["price"],
+            # Whether that price is a list figure or already a net cost. Without it
+            # an agent can multiply a net down a second time.
+            "price_basis": price_basis_of.price_basis(r["source_file"], r["vendor"]),
+            "score": r["relevance_score"],
         }
         for r in result.get("results", [])
     ]
@@ -354,6 +359,7 @@ def lookup_pricing(part_number: str, vendor: str, category: str | None = None) -
         {
             "vendor": r["vendor"], "product_code": r["product_code"],
             "description": r["product_name"], "list_price": r["price"],
+            "price_basis": price_basis_of.price_basis(r["source_file"], r["vendor"]),
             "source_file": r["source_file"], "source_page": r["page_number"],
             "effective_date": r["effective_date"],
         }

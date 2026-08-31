@@ -30,6 +30,23 @@ const EDIT_FIELDS = [
 
 const COLUMNS = "190px minmax(220px,1fr) 130px 90px 100px 110px";
 
+/**
+ * A price means nothing without its basis. Every indexed price used to be shown as
+ * "list $X"; on a vendor bought at a flat net that is the cost already, and reading
+ * it as list invites multiplying it down a second time. Say which one it is, and
+ * say so plainly when the sheet does not tell us.
+ */
+function priceLabel(product: Product): string {
+  if (product.priceBasis === "net" && product.netPrice !== null && product.netPrice !== undefined) {
+    return `net $${formatMoney(product.netPrice)}`;
+  }
+  if (product.listPrice !== null) return `list $${formatMoney(product.listPrice)}`;
+  if (product.priceBasis === "unknown" && product.price !== null && product.price !== undefined) {
+    return `$${formatMoney(product.price)} ?`;
+  }
+  return "—";
+}
+
 function draftFor(product: Product): Record<string, string> {
   return {
     description: product.description ?? "",
@@ -360,9 +377,7 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
                   </span>
                   <span className="tnum text-right text-[12.5px]">
                     {product.cost === null
-                      ? product.listPrice === null
-                        ? "—"
-                        : `list $${formatMoney(product.listPrice)}`
+                      ? priceLabel(product)
                       : `$${formatMoney(product.cost)}`}
                   </span>
                   <span className="tnum truncate text-[12px]" style={{ color: "var(--app-tx-3)" }}>
@@ -445,9 +460,14 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
                 <div className="mt-4 flex flex-col gap-2">
                   {[
                     [
-                      "List price",
-                      selected.listPrice === null ? "—" : `$${formatMoney(selected.listPrice)}`,
+                      selected.priceBasis === "net"
+                        ? "Net price"
+                        : selected.priceBasis === "unknown"
+                          ? "Price (basis unrecorded)"
+                          : "List price",
+                      priceLabel(selected).replace(/^(list|net) /, ""),
                     ],
+                    ["Basis", selected.priceBasisNote ?? "—"],
                     ["Unit", selected.unit ?? "—"],
                     ["Price book", selected.priceBook ?? "—"],
                     ["Page", selected.sourcePage ? String(selected.sourcePage) : "—"],

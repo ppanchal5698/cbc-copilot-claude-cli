@@ -178,6 +178,13 @@ export interface Product {
   division?: string | null;
   cost: number | null;
   listPrice: number | null;
+  /** The raw figure off the sheet, whatever its basis. */
+  price?: number | null;
+  /** Only set when priceBasis is "net" - a cost, not a list figure. */
+  netPrice?: number | null;
+  /** "list" | "net" | "unknown". Says what listPrice/netPrice mean. */
+  priceBasis?: string | null;
+  priceBasisNote?: string | null;
   multiplier: number | null;
   sellAt: number | null;
   availability?: string | null;

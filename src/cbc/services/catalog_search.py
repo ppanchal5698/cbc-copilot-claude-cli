@@ -19,6 +19,7 @@ import sqlite3
 from typing import Any
 
 from cbc.db import db, serialise
+from cbc.catalog import basis
 from cbc.catalog import db as index_db
 from cbc.catalog import search as index_search
 
@@ -66,6 +67,8 @@ async def search_index(
     found = await asyncio.to_thread(
         _search_sync, query=query, vendor=vendor, category=category, limit=limit
     )
+    for row in found["results"]:
+        row["price_basis"] = basis.price_basis(row["source_file"], row["vendor"])
     return [
         {
             "id": f"idx:{row['product_id']}",
@@ -73,7 +76,17 @@ async def search_index(
             "description": row["product_name"] or "",
             "manufacturer": row["vendor"],
             "division": row["category"],
-            "listPrice": row["price"],
+            # A sheet's prices are list or net, and the index does not record which,
+            # so every indexed price used to be handed over as `listPrice` and shown
+            # as "list $X". On a Hager special net that is backwards: the number is
+            # already the cost. `listPrice` is now populated only when the price
+            # really is a list price, so a consumer that reads it without checking
+            # the basis gets nothing rather than a number that means the opposite.
+            "listPrice": row["price"] if row["price_basis"] == basis.LIST else None,
+            "netPrice": row["price"] if row["price_basis"] == basis.NET else None,
+            "price": row["price"],
+            "priceBasis": row["price_basis"],
+            "priceBasisNote": basis.describe(row["price_basis"]),
             "cost": None,
             "sellAt": None,
             "unit": row["unit"],
@@ -112,7 +125,19 @@ async def search_manual(
             {"manufacturer": {"$regex": needle, "$options": "i"}},
         ]
     rows = await db.products.find(mongo).sort("part", 1).to_list(limit)
-    return [{**serialise(row), "source": "manual", "editable": True} for row in rows]
+    # A hand-added part keeps cost and list in separate columns the estimator filled
+    # in, so there is nothing to disambiguate: its listPrice is a list price.
+    return [
+        {
+            **serialise(row),
+            "priceBasis": basis.LIST,
+            "priceBasisNote": basis.describe(basis.LIST),
+            "netPrice": None,
+            "source": "manual",
+            "editable": True,
+        }
+        for row in rows
+    ]
 
 
 async def search(

@@ -43,6 +43,11 @@ class ProductUpdate(BaseModel):
 
 class Product(ProductBase):
     id: str
+    # What the price on this row means. `listPrice` is filled only for LIST rows,
+    # so a caller that ignores this cannot read a net as though it were a list.
+    priceBasis: str | None = None
+    priceBasisNote: str | None = None
+    netPrice: float | None = None
     updatedAt: datetime | None = None
     updatedBy: str | None = None
 
