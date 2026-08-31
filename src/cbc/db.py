@@ -263,8 +263,17 @@ def readonly_uri() -> str | None:
 
     host = parsed.hostname + (f":{parsed.port}" if parsed.port else "")
     credentials = f"{quote_plus(READONLY_USER)}:{quote_plus(_readonly_password())}"
-    query = parsed.query or f"authSource={settings.mongodb_db}"
-    return f"{parsed.scheme}://{credentials}@{host}{parsed.path or ''}?{query}"
+    # Authenticate against the database the user was actually created in.
+    #
+    # This used to inherit the parent URI's query string, which carries
+    # `authSource=admin` because the root user lives there - while
+    # `ensure_readonly_user` creates this one in the application database. The
+    # two never matched, and nothing noticed because neither function had ever
+    # been called: the first real connection failed authentication.
+    return (
+        f"{parsed.scheme}://{credentials}@{host}/{settings.mongodb_db}"
+        f"?authSource={settings.mongodb_db}"
+    )
 
 
 async def ensure_readonly_user() -> bool:

@@ -81,22 +81,23 @@ def score_page(page: PageEntry, terms: list[str]) -> tuple[float, list[str]]:
     return round(score, 2), why[:4]
 
 
-async def find_pages(
+def rank_pages(
+    documents: list[PageIndexDocument],
     query: str,
     *,
-    vendor: str | None = None,
     limit: int = 8,
 ) -> dict[str, Any]:
-    """Pages worth opening for this query, best first."""
+    """Score already-fetched catalogs. Pure, and the only place ranking happens.
+
+    Fetching is the caller's job because the two callers are not entitled to the
+    same connection: the API reads with the application credential, and the MCP
+    server reads with one that cannot write. Putting the fetch in here once meant
+    the MCP server reached the database through the writable client - which is
+    precisely what `provider.WITHHELD` exists to prevent.
+    """
     terms = _terms(query)
     if not terms:
         return {"query": query, "count": 0, "pages": [], "note": "give something to search for"}
-
-    documents: list[PageIndexDocument] = []
-    for header in await store.list_catalogs(vendor):
-        document = await store.get(header["_id"])
-        if document:
-            documents.append(document)
 
     hits: list[dict[str, Any]] = []
     for document in documents:
@@ -141,6 +142,21 @@ async def find_pages(
                  "Do not substitute a similar part."
         ),
     }
+
+
+async def find_pages(
+    query: str,
+    *,
+    vendor: str | None = None,
+    limit: int = 8,
+) -> dict[str, Any]:
+    """Pages worth opening, fetched with the application's own connection."""
+    documents: list[PageIndexDocument] = []
+    for header in await store.list_catalogs(vendor):
+        document = await store.get(header["_id"])
+        if document:
+            documents.append(document)
+    return rank_pages(documents, query, limit=limit)
 
 
 async def get_overview(catalog_id: str) -> dict[str, Any]:

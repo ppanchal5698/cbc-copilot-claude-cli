@@ -70,6 +70,23 @@ PROFILES: dict[str, list[str]] = {
 DISALLOWED = ["WebSearch", "WebFetch", "NotebookEdit"]
 
 
+
+def _readonly_uri() -> str | None:
+    """The read-only connection string, derived rather than required in the env.
+
+    `cbc.db` owns how it is built, but importing it here would point the shared
+    floor at the domain package - so it is imported inside the call, where a
+    missing database configuration degrades to "no catalog for this run" instead
+    of breaking every job type that never needed one.
+    """
+    try:
+        from cbc.db import readonly_uri
+
+        return readonly_uri()
+    except Exception:
+        return os.environ.get("MONGODB_READONLY_URI")
+
+
 def config_for(job_type: str, catalog_index_path: str | None = None) -> str:
     """The `--mcp-config` payload for a job type, as a JSON string.
 
@@ -85,8 +102,18 @@ def config_for(job_type: str, catalog_index_path: str | None = None) -> str:
             continue
         entry: dict[str, Any] = {"command": "python", "args": [SERVERS[name]]}
         env: dict[str, str] = {}
-        if name == "catalog" and index_path:
-            env["CATALOG_INDEX_PATH"] = index_path
+        if name == "catalog":
+            # The page index lives in MongoDB, and this is the one credential a
+            # run is given for it: read-only, and no fallback to the writable
+            # string. `provider.WITHHELD` keeps MONGODB_URI out of the subprocess
+            # entirely, because pymongo is in the image and one Bash call with the
+            # root URI would go straight past every read-only assertion the tools
+            # make about themselves.
+            readonly = _readonly_uri()
+            if readonly:
+                env["MONGODB_READONLY_URI"] = readonly
+            if os.environ.get("MONGODB_DB"):
+                env["MONGODB_DB"] = os.environ["MONGODB_DB"]
         if name == "document-index" and document_root:
             env["DOCUMENT_INDEX_ROOT"] = document_root
         if env:

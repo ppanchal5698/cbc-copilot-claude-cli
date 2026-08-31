@@ -138,3 +138,51 @@ def test_a_spreadsheet_block_cites_its_sheet_and_rows() -> None:
 
 def test_page_lines_drops_blanks_and_whitespace() -> None:
     assert page_lines("a\n\n   \n b \n") == ["a", "b"]
+
+
+# ── the credential the catalog server is entitled to ────────────────────────
+
+
+def test_the_catalog_server_never_reaches_the_writable_connection() -> None:
+    """It runs inside the Claude subprocess, which is denied the root URI.
+
+    An earlier cut had the server call the async query helper, which fetches
+    through `cbc.db` - the application's writable client. That silently undid
+    `provider.WITHHELD`: pymongo is in the image, so a run holding that string
+    could write to any collection, straight past every read-only assertion the
+    tools make about themselves.
+    """
+    from tests.shared import ROOT
+
+    source = (ROOT / "mcp-servers" / "catalog" / "server.py").read_text(encoding="utf-8")
+    assert "from cbc.db import" not in source
+    assert "pageindex import store" not in source, "store writes; the server must not import it"
+    assert "reader" in source, "the server reads through the read-only reader"
+
+
+def test_the_reader_refuses_without_a_read_only_credential(monkeypatch) -> None:
+    """No credential is not a reason to fall back to the writable one."""
+    from cbc.pageindex import reader
+
+    monkeypatch.delenv("MONGODB_READONLY_URI", raising=False)
+    reader.reset()
+    with pytest.raises(reader.ReadOnlyIndexUnavailable):
+        reader.list_catalogs()
+    reader.reset()
+
+
+def test_the_read_only_uri_authenticates_where_the_user_was_made() -> None:
+    """The two were built together and never run, so they had drifted apart.
+
+    `ensure_readonly_user` creates the user in the application database while
+    `readonly_uri` inherited `authSource=admin` from the root connection string.
+    The first real connection failed authentication.
+    """
+    from cbc.config import settings
+    from cbc.db import readonly_uri
+
+    uri = readonly_uri()
+    if not uri:
+        pytest.skip("no mongodb configured here")
+    assert f"authSource={settings.mongodb_db}" in uri
+    assert "authSource=admin" not in uri

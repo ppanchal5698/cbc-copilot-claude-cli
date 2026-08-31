@@ -1,184 +1,134 @@
 """Tool definitions for the catalog MCP server.
 
-READ-ONLY, over the SQLite FTS5 index built from the vendor PDFs. A pricing pass
-searches the index; it never opens a price book. Reading them on every query cost
-6 s cold and 2.5 s warm per search, and a fresh MCP process per run paid it again
-every time.
-
-Every result carries the vendor, the source file and the page number, so a quoted
-number traces back to the sheet it was read from (NFR-3).
+These navigate. None of them returns a price, because none of them knows one -
+the index says which page to open and the PDF says what things cost. That split
+is the point: a number that reaches a quote was read off the sheet during that
+run, not copied out of a table extracted months ago that may have misread it.
 """
 from __future__ import annotations
 
 from typing import Any
 
-_LIMIT = {"type": "integer", "default": 10, "minimum": 1, "maximum": 50}
-
 TOOLS: list[dict[str, Any]] = [
     {
-        "name": "search_products",
+        "name": "list_catalogs",
         "description": (
-            "Search every indexed vendor catalog by part number, series, or plain "
-            "description. An exact part-number match ranks first and is never left to "
-            "fuzzy matching. Narrow with vendor when you know it. Returns price, unit, "
-            "source file and page number for each hit. Milliseconds - use it freely."
+            "The vendor catalogs that are indexed, with page counts, effective "
+            "dates, staleness and whether their prices are list or net. Start "
+            "here when you do not know which book a vendor's parts are in."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "vendor": {"type": "string", "description": "Optional vendor key, e.g. 'hager'"}
+            },
+        },
+    },
+    {
+        "name": "get_catalog_overview",
+        "description": (
+            "What one catalog is and how it is organised - product lines, how "
+            "prices are shown, how to find a part, and the traps in it. Read this "
+            "before hunting for a page in an unfamiliar book; it is a few hundred "
+            "tokens and saves opening the wrong pages."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "catalog_id": {
+                    "type": "string",
+                    "description": "From list_catalogs, e.g. 'hager_price_book_18'",
+                }
+            },
+            "required": ["catalog_id"],
+        },
+    },
+    {
+        "name": "find_pages",
+        "description": (
+            "Which pages to open for a part number, series or description. "
+            "Returns ranked pages with a two-line description of each, the part "
+            "families on it, whether it carries prices, and why it matched.\n\n"
+            "This does NOT return a price. Take the pdf_page from a hit and read "
+            "it with mcp__pdf-tools__extract_tables, then quote what the sheet "
+            "says. Cite the locator exactly as given - it carries both the PDF "
+            "page and the number printed on it, which differ in most price books."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "'150CX18', 'B-2888', '3500 storeroom lock', 'grab bar'",
+                    "description": "A part number, series or description: '3400 storeroom lock', 'BB1279', 'hand dryer'",
                 },
-                "vendor": {"type": "string", "description": "e.g. 'hager', 'bobrick'"},
-                "catalog_id": {"type": "string", "description": "Restrict to one catalog"},
-                "category": {"type": "string"},
-                "limit": _LIMIT,
-                "offset": {"type": "integer", "default": 0, "minimum": 0},
+                "vendor": {
+                    "type": "string",
+                    "description": "Optional vendor key. Narrow when you know it - a whole-library search is noisier.",
+                },
+                "limit": {"type": "integer", "default": 8},
             },
             "required": ["query"],
         },
     },
     {
-        "name": "get_product_details",
+        "name": "get_page",
         "description": (
-            "One product in full, with the raw text it was extracted from and the "
-            "catalog it belongs to. Use it to check a match before pricing a line."
+            "One page's index entry, for confirming a citation before it goes on "
+            "a quote. Returns both page numbers, the description, the part "
+            "families and how confident the index is about this page."
         ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "product_id": {"type": "integer"},
-                "product_code": {"type": "string"},
-                "vendor": {"type": "string", "description": "Disambiguates a shared part number"},
-            },
-        },
-    },
-    {
-        "name": "search_catalog",
-        "description": "Search inside one catalog. Same ranking, scoped to that book.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "catalog_id": {"type": "string"},
-                "query": {"type": "string"},
-                "limit": _LIMIT,
+                "pdf_page": {"type": "integer", "description": "1-indexed, as pdf-tools takes it"},
             },
-            "required": ["catalog_id", "query"],
-        },
-    },
-    {
-        "name": "list_catalogs",
-        "description": (
-            "Every catalog in the index: vendor, status, product count, effective date "
-            "and how stale it is. Start here to see what is searchable - a catalog that "
-            "is not 'ready' is not in the results."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {"vendor": {"type": "string"}},
-        },
-    },
-    {
-        "name": "get_catalog_status",
-        "description": (
-            "Where one catalog is in its lifecycle: uploaded, queued, processing, "
-            "indexing, ready, failed or deleting - with the reason when it failed."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {"catalog_id": {"type": "string"}},
-            "required": ["catalog_id"],
+            "required": ["catalog_id", "pdf_page"],
         },
     },
     {
         "name": "get_multiplier",
         "description": (
-            "The CBC multiplier tier for a vendor, from the curated tier sheet - not "
-            "extracted from a PDF. Returns null and says so rather than guessing when "
-            "the vendor is not on file."
+            "The CBC multiplier tier for a vendor, and product category where the "
+            "vendor prices by category as Hager does, with its effective date. "
+            "Curated by purchasing - never read off a PDF. Returns null with a "
+            "note when the tier is unknown, never a guess."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "vendor": {"type": "string"},
-                "category": {
+                "tier": {
                     "type": "string",
-                    "description": "e.g. locks / door_controls / exit_devices",
+                    "description": "Optional product category or named tier, e.g. 'locks', 'L3'",
                 },
             },
             "required": ["vendor"],
         },
     },
-    # ── kept for the agents and skills that already call them ───────────────
-    {
-        "name": "search_product",
-        "description": (
-            "Alias of search_products, kept so existing agents and skills keep working. "
-            "Prefer search_products."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "vendor": {"type": "string"},
-                "division": {"type": "string"},
-                "limit": _LIMIT,
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "list_vendors",
-        "description": "Alias of list_catalogs, grouped by vendor. Prefer list_catalogs.",
-        "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "lookup_pricing",
-        "description": (
-            "List price for an exact part number, and net cost. Special net items from "
-            "the multiplier sheet override list × category when present. Reads the index, "
-            "not the PDF. Returns every candidate it found with its page - it does not pick "
-            "one when the answer is ambiguous. Adders (electrification, NRP, premium finish) "
-            "are NOT included; see reference-library/adders/manual_adders.json"
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "part_number": {"type": "string"},
-                "vendor": {"type": "string"},
-                "category": {"type": "string", "description": "Multiplier category"},
-            },
-            "required": ["part_number", "vendor"],
-        },
-    },
     {
         "name": "get_special_net",
         "description": (
-            "Fixed net price from a vendor multiplier sheet when the part appears on the "
-            "special nets pages. Hager only today. Returns null when no override exists."
+            "A fixed net price from a vendor's multiplier sheet, where one exists "
+            "for this part. A special net is already the cost and overrides "
+            "list x multiplier - do not multiply it again."
         ),
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "vendor": {"type": "string"},
-                "part_number": {"type": "string"},
-            },
+            "properties": {"vendor": {"type": "string"}, "part_number": {"type": "string"}},
             "required": ["vendor", "part_number"],
         },
     },
     {
         "name": "is_stock_item",
         "description": (
-            "Whether a part is on the NR-6 top-10 stock list for a vendor. Returns null "
-            "when no curated list is on file yet."
+            "Whether a part is on CBC's top-10 stock list for that vendor (NR-6). "
+            "Beyond the stock list the manual cut-off applies and the estimator "
+            "prices the line."
         ),
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "vendor": {"type": "string"},
-                "part_number": {"type": "string"},
-            },
+            "properties": {"vendor": {"type": "string"}, "part_number": {"type": "string"}},
             "required": ["vendor", "part_number"],
         },
     },

@@ -16,7 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from cbc.config import settings
-from cbc.db import ensure_indexes
+from cbc.db import ensure_indexes, ensure_readonly_user
+from cbc.pageindex import store as pageindex_store
 from apps.api.deps import InternalAuthMiddleware
 from apps.api.routers import (
     alternates,
@@ -46,6 +47,15 @@ log = logging.getLogger("cbc.api")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ensure_indexes()
+    await pageindex_store.ensure_indexes()
+    # The catalog MCP server reads the page index with a credential that cannot
+    # write. Provisioning it here means a pricing pass never needs the root URI,
+    # which `provider.WITHHELD` keeps out of the Claude subprocess on purpose.
+    if not await ensure_readonly_user():
+        log.warning(
+            "no read-only MongoDB user; the catalog server will refuse to read "
+            "the page index rather than fall back to the writable connection"
+        )
     log.info("indexes ready; storage at %s", settings.storage_root)
     yield
 
