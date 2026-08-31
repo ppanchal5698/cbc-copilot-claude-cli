@@ -221,6 +221,20 @@ def secret_values(config: dict[str, Any] | None) -> list[str]:
     return found
 
 
+def supports_subagents(config: dict[str, Any] | None) -> bool:
+    """Whether this provider can be asked to delegate with the Agent tool.
+
+    The pipeline prompts hand each phase to a registered subagent. A model that
+    cannot make that call does not fail loudly - it reads the instruction, has no
+    way to follow it, and spends its turns circling. An observed Ollama run made
+    seven tool calls in twelve minutes, delegated nothing, and wrote no output.
+
+    So the capability decides the prompt: where delegation is unavailable the run
+    is told to do the phase work itself, with the same tools and the same outputs.
+    """
+    return resolve_mode(config or default_config()) != OLLAMA
+
+
 def describe(config: dict[str, Any] | None) -> dict[str, Any]:
     """A one-line answer to 'what served this job?', safe to log and store."""
     config = config or default_config()
@@ -241,6 +255,7 @@ def describe(config: dict[str, Any] | None) -> dict[str, Any]:
     return {
         "mode": mode,
         "model": model,
+        "supportsSubagents": supports_subagents(config),
         "baseUrl": env.get("ANTHROPIC_BASE_URL"),
         "region": env.get("AWS_REGION") if mode == BEDROCK else None,
         "credentialSource": sources,

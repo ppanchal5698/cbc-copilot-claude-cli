@@ -1,0 +1,171 @@
+{
+  "project": "dutch_bros_macarthur_demo",
+  "project_code": "CBC-260001",
+  "exported_at": "2026-08-31T15:34:21.105488+00:00",
+  "source": "estimator-confirmed via Ops-Hub",
+  "openings": [
+    {
+      "mark": null,
+      "door_number": null,
+      "description": "Hand Dryer",
+      "size": null,
+      "qty": 1.0,
+      "hardware_set": null,
+      "division": null,
+      "handing": null,
+      "finish": null,
+      "fire_rating": null,
+      "frame_type": null,
+      "wall_type": null,
+      "source_file": null,
+      "source_page": null,
+      "bbox": null,
+      "page_size": null,
+      "confidence": 1.0,
+      "flags": [],
+      "status": "by_hand",
+      "confirmed_by": "admin@cbc.com",
+      "added_by_hand": true
+    },
+    {
+      "mark": "01",
+      "door_number": "01",
+      "description": "",
+      "size": "3670",
+      "qty": 1,
+      "hardware_set": "GROUP 1",
+      "division": null,
+      "handing": null,
+      "finish": null,
+      "fire_rating": null,
+      "frame_type": "1",
+      "wall_type": null,
+      "source_file": "uploads/raw/1_Architectural.pdf",
+      "source_page": 14,
+      "bbox": [
+        547.32,
+        609.82,
+        841.65,
+        619.27
+      ],
+      "page_size": {
+        "width": 2592.0,
+        "height": 1728.0
+      },
+      "confidence": 0.55,
+      "flags": [
+        "fire_rating_missing",
+        "handing_missing",
+        "finish_missing"
+      ],
+      "status": "clear",
+      "confirmed_by": "admin@cbc.com",
+      "added_by_hand": false
+    },
+    {
+      "mark": "02",
+      "door_number": "02",
+      "description": "",
+      "size": "3070",
+      "qty": 1,
+      "hardware_set": "GROUP 2",
+      "division": null,
+      "handing": null,
+      "finish": null,
+      "fire_rating": null,
+      "frame_type": "2",
+      "wall_type": null,
+      "source_file": "uploads/raw/1_Architectural.pdf",
+      "source_page": 14,
+      "bbox": [
+        547.32,
+        622.66,
+        841.65,
+        632.11
+      ],
+      "page_size": {
+        "width": 2592.0,
+        "height": 1728.0
+      },
+      "confidence": 0.55,
+      "flags": [
+        "fire_rating_missing",
+        "handing_missing",
+        "finish_missing"
+      ],
+      "status": "clear",
+      "confirmed_by": "admin@cbc.com",
+      "added_by_hand": false
+    },
+    {
+      "mark": "03",
+      "door_number": "03",
+      "description": "",
+      "size": "3070",
+      "qty": 1,
+      "hardware_set": "GROUP 3",
+      "division": null,
+      "handing": null,
+      "finish": null,
+      "fire_rating": null,
+      "frame_type": "2",
+      "wall_type": null,
+      "source_file": "uploads/raw/1_Architectural.pdf",
+      "source_page": 14,
+      "bbox": [
+        547.32,
+        635.62,
+        841.65,
+        645.07
+      ],
+      "page_size": {
+        "width": 2592.0,
+        "height": 1728.0
+      },
+      "confidence": 0.55,
+      "flags": [
+        "fire_rating_missing",
+        "handing_missing",
+        "finish_missing"
+      ],
+      "status": "clear",
+      "confirmed_by": "admin@cbc.com",
+      "added_by_hand": false
+    },
+    {
+      "mark": "04",
+      "door_number": "04",
+      "description": "",
+      "size": "3030",
+      "qty": 1,
+      "hardware_set": "GROUP 4",
+      "division": null,
+      "handing": null,
+      "finish": null,
+      "fire_rating": null,
+      "frame_type": "FR.",
+      "wall_type": null,
+      "source_file": "uploads/raw/1_Architectural.pdf",
+      "source_page": 14,
+      "bbox": [
+        547.32,
+        648.58,
+        841.65,
+        658.03
+      ],
+      "page_size": {
+        "width": 2592.0,
+        "height": 1728.0
+      },
+      "confidence": 0.55,
+      "flags": [
+        "fire_rating_missing",
+        "handing_missing",
+        "finish_missing"
+      ],
+      "status": "clear",
+      "confirmed_by": "admin@cbc.com",
+      "added_by_hand": false
+    }
+  ]
+}

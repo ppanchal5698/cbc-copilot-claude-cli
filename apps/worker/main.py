@@ -419,7 +419,13 @@ async def process(job: dict) -> None:
         described["mode"],
         described["model"],
     )
-    prompt = prompts.build(job, project)
+    # A provider that cannot call the Agent tool is told to do the phases itself.
+    # Handing it the delegating prompt is what produced a run that made seven tool
+    # calls in twelve minutes and wrote nothing.
+    delegates = provider.supports_subagents(config)
+    if not delegates:
+        log.info("provider cannot delegate; using the solo prompt for %s", job["type"])
+    prompt = prompts.build(job, project, delegates=delegates)
 
     # Where the estimator watches this happen. Recorded per job under the project
     # so the session can be replayed after the fact, not only while it runs.

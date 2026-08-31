@@ -14,6 +14,39 @@ from __future__ import annotations
 
 from typing import Any
 
+# How a run is told to carry out a phase. A provider that can delegate hands the
+# work to the registered subagent; one that cannot is told to do it itself, with
+# the same tools and the same outputs, because the alternative is what an
+# observed local-model run actually did - read the instruction, fail to follow
+# it, and spend its turns circling without writing anything.
+DELEGATION_RULE = """- **Delegate with the Agent tool, not by reading agent files.** Every Agent call
+  MUST include all three parameters:
+    description: short label (REQUIRED - calls without it fail validation)
+    subagent_type: one of intake-coordinator, spec-scope-analyst, takeoff-engineer,
+      frp-specialist, product-matcher, pricing-engineer, quote-builder,
+      quality-reviewer, delivery-agent, pricebook-ingestor
+    prompt: full task with paths, page numbers and output files
+  Example:
+    Agent(description="Extract door schedule page 15", subagent_type="takeoff-engineer",
+          prompt="Read {project_dir}/uploads/raw/... page 15. Run parse_schedule.py
+          --page 15 --openings --json. Write {project_dir}/extracted/door_schedule.json
+          with bbox and page_size on every opening.")"""
+
+SOLO_RULE = """- **Do the work yourself. The Agent tool is not available on this provider.**
+  There is no delegation step: you carry out each phase in this session, with the
+  MCP tools already connected. Work through the phases in the order given and
+  write each output file before starting the next, so a run that is cut short
+  still leaves the estimator everything it finished."""
+
+HOW_DELEGATED = """Delegate each phase to its subagent with the Agent tool - they are registered
+subagent types, not files to read. Reading their definitions with `cat` puts
+their whole text in this context and gains nothing:"""
+
+HOW_SOLO = """Do these yourself, in order, writing each file before starting the next. Do not
+call the Agent tool - it is unavailable here, and a phase left undelegated is a
+phase not done:"""
+
+
 PREAMBLE = """Constraints that override anything else:
 
 - **Use the MCP tools. Do not reimplement them.** pdf-tools, catalog,
@@ -34,18 +67,7 @@ PREAMBLE = """Constraints that override anything else:
   Reading them into it again is the most expensive way to learn nothing.
 - **Do not shell out for what a tool returns.** `save_artifact` timestamps what it
   writes, so a `date` call is a round trip for a value you are already given.
-- **Delegate with the Agent tool, not by reading agent files.** Every Agent call
-  MUST include all three parameters:
-    description: short label (REQUIRED - calls without it fail validation)
-    subagent_type: one of intake-coordinator, spec-scope-analyst, takeoff-engineer,
-      frp-specialist, product-matcher, pricing-engineer, quote-builder,
-      quality-reviewer, delivery-agent, pricebook-ingestor
-    prompt: full task with paths, page numbers and output files
-  Example:
-    Agent(description="Extract door schedule page 15", subagent_type="takeoff-engineer",
-          prompt="Read {project_dir}/uploads/raw/... page 15. Run parse_schedule.py
-          --page 15 --openings --json. Write {project_dir}/extracted/door_schedule.json
-          with bbox and page_size on every opening.")
+{delegation_rule}
 - **Do not write inline `python3 -c` parsers for schedule data.** Run
   `.claude/skills/extract-door-schedule/scripts/parse_schedule.py` instead.
 - **Do not call compute_totals on raw priced lines with null sale_ea.** Use
@@ -70,9 +92,7 @@ EXTRACT = """You are the CBC Estimating Copilot running intake and take-off for 
 
 The bid set is in {project_dir}/uploads/raw/.
 
-Delegate each phase to its subagent with the Agent tool - they are registered
-subagent types, not files to read. Reading their definitions with `cat` puts
-their whole text in this context and gains nothing:
+{how}
 
   1. `intake-coordinator`  -> extracted/scope_metadata.json
   2. `spec-scope-analyst`  -> extracted/scope_summary.json
@@ -108,11 +128,7 @@ The estimator asked for another pass over the drawings in {project_dir}/uploads/
 lines the estimator has confirmed (`confirmed_by` set) or added by hand
 (`added_by_hand: true`). Those are decisions, not suggestions - leave them alone.
 
-Delegate to `takeoff-engineer` with the Agent tool (description + subagent_type +
-prompt required). Hand it the PDF path, schedule page numbers, and the reconcile
-rules above. It must run `parse_schedule.py --page N --openings --json` and write
-`{project_dir}/extracted/door_schedule.json` with bbox, page_size and confidence
-on every opening.
+{how}
 
 {preamble}"""
 
@@ -120,7 +136,7 @@ MATCH_AND_PRICE = """You are the CBC Estimating Copilot pricing project {code}.
 
 The estimator has confirmed the openings in {project_dir}/extracted/door_schedule.json.
 
-Delegate with the Agent tool (description + subagent_type + prompt required):
+{how}
 
   1. `product-matcher`  -> {project_dir}/extracted/hardware_sets.json
   2. `pricing-engineer` -> {project_dir}/priced/line_items.json,
@@ -152,7 +168,7 @@ BUILD_PROPOSAL = """You are the CBC Estimating Copilot preparing the proposal fo
 
 The estimator has approved the quote in {project_dir}/priced/line_items.json.
 
-Delegate with the Agent tool (description + subagent_type + prompt required):
+{how}
 
   1. `quote-builder`      -> {project_dir}/quotation.html
   2. `quality-reviewer`   -> {project_dir}/review/review_flags.json,
@@ -215,8 +231,7 @@ that phase ran on an earlier attempt: read the file, tell the next subagent what
 is in it, and move on. Re-reading a 744-page set that was already read is the most
 expensive thing you can do here. Ignore this only if told to force a clean run.
 
-Delegate each phase with the Agent tool - these are registered subagent types, not
-files to read:
+{how}
 
   Phase 0/1  intake-coordinator  -> extracted/scope_metadata.json
   Phase 2    spec-scope-analyst  -> extracted/scope_summary.json
@@ -283,12 +298,28 @@ TEMPLATES = {
 }
 
 
-def preamble_for(project_dir: str) -> str:
+def preamble_for(project_dir: str, *, delegates: bool = True) -> str:
     """The constraint block, for any entry point that needs it."""
-    return PREAMBLE.format(project_dir=project_dir)
+    return PREAMBLE.format(
+        project_dir=project_dir,
+        delegation_rule=(DELEGATION_RULE if delegates else SOLO_RULE).format(
+            project_dir=project_dir
+        ),
+    )
 
 
-def build(job: dict[str, Any], project: dict[str, Any] | None) -> str:
+def build(
+    job: dict[str, Any],
+    project: dict[str, Any] | None,
+    *,
+    delegates: bool = True,
+) -> str:
+    """The prompt for one job.
+
+    `delegates` is the provider's capability, not a preference: a model that
+    cannot call the Agent tool must be told to do the phases itself, or it reads
+    an instruction it has no way to follow and writes nothing.
+    """
     template = TEMPLATES.get(job["type"])
     if template is None:
         raise ValueError(f"no prompt for job type {job['type']!r}")
@@ -308,16 +339,23 @@ def build(job: dict[str, Any], project: dict[str, Any] | None) -> str:
     return template.format(
         code=project.get("code", project["slug"]),
         project_dir=project_dir,
-        preamble=PREAMBLE.format(project_dir=project_dir),
+        how=HOW_DELEGATED if delegates else HOW_SOLO,
+        preamble=PREAMBLE.format(
+            project_dir=project_dir,
+            delegation_rule=(DELEGATION_RULE if delegates else SOLO_RULE).format(
+                project_dir=project_dir
+            ),
+        ),
     )
 
 
-def pipeline_for(project_dir: str, code: str | None = None) -> str:
+def pipeline_for(project_dir: str, code: str | None = None, *, delegates: bool = True) -> str:
     """The full-pipeline orchestration prompt, for any entry point that needs it."""
     return RUN_FULL_PIPELINE.format(
         code=code or project_dir.rsplit("/", 1)[-1],
         project_dir=project_dir,
-        preamble=preamble_for(project_dir),
+        how=HOW_DELEGATED if delegates else HOW_SOLO,
+        preamble=preamble_for(project_dir, delegates=delegates),
     )
 
 

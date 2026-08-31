@@ -276,9 +276,30 @@ def check_pricing(project: str, *, require_hardware_sets: bool = False) -> tuple
                 f"{project}: priced line {label} has neither part_number nor description "
                 "- carry the specified item across from hardware_sets.json"
             )
-        # NFR-3: an unauditable line is not a line.
+        # NFR-3: an unauditable line is not a line - but "auditable" is not the same
+        # question for every line.
+        #
+        # A door or an FRP run comes off a drawing, so it has a page and must name
+        # it. An accessory often does not: the estimator adds a hand dryer nobody
+        # drew, and there is no page to point at. Demanding one anyway rejected a
+        # correctly priced hand-added accessory and took the whole quote with it -
+        # and on the retry the pass satisfied the rule by *inventing* a page,
+        # putting the hand dryer on the door-schedule sheet. A check that makes
+        # fabrication the cheapest way out is worse than the gap it was closing
+        # (NFR-2).
+        #
+        # So the accessory must still be traceable, by the half of NFR-3 that
+        # applies to it: where its price came from.
+        from_a_drawing = line.get("group_type") in ("door", "frp")
         if line.get("source_page") is None:
-            problems.append(f"{project}: priced line {label} has no source_page")
+            if from_a_drawing:
+                problems.append(f"{project}: priced line {label} has no source_page")
+            elif not str(line.get("cost_source_detail") or "").strip():
+                problems.append(
+                    f"{project}: line {label} has neither a source_page nor a "
+                    "cost_source_detail - a line off the drawings must name its page, "
+                    "and one added by hand must name where its price came from (NFR-3)"
+                )
         # NFR-2: a manual line is an instruction to a human, so it says why.
         if line.get("cost_source") == "MANUAL" and not str(
             line.get("cost_source_detail") or line.get("reason") or ""

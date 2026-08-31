@@ -1,0 +1,317 @@
+{
+  "project": "dutch_bros_macarthur_demo",
+  "matched_at": "2026-08-31T17:00:00Z",
+  "groups": [
+    {
+      "group": "Hand Dryer",
+      "openings": [],
+      "source_page": 14,
+      "items": [
+        {
+          "category": "washroom_equipment",
+          "specified": { "manufacturer": "ASI", "part_number": "10-0199-1-41", "description": "Hand Dryer" },
+          "matched": {
+            "vendor": "asi",
+            "part_number": "10-0199-1-41",
+            "source": "catalog"
+          },
+          "confidence": 1.0,
+          "match_tier": 1,
+          "cost_path": "LIST_X_MULTIPLIER",
+          "substitution_note": null,
+          "flags": []
+        }
+      ]
+    },
+    {
+      "group": "GROUP 1",
+      "openings": ["01"],
+      "source_page": 14,
+      "items": [
+        {
+          "category": "hinge",
+          "specified": { "manufacturer": "IVES", "part_number": "700", "size": "83\"", "finish": "630" },
+          "matched": { "vendor": "Ives", "part_number": "700", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "closer",
+          "specified": { "manufacturer": "LCN", "part_number": "4040XP", "description": "RW/PA ALUM." },
+          "matched": { "vendor": "LCN", "part_number": "4040XP", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "lockset",
+          "specified": { "manufacturer": "ALARM CLOCK", "part_number": "ETDL27R1G/26DV", "description": "99" },
+          "matched": { "vendor": "Alarm Clock", "part_number": "ETDL27R1G/26DV", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "panic",
+          "specified": { "manufacturer": "VON DURPIN", "part_number": "99EO", "size": "42\"", "finish": "626" },
+          "matched": { "vendor": "Von Duprin", "part_number": "99EO", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "kick_plate",
+          "specified": { "manufacturer": "IVES", "part_number": "8400", "size": "40\"x30\"", "finish": "630" },
+          "matched": { "vendor": "Ives", "part_number": "8400", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "threshold",
+          "specified": { "manufacturer": "PEMKO", "part_number": "275A", "size": "42\"" },
+          "matched": { "vendor": "Pemko", "part_number": "275A", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "LIST_X_MULTIPLIER",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "door_shoe",
+          "specified": { "manufacturer": "ZERO", "part_number": "39A", "description": "SWEEP, 42\"" },
+          "matched": { "vendor": "Zero", "part_number": "39A", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "door_seal",
+          "specified": { "manufacturer": "ZERO", "part_number": "188S BK", "size": "18'" },
+          "matched": { "vendor": "Zero", "part_number": "188S BK", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "floor_stop",
+          "specified": { "manufacturer": "IVES", "part_number": "FS43", "finish": "626" },
+          "matched": { "vendor": "Ives", "part_number": "FS43", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        }
+      ]
+    },
+    {
+      "group": "GROUP 2",
+      "openings": ["02"],
+      "source_page": 14,
+      "items": [
+        {
+          "category": "hinge",
+          "specified": { "manufacturer": "IVES", "part_number": "700", "size": "83\"", "finish": "630" },
+          "matched": { "vendor": "Ives", "part_number": "700", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "closer",
+          "specified": { "manufacturer": "LCN", "part_number": "4040XP", "description": "RW/PA ALUM." },
+          "matched": { "vendor": "LCN", "part_number": "4040XP", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "lockset",
+          "specified": { "manufacturer": "ALARM CLOCK", "part_number": "ETDL27R1G/26DV", "description": "99" },
+          "matched": { "vendor": "Alarm Clock", "part_number": "ETDL27R1G/26DV", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "panic",
+          "specified": { "manufacturer": "VON DURPIN", "part_number": "99EO", "size": "26\"", "finish": "626" },
+          "matched": { "vendor": "Von Duprin", "part_number": "99EO", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "kick_plate",
+          "specified": { "manufacturer": "IVES", "part_number": "8400", "size": "34\"x30\"", "finish": "630" },
+          "matched": { "vendor": "Ives", "part_number": "8400", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "threshold",
+          "specified": { "manufacturer": "PEMKO", "part_number": "275A", "size": "36\"" },
+          "matched": { "vendor": "Pemko", "part_number": "275A", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "LIST_X_MULTIPLIER",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "door_shoe",
+          "specified": { "manufacturer": "ZERO", "part_number": "39A", "description": "SWEEP, 36\"" },
+          "matched": { "vendor": "Zero", "part_number": "39A", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "door_seal",
+          "specified": { "manufacturer": "ZERO", "part_number": "188S BK", "size": "18'" },
+          "matched": { "vendor": "Zero", "part_number": "188S BK", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "floor_stop",
+          "specified": { "manufacturer": "IVES", "part_number": "FS43", "finish": "626" },
+          "matched": { "vendor": "Ives", "part_number": "FS43", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        }
+      ]
+    },
+    {
+      "group": "GROUP 3",
+      "openings": ["03"],
+      "source_page": 14,
+      "items": [
+        {
+          "category": "hinge",
+          "specified": { "manufacturer": "IVES", "part_number": "5BB1", "size": "4.5\"", "finish": "626", "notes": "NRP" },
+          "matched": { "vendor": "Ives", "part_number": "5BB1", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "closer",
+          "specified": { "manufacturer": "LCN", "part_number": "4040XP", "description": "RW/PA ALUM." },
+          "matched": { "vendor": "LCN", "part_number": "4040XP", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "lockset",
+          "specified": { "manufacturer": "SCHLAGE", "part_number": "B57", "description": "INDICATOR, 626" },
+          "matched": { "vendor": "Schlage", "part_number": "B57", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "push_plate",
+          "specified": { "manufacturer": "IVES", "part_number": "8200", "size": "6\"x16\"", "finish": "630" },
+          "matched": { "vendor": "Ives", "part_number": "8200", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "pull_plate",
+          "specified": { "manufacturer": "IVES", "part_number": "8303", "size": "6\"x16\"", "finish": "630" },
+          "matched": { "vendor": "Ives", "part_number": "8303", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "kick_plate",
+          "specified": { "manufacturer": "IVES", "part_number": "8400", "size": "34\"x12\"", "finish": "630" },
+          "matched": { "vendor": "Ives", "part_number": "8400", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        },
+        {
+          "category": "floor_stop",
+          "specified": { "manufacturer": "IVES", "part_number": "FS43", "finish": "626" },
+          "matched": { "vendor": "Ives", "part_number": "FS43", "source": "specified" },
+          "confidence": 0.95,
+          "match_tier": 1,
+          "cost_path": "DISTRIBUTOR_MANUAL",
+          "substitution_note": null,
+          "flags": []
+        }
+      ]
+    },
+    {
+      "group": "GROUP 4",
+      "openings": ["04"],
+      "source_page": 14,
+      "items": [
+        {
+          "category": "access_panel",
+          "specified": { "manufacturer": "JL INDUSTRIES", "part_number": "XPA-3636H4W-R", "description": "36\"x36\" ACCESS PANEL W/ REMOVABLE FLUSH LOCKING HANDLE W/ RAINHOOD" },
+          "matched": null,
+          "confidence": 0.0,
+          "match_tier": 5,
+          "cost_path": "MANUAL",
+          "substitution_note": "Out of scope: JL Industries",
+          "flags": ["out_of_scope"]
+        }
+      ]
+    }
+  ],
+  "unmatched": [],
+  "review_required": ["GROUP 4"]
+}

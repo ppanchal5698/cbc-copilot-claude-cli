@@ -126,7 +126,34 @@ def test_match_and_price_prompt_uses_agent_tool_not_paths():
 
     assert ".claude/agents/" not in prompts.MATCH_AND_PRICE
     assert "product-matcher" in prompts.MATCH_AND_PRICE
-    assert "description" in prompts.PREAMBLE.lower()
+    # The Agent-call contract moved out of PREAMBLE into DELEGATION_RULE when the
+    # prompts gained a second mode, so assert on what a run is actually handed.
+    delegating = prompts.preamble_for("projects/demo", delegates=True)
+    assert "description" in delegating.lower()
+    assert "subagent_type" in delegating
+
+
+def test_a_provider_that_cannot_delegate_is_told_to_do_the_work_itself():
+    """An Ollama run read the delegation instruction, could not follow it, and
+    made seven tool calls in twelve minutes without writing an output file.
+
+    The phases and their output files must survive into the solo prompt - only
+    the means of carrying them out changes.
+    """
+    from apps.worker import prompts
+
+    job = {"type": "match_and_price", "payload": {}}
+    project = {"slug": "demo", "code": "CBC-1"}
+
+    solo = prompts.build(job, project, delegates=False)
+    assert "subagent_type" not in solo, "solo runs must not be told to delegate"
+    assert "Do these yourself" in solo or "Do the work yourself" in solo
+    # Same phases, same artefacts.
+    assert "product-matcher" in solo and "pricing-engineer" in solo
+    assert "priced/line_items.json" in solo
+
+    delegating = prompts.build(job, project, delegates=True)
+    assert "subagent_type" in delegating
 
 
 def test_build_proposal_prompt_uses_agent_tool_not_paths():
@@ -134,3 +161,64 @@ def test_build_proposal_prompt_uses_agent_tool_not_paths():
 
     assert ".claude/agents/" not in prompts.BUILD_PROPOSAL
     assert "quote-builder" in prompts.BUILD_PROPOSAL
+
+
+def _priced(**overrides):
+    line = {
+        "line_id": 1,
+        "group": "accessories",
+        "group_type": "accessories",
+        "part_number": "10-0199-1-41",
+        "description": "ASI Hand Dryer",
+        "quantity": 1,
+        "cost_source": "LIST_X_MULTIPLIER",
+        "cost_source_detail": "asi_price_list.pdf p34",
+        "source_page": None,
+    }
+    line.update(overrides)
+    return line
+
+
+def test_a_hand_added_accessory_needs_price_provenance_not_a_drawing_page(validate_project):
+    """An accessory the estimator typed in has no page, and must not invent one.
+
+    Requiring source_page on every priced line rejected a correctly priced hand
+    dryer and failed the whole sync; on the retry the pass satisfied the rule by
+    putting the hand dryer on the door-schedule page. A check whose cheapest
+    escape is a fabricated citation is worse than the gap it closes (NFR-2).
+    """
+    _write(validate_project, "priced/line_items.json", {"lines": [_priced()]})
+    problems, _ = check_pricing(validate_project)
+    assert not any("source_page" in p for p in problems), problems
+
+
+def test_an_accessory_with_no_trace_at_all_is_still_rejected(validate_project):
+    _write(
+        validate_project,
+        "priced/line_items.json",
+        {"lines": [_priced(cost_source_detail="")]},
+    )
+    problems, _ = check_pricing(validate_project)
+    assert any("neither a source_page nor a cost_source_detail" in p for p in problems), problems
+
+
+def test_a_door_line_still_must_name_its_page(validate_project):
+    """Doors come off the schedule. That half of NFR-3 does not relax."""
+    _write(
+        validate_project,
+        "priced/line_items.json",
+        {
+            "lines": [
+                _priced(
+                    group="Door 01",
+                    group_type="door",
+                    part_number="D-01",
+                    description="HM door",
+                    cost_source="MANUAL",
+                    cost_source_detail="awaiting vendor RFQ",
+                )
+            ]
+        },
+    )
+    problems, _ = check_pricing(validate_project)
+    assert any("has no source_page" in p for p in problems), problems
