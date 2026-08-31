@@ -12,6 +12,7 @@ import json
 
 import pytest
 
+from apps.worker.handlers.ingest import _prices_for
 from cbc.catalog import basis
 
 
@@ -98,3 +99,44 @@ def test_list_price_is_populated_only_when_it_is_one(
     assert net_price == expect_net
     # The raw figure stays available either way, so nothing is hidden.
     assert row["price"] == 12.5
+
+
+# ── the ingest path: a net must never land in listPrice ──────────────────────
+
+
+def test_a_net_sheet_stores_its_figure_as_the_cost() -> None:
+    """The pass calls it `list_price` because that is the only field it has.
+
+    Left there, changing the program multiplier recomputes
+    `cost = listPrice x multiplier` and discounts an already-net figure again.
+    """
+    list_price, cost, multiplier = _prices_for(basis.NET, {"list_price": 3.23})
+
+    assert list_price is None, "a net must not be reachable by the repricing query"
+    assert cost == 3.23
+    assert multiplier is None, "a net program has no multiplier to carry"
+
+
+def test_a_net_sheet_prefers_an_explicit_cost() -> None:
+    _, cost, _ = _prices_for(basis.NET, {"list_price": 9.99, "cost": 3.23})
+    assert cost == 3.23
+
+
+def test_a_list_sheet_is_stored_as_before() -> None:
+    list_price, cost, multiplier = _prices_for(
+        basis.LIST, {"list_price": 200.0, "cost": 58.0, "multiplier": 0.29}
+    )
+    assert (list_price, cost, multiplier) == (200.0, 58.0, 0.29)
+
+
+def test_an_unknown_basis_is_stored_as_a_list_price() -> None:
+    """Not evidence of a net program - just a tier nobody has transcribed.
+
+    Treating it as a net would strand the price out of the repricing query and
+    mislabel a list figure, which is this same bug pointing the other way.
+    """
+    list_price, cost, multiplier = _prices_for(
+        basis.UNKNOWN, {"list_price": 200.0, "multiplier": 0.5}
+    )
+    assert (list_price, multiplier) == (200.0, 0.5)
+    assert cost is None

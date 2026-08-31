@@ -18,6 +18,7 @@ from apps.api.deps import Actor, AdminActor
 from cbc.schemas import PriceBookCreate, PriceBookUpdate
 from cbc.services import audit, jobs, storage
 from cbc.services.document_index import enqueue_index, inventory_kind, should_deep_index_pricebook
+from cbc.catalog import basis
 from cbc.services.reference_library import sync_vendor_categories
 
 router = APIRouter(prefix="/api/price-books", tags=["price-books"])
@@ -181,30 +182,51 @@ async def update_price_book(book_id: str, body: PriceBookUpdate, actor: Actor) -
     if "categories" in changes and changes["categories"] is not None:
         sync_vendor_categories(book.get("vendor", ""), changes["categories"])
 
-    # A changed multiplier repricies every part on this program.
+    # A changed multiplier reprices every part on this program - but only where
+    # there is a list price to multiply. A vendor bought on a flat net program
+    # publishes costs, and multiplying one of those discounts it a second time:
+    # a Bobrick line at its 2017 net would be quoted at a fraction of what CBC
+    # pays. Ingest keeps nets out of `listPrice` for exactly this reason; these
+    # two filters are the belt to that braces, and they also cover rows written
+    # before the basis was recorded.
+    #
+    # An *unknown* basis is deliberately still repriced. It means no multiplier
+    # has been transcribed for the vendor, not that the sheet quotes nets - and a
+    # hand-built book is somebody stating outright that they entered a list price.
+    repriced: int | None = None
     if "multiplier" in changes and changes["multiplier"]:
-        await db.products.update_many(
-            {"priceBookId": book["_id"], "listPrice": {"$ne": None}},
-            [
+        if basis.price_basis(book.get("filename"), book.get("vendor")) == basis.NET:
+            repriced = 0
+        else:
+            result = await db.products.update_many(
                 {
-                    "$set": {
-                        "multiplier": changes["multiplier"],
-                        "cost": {
-                            "$round": [{"$multiply": ["$listPrice", changes["multiplier"]]}, 2]
-                        },
-                        "updatedAt": _now(),
-                        "updatedBy": actor,
+                    "priceBookId": book["_id"],
+                    "listPrice": {"$ne": None},
+                    "priceBasis": {"$ne": basis.NET},
+                },
+                [
+                    {
+                        "$set": {
+                            "multiplier": changes["multiplier"],
+                            "cost": {
+                                "$round": [
+                                    {"$multiply": ["$listPrice", changes["multiplier"]]}, 2
+                                ]
+                            },
+                            "updatedAt": _now(),
+                            "updatedBy": actor,
+                        }
                     }
-                }
-            ],
-        )
+                ],
+            )
+            repriced = result.modified_count
 
     await audit.record(
         "price_book.update",
         actor,
         {"priceBookId": book["_id"]},
         before={k: book.get(k) for k in changes},
-        after=changes,
+        after={**changes, **({"repricedParts": repriced} if repriced is not None else {})},
     )
     return _decorate(await db.price_books.find_one({"_id": book["_id"]}))
 

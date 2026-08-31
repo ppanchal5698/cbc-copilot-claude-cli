@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from cbc.schemas.common import ProductType
+
+
+PriceBasis = Literal["list", "net", "unknown"]
 
 
 class ProductBase(BaseModel):
@@ -14,6 +18,9 @@ class ProductBase(BaseModel):
     division: str | None = None
     cost: float | None = None
     listPrice: float | None = None
+    # What `listPrice` means for this row. A "net" part is never repriced by a
+    # program multiplier - multiplying a cost discounts it twice.
+    priceBasis: PriceBasis | None = None
     multiplier: float | None = None
     sellAt: float | None = None
     availability: str | None = None
@@ -33,6 +40,7 @@ class ProductUpdate(BaseModel):
     division: str | None = None
     cost: float | None = None
     listPrice: float | None = None
+    priceBasis: PriceBasis | None = None
     multiplier: float | None = None
     sellAt: float | None = None
     availability: str | None = None
@@ -43,9 +51,8 @@ class ProductUpdate(BaseModel):
 
 class Product(ProductBase):
     id: str
-    # What the price on this row means. `listPrice` is filled only for LIST rows,
-    # so a caller that ignores this cannot read a net as though it were a list.
-    priceBasis: str | None = None
+    # `listPrice` is filled only for LIST rows, so a caller that ignores the basis
+    # cannot read a net as though it were a list.
     priceBasisNote: str | None = None
     netPrice: float | None = None
     updatedAt: datetime | None = None
