@@ -17,7 +17,6 @@ from cbc.db import db, oid, serialise
 from apps.api.deps import Actor, AdminActor
 from cbc.schemas import PriceBookCreate, PriceBookUpdate
 from cbc.services import audit, jobs, storage
-from cbc.services.document_index import enqueue_index, inventory_kind, should_deep_index_pricebook
 from cbc.pageindex import basis
 from cbc.services.reference_library import sync_vendor_categories
 
@@ -130,28 +129,11 @@ async def upload_price_book_file(
         actor=actor,
     )
 
-    deep_job = None
-    document_id = None
-    kind = inventory_kind(target.name) or book.get("kind") or "price_book"
-    if should_deep_index_pricebook(target.name, {**book, "kind": kind}):
-        document_id, deep_job = await enqueue_index(
-            source_path=storage.relative(target),
-            client_id=str(book.get("vendor", "unknown")).lower(),
-            document_type=kind,
-            effective_date=book.get("effective"),
-            actor=actor,
-            trigger="upload",
-            price_book_id=str(book["_id"]),
-        )
-
     await audit.record("price_book.upload", actor, {"priceBookId": book["_id"]}, after=target.name)
     response: dict[str, Any] = {
         "priceBook": _decorate(await db.price_books.find_one({"_id": book["_id"]})),
         "job": serialise(job),
     }
-    if deep_job:
-        response["deepIndexJob"] = serialise(deep_job)
-        response["documentId"] = document_id
     return response
 
 
@@ -263,16 +245,14 @@ async def delete_price_book(book_id: str, actor: AdminActor) -> None:
     # Remove what was indexed from this book's PDF, so a deleted catalog stops
     # appearing in search. Queued rather than done inline: the worker is the only
     # writer to the index, and deletion has to be verified, not assumed.
-    if book.get("catalogId"):
+    if book.get("catalogId") or book.get("filename"):
         await jobs.enqueue(
             "delete_catalog",
-            payload={"catalogId": book["catalogId"], "priceBookId": str(book["_id"])},
-            actor=actor,
-        )
-    if book.get("documentIndexId"):
-        await jobs.enqueue(
-            "delete_document",
-            payload={"documentId": book["documentIndexId"]},
+            payload={
+                "catalogId": book["catalogId"],
+                "filename": book.get("filename"),
+                "priceBookId": str(book["_id"]),
+            },
             actor=actor,
         )
     await db.price_books.delete_one({"_id": book["_id"]})

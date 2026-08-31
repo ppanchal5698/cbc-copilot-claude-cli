@@ -1,107 +1,49 @@
-"""Product search for the API, over the index and the hand-added parts.
+"""What the catalog screen searches: the estimator's own parts, and the price books.
 
-Two sources, one result list:
+The two halves are no longer the same shape, and pretending otherwise is what this
+replaces.
 
-  * **Indexed products** come from the vendor PDFs. They are regenerated on every
-    reindex, so they are read-only - an edit would be silently overwritten the next
-    time the vendor issues a sheet.
-  * **User-created products** are the estimator's own, in MongoDB, and stay editable.
-    They survive a catalog being replaced or deleted, because they were never part
-    of it.
+  * **The estimator's own parts** are rows in MongoDB with a part number, a cost
+    and a margin. They are products, and they stay editable.
+  * **The price books** are PDFs. They used to be pre-extracted into a product
+    table so both halves could be listed together - and 37.8% of the codes that
+    produced contained no letter at all, dates were recorded as part numbers, and
+    one vendor's sheet yielded nothing while reporting success. A row that looked
+    like a product but was page furniture was indistinguishable from a real one.
 
-The API opens the index read-only; the worker is its only writer.
+So the vendor half now returns **pages**, not products: where to look, with a
+description of what is on the page. Opening it is a click for an estimator and a
+`pdf-tools` call for a pricing pass, and either way the number comes off the sheet
+rather than out of a table nobody checked.
 """
 from __future__ import annotations
 
-import asyncio
 import re
-import sqlite3
 from typing import Any
 
 from cbc.db import db, serialise
-from cbc.pageindex import basis
-from cbc.catalog import db as index_db
-from cbc.catalog import search as index_search
-
-_connection: sqlite3.Connection | None = None
+from cbc.pageindex import basis, query as page_query, store as page_store
 
 
-def index_available() -> bool:
-    return index_db.index_path().exists()
+async def index_available() -> bool:
+    """Whether any catalog has been indexed, for the health endpoint."""
+    try:
+        return bool(await page_store.list_catalogs())
+    except Exception:
+        return False
 
 
-def _reader() -> sqlite3.Connection | None:
-    """A cached read-only connection, or None when the index has not been built.
-
-    `check_same_thread=False` is safe here precisely because it is read-only: this
-    connection never writes, so there is no transaction for two threads to
-    interleave. Reads run in a worker thread to keep SQLite off the event loop.
-    """
-    global _connection
-    if _connection is None:
-        if not index_available():
-            return None
-        path = index_db.index_path()
-        _connection = index_db.connect(path, readonly=True)
-        _connection.execute("PRAGMA query_only=1")
-    return _connection
-
-
-def _search_sync(**kwargs: Any) -> dict[str, Any]:
-    connection = _reader()
-    if connection is None:
-        return {"count": 0, "total_matched": 0, "results": []}
-    return index_search.search(connection, **kwargs)
-
-
-async def search_index(
+async def search_pages(
     query: str,
     *,
     vendor: str | None = None,
-    category: str | None = None,
-    limit: int = 50,
+    limit: int = 12,
 ) -> list[dict[str, Any]]:
-    """Indexed products, shaped the way the catalog screen expects them."""
+    """Pages of the vendor catalogs worth opening for this query."""
     if not query:
         return []
-    found = await asyncio.to_thread(
-        _search_sync, query=query, vendor=vendor, category=category, limit=limit
-    )
-    for row in found["results"]:
-        row["price_basis"] = basis.price_basis(row["source_file"], row["vendor"])
-    return [
-        {
-            "id": f"idx:{row['product_id']}",
-            "part": row["product_code"],
-            "description": row["product_name"] or "",
-            "manufacturer": row["vendor"],
-            "division": row["category"],
-            # A sheet's prices are list or net, and the index does not record which,
-            # so every indexed price used to be handed over as `listPrice` and shown
-            # as "list $X". On a Hager special net that is backwards: the number is
-            # already the cost. `listPrice` is now populated only when the price
-            # really is a list price, so a consumer that reads it without checking
-            # the basis gets nothing rather than a number that means the opposite.
-            "listPrice": row["price"] if row["price_basis"] == basis.LIST else None,
-            "netPrice": row["price"] if row["price_basis"] == basis.NET else None,
-            "price": row["price"],
-            "priceBasis": row["price_basis"],
-            "priceBasisNote": basis.describe(row["price_basis"]),
-            "cost": None,
-            "sellAt": None,
-            "unit": row["unit"],
-            "priceBook": row["source_file"],
-            "sourcePage": row["page_number"],
-            "effective": row["effective_date"],
-            "relevance": row["relevance_score"],
-            # The screen uses this to decide what may be edited. A part read from a
-            # vendor PDF is rewritten on the next reindex, so editing it here would
-            # be a change that quietly disappears.
-            "source": "catalog",
-            "editable": False,
-        }
-        for row in found["results"]
-    ]
+    found = await page_query.find_pages(query, vendor=vendor, limit=limit)
+    return found.get("pages", [])
 
 
 async def search_manual(
@@ -147,26 +89,31 @@ async def search(
     manufacturer: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
-    """Both sources, the estimator's own parts first.
+    """Both halves, each as what it actually is."""
+    import asyncio
 
-    Their own entries rank above the catalog deliberately: a part somebody typed in
-    is one they could not find, or one they corrected, and burying it under 20 000
-    indexed rows would send them to type it again.
-    """
-    manual, indexed = await asyncio.gather(
+    manual, pages = await asyncio.gather(
         search_manual(query, division=division, manufacturer=manufacturer, limit=limit),
-        search_index(query or "", vendor=manufacturer, category=division, limit=limit),
+        search_pages(query or "", vendor=manufacturer, limit=12),
     )
-    combined = (manual + indexed)[:limit]
+    indexed = await index_available()
     return {
-        "products": combined,
-        "total": len(manual) + len(indexed),
-        "counts": {"manual": len(manual), "catalog": len(indexed)},
-        "indexAvailable": index_available(),
+        "products": manual,
+        "pages": pages,
+        "total": len(manual),
+        "counts": {"manual": len(manual), "pages": len(pages)},
+        "indexAvailable": indexed,
         "note": (
             None
-            if index_available()
-            else "The catalog index has not been built yet, so only hand-added parts "
-                 "are searchable. Build it with `python -m cbc.catalog.rebuild`."
+            if indexed
+            else "No catalog has been indexed yet, so only hand-added parts are "
+                 "searchable. Build the page index with "
+                 "`python -m cbc.pageindex.build --all`."
+        ),
+        "pagesNote": (
+            "These are pages in the vendor price books, not priced lines. Open one "
+            "to read what it actually says."
+            if pages
+            else None
         ),
     }

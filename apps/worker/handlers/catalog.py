@@ -6,9 +6,12 @@ that died mid-job, exponential backoff, permanent-vs-transient failure
 classification, cancellation and an audit trail. A second queue would be the same
 machinery again, with its own bugs.
 
-The worker is the **only** writer to the SQLite index. The API and the MCP servers
-open it read-only, which is what keeps a single-writer database safe with several
-processes reading it.
+The worker is the **only** writer to the page index. The API reads it with the
+application credential and a run reads it with one that cannot write.
+
+Indexing describes pages; it does not extract prices. A 744-page book takes
+seconds because the work is string handling over text already on the page, and
+because an unchanged file is not re-read at all.
 """
 from __future__ import annotations
 
@@ -20,34 +23,23 @@ from typing import Any
 
 from cbc.config import settings
 from cbc.db import db, oid
-from cbc.catalog import db as index_db
-from cbc.catalog import pipeline
-from cbc.catalog.pipeline import IndexingError
+from cbc.pageindex import build as pageindex_build
+from cbc.pageindex import store as pageindex_store
 
 log = logging.getLogger("cbc.worker.catalog")
 
 
+class IndexingError(RuntimeError):
+    """The file cannot be indexed, and retrying reads the same file.
+
+    Kept as a named type because the worker classifies it as permanent: a corrupt
+    PDF or a sheet with no text layer fails identically on the third attempt, and
+    spending the attempt budget to reach the same answer more slowly helps nobody.
+    """
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def _index_sync(path: Path, vendor: str, effective_date: str | None) -> dict[str, Any]:
-    """All SQLite work for one catalog, on one thread."""
-    connection = index_db.initialise()
-    try:
-        return pipeline.index_catalog(
-            connection, path, vendor=vendor, effective_date=effective_date
-        )
-    finally:
-        connection.close()
-
-
-def _delete_sync(catalog_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    connection = index_db.initialise()
-    try:
-        return pipeline.delete_catalog(connection, catalog_id), index_db.integrity_report(connection)
-    finally:
-        connection.close()
 
 
 def _vendor_for(book: dict[str, Any] | None, filename: str) -> str:
@@ -57,105 +49,99 @@ def _vendor_for(book: dict[str, Any] | None, filename: str) -> str:
     return filename.split("_")[0].lower() or "unknown"
 
 
-async def index_catalog(job: dict[str, Any]) -> str:
-    """Read one catalog file into the search index.
-
-    Extraction is CPU-bound and takes seconds to minutes, which is exactly why it
-    belongs on the queue and not on the request that uploaded the file.
-    """
-    payload = job.get("payload") or {}
-    filename = payload.get("filename")
-    if not filename:
-        raise ValueError("index_catalog job has no payload.filename")
-
-    # The filename comes from a job payload, so it is not taken on trust: it is
-    # reduced to a bare name and resolved inside the price-book directory.
+def _resolve(filename: str) -> Path:
+    """A path inside the price-book directory, from an untrusted job payload."""
     from cbc.services import storage
 
     safe = storage.safe_name(str(filename))
     path = (settings.pricebook_dir / safe).resolve()
     if not path.is_relative_to(settings.pricebook_dir.resolve()):
         raise ValueError(f"catalog file must be inside {settings.pricebook_dir}: {filename!r}")
+    return path
+
+
+async def index_catalog(job: dict[str, Any]) -> str:
+    """Describe one catalog's pages into the index."""
+    payload = job.get("payload") or {}
+    filename = payload.get("filename")
+    if not filename:
+        raise ValueError("index_catalog job has no payload.filename")
+
+    path = _resolve(filename)
+    if not path.exists():
+        raise IndexingError(f"catalog file is missing: {path.name}")
 
     book = None
     if payload.get("priceBookId"):
         book = await db.price_books.find_one({"_id": oid(payload["priceBookId"])})
 
-    # The SQLite connection is created, used and closed inside the thread: a
-    # connection cannot be shared across threads, and a 744-page book would stall
-    # the heartbeat and the cancel watcher if it ran on the event loop.
-    try:
-        report = await asyncio.to_thread(
-            _index_sync, path, _vendor_for(book, safe), (book or {}).get("effective")
-        )
-    except IndexingError as exc:
-        if book and payload.get("priceBookId"):
-            from cbc.services import storage as file_storage
-            from cbc.services.document_index import enqueue_index, inventory_kind
+    vendor = _vendor_for(book, path.name)
+    # `build_one` puts the page reading on a thread itself - a 744-page PDF would
+    # otherwise stall the heartbeat and the cancel watcher - and keeps the Mongo
+    # write on this loop, where the client belongs.
+    document = await pageindex_build.build_one(
+        path,
+        vendor=vendor,
+        kind=(book or {}).get("kind"),
+        effective_date=(book or {}).get("effective"),
+        force=bool(payload.get("force")),
+    )
 
-            kind = inventory_kind(safe) or book.get("kind") or "price_book"
+    if document is None:
+        if book:
             await db.price_books.update_one(
-                {"_id": book["_id"]},
-                {"$set": {"indexStatus": "deep_index_queued", "updatedAt": _now()}},
+                {"_id": book["_id"]}, {"$set": {"indexStatus": "ready", "updatedAt": _now()}}
             )
-            document_id, _ = await enqueue_index(
-                source_path=file_storage.relative(path),
-                client_id=_vendor_for(book, safe),
-                document_type=kind,
-                effective_date=book.get("effective"),
-                actor=job.get("createdBy") or "worker",
-                trigger="catalog_failed",
-                price_book_id=str(book["_id"]),
-            )
-            log.info(
-                "catalog index failed for %s — queued deep index %s: %s",
-                safe,
-                document_id,
-                exc,
-            )
-        raise
+        return "unchanged since the last index - its pages are already described"
 
-    # Mirror the outcome onto the price-book record the UI reads.
     if book:
         await db.price_books.update_one(
             {"_id": book["_id"]},
-            {"$set": {
-                "catalogId": report["catalog_id"],
-                "indexStatus": report["status"],
-                "partCount": report.get("products", 0),
-                "extractor": report.get("extractor"),
-                "validationRate": report.get("validation_rate"),
-            }},
+            {
+                "$set": {
+                    "catalogId": document.catalog_id,
+                    "indexStatus": document.status,
+                    "pageCount": document.page_count,
+                    "priceBasis": document.price_basis,
+                    "updatedAt": _now(),
+                }
+            },
         )
 
-    if report.get("skipped"):
-        return f"unchanged since the last index - {report['products']} products still searchable"
+    weak = sum(1 for page in document.pages if page.confidence < 0.5)
     return (
-        f"{report['products']} products indexed from {report['pages_read']} page(s) "
-        f"via {report['extractor']} at a {report['validation_rate']:.0%} validation rate"
+        f"{document.page_count} page(s) described from {document.file_name}"
+        + (f"; {weak} could not be read confidently" if weak else "")
     )
 
 
 async def delete_catalog(job: dict[str, Any]) -> str:
-    """Remove a catalog from the index, and verify nothing was left behind."""
+    """Remove a catalog's index when its file is deleted.
+
+    Nothing outlives the PDF it describes: a page description for a sheet that is
+    gone would route a pricing pass at a file nobody can open.
+    """
     payload = job.get("payload") or {}
     catalog_id = payload.get("catalogId")
-    if not catalog_id:
-        raise ValueError("delete_catalog job has no payload.catalogId")
+    filename = payload.get("filename")
+    if not catalog_id and not filename:
+        raise ValueError("delete_catalog job needs payload.catalogId or payload.filename")
 
-    report, integrity = await asyncio.to_thread(_delete_sync, str(catalog_id))
-
-    if report["orphans"] or not integrity["ok"]:
-        # The whole point of the cascade is that this cannot happen. If it ever
-        # does, it is a real defect and must not be reported as a clean delete.
-        raise RuntimeError(
-            f"catalog {catalog_id} did not delete cleanly: "
-            f"{report['orphans']} orphan(s), {integrity['problems']}"
-        )
+    removed = 0
+    if catalog_id:
+        removed += int(await pageindex_store.delete(str(catalog_id)))
+    if not removed and filename:
+        removed += await pageindex_store.delete_by_file(str(filename))
 
     if payload.get("priceBookId"):
         await db.price_books.update_one(
             {"_id": oid(payload["priceBookId"])},
-            {"$set": {"indexStatus": "deleted", "partCount": 0}},
+            {"$set": {"catalogId": None, "indexStatus": "removed", "updatedAt": _now()}},
         )
-    return f"{report['removed']} product(s) removed from the index, no orphans"
+
+    # Verified rather than assumed - the point of doing this on the queue.
+    still_there = bool(catalog_id and await pageindex_store.get(str(catalog_id)))
+    if still_there:
+        raise RuntimeError(f"{catalog_id} is still in the page index after deletion")
+
+    return f"{removed} catalog index/indexes removed" if removed else "nothing was indexed for it"

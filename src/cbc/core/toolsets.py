@@ -29,7 +29,6 @@ SERVERS = {
     "artifact-storage": "./mcp-servers/artifact-storage/server.py",
     "p21-connector": "./mcp-servers/p21-connector/server.py",
     "catalog": "./mcp-servers/catalog/server.py",
-    "document-index": "./mcp-servers/document-index/server.py",
 }
 
 # Reading drawings and writing what was found. No pricing tools exist at this
@@ -90,13 +89,12 @@ def _readonly_uri() -> str | None:
 def config_for(job_type: str, catalog_index_path: str | None = None) -> str:
     """The `--mcp-config` payload for a job type, as a JSON string.
 
-    The catalog server reads the SQLite FTS index at ``CATALOG_INDEX_PATH``.
-    The document-index server reads deep indexes at ``DOCUMENT_INDEX_ROOT``.
+    The catalog server reads the page index from MongoDB with a credential that
+    cannot write. `catalog_index_path` is accepted and ignored: it named a SQLite
+    file that no longer exists, and callers still pass it.
     """
     names = PROFILES.get(job_type) or list(SERVERS)
     servers: dict[str, Any] = {}
-    index_path = catalog_index_path or os.environ.get("CATALOG_INDEX_PATH")
-    document_root = os.environ.get("DOCUMENT_INDEX_ROOT")
     for name in names:
         if name not in SERVERS:
             continue
@@ -114,8 +112,6 @@ def config_for(job_type: str, catalog_index_path: str | None = None) -> str:
                 env["MONGODB_READONLY_URI"] = readonly
             if os.environ.get("MONGODB_DB"):
                 env["MONGODB_DB"] = os.environ["MONGODB_DB"]
-        if name == "document-index" and document_root:
-            env["DOCUMENT_INDEX_ROOT"] = document_root
         if env:
             entry["env"] = env
         servers[name] = entry

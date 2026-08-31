@@ -14,13 +14,9 @@ x-app-env: &app-env
   MONGODB_DB: cbc_opshub
   STORAGE_ROOT: /app/projects
   PRICEBOOK_DIR: /app/pricebooks
-  # The catalog search index. On a **named volume**, never on a bind mount:
-  # /app/projects is a 9p filesystem on Docker Desktop, and SQLite needs
-  # dependable POSIX locking plus shared memory for WAL. Neither is reliable
-  # there, and the failure mode is silent corruption rather than an error.
-  # catalog_index/db.py refuses to open the database from such a filesystem.
-  CATALOG_INDEX_PATH: /app/.index/catalog.sqlite3
-  DOCUMENT_INDEX_ROOT: /app/.index/documents
+  # The catalog page index lives in MongoDB alongside everything else, so there
+  # is no longer a SQLite file needing a named volume with dependable POSIX
+  # locking - which is what the removed CATALOG_INDEX_PATH was for.
   # Encrypts provider credentials at rest. Override it anywhere real - losing it
   # only means re-entering the credentials, but sharing it means they are not secret.
   APP_SECRET_KEY: ${APP_SECRET_KEY:-cbc-local-dev-key-change-me}
@@ -94,7 +90,6 @@ services:
       # Mounted read-write even though the API only reads: a WAL reader has to map
       # the -shm file, so `mode=ro` on the file cannot open a live WAL database at
       # all. Read-only is enforced on the connection instead (PRAGMA query_only).
-      - catalog_index:/app/.index
     depends_on:
       mongo:
         condition: service_healthy
@@ -127,7 +122,6 @@ services:
       - ./pricebooks:/app/pricebooks:ro
       - claude_home:/home/cbc/.claude
       # The worker is the only writer to the index.
-      - catalog_index:/app/.index
     depends_on:
       mongo:
         condition: service_healthy
@@ -183,10 +177,6 @@ services:
 
 volumes:
   mongo_data:
-  # Derived from pricebooks/, rebuilt with `python -m catalog_index.rebuild`.
-  # A named volume rather than a bind mount, because SQLite needs a real
-  # filesystem underneath it - see CATALOG_INDEX_PATH above.
-  catalog_index:
   # Claude Code's credentials, shared so a sign-in on the settings page (served
   # by the API) is the same sign-in the worker runs jobs with.
   claude_home:

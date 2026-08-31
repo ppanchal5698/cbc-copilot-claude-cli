@@ -58,16 +58,21 @@ def _inventory() -> dict[str, dict]:
     return {entry["file"]: entry for entry in payload.get("pricebooks", []) if entry.get("file")}
 
 
-async def build_one(
+def describe_file(
     path: Path,
     *,
     vendor: str | None = None,
     kind: str | None = None,
     effective_date: str | None = None,
-    force: bool = False,
     use_llm: bool = True,
 ) -> PageIndexDocument | None:
-    """Index one catalog file. Returns None when it was already current."""
+    """Read and describe one catalog. Pure CPU and I/O on the file - no database.
+
+    Kept separate from the write so the caller can run it on a thread: a 744-page
+    book would otherwise stall the worker's heartbeat and its cancel watcher, and
+    a motor client belongs to the loop that made it, so the save cannot go to the
+    thread with it.
+    """
     if not path.exists():
         raise FileNotFoundError(path)
 
@@ -78,9 +83,6 @@ async def build_one(
 
     catalog_id = store.catalog_id_for(path.name)
     digest = store.file_hash(path)
-    if not force and await store.stored_hash(catalog_id) == digest:
-        log.info("%s unchanged - not re-read", path.name)
-        return None
 
     if path.suffix.lower() != ".pdf":
         # Spreadsheets have no pages. Deliberately not guessed at here - the
@@ -131,11 +133,41 @@ async def build_one(
     finally:
         doc.close()
 
-    await store.save(document)
     log.info(
-        "%s indexed: %d pages, %d needed a second look",
+        "%s described: %d pages, %d needed a second look",
         path.name, len(document.pages), len(weak),
     )
+    return document
+
+
+async def build_one(
+    path: Path,
+    *,
+    vendor: str | None = None,
+    kind: str | None = None,
+    effective_date: str | None = None,
+    force: bool = False,
+    use_llm: bool = True,
+) -> PageIndexDocument | None:
+    """Index one catalog file. Returns None when it was already current."""
+    if not path.exists():
+        raise FileNotFoundError(path)
+
+    catalog_id = store.catalog_id_for(path.name)
+    if not force and await store.stored_hash(catalog_id) == store.file_hash(path):
+        log.info("%s unchanged - not re-read", path.name)
+        return None
+
+    document = await asyncio.to_thread(
+        describe_file,
+        path,
+        vendor=vendor,
+        kind=kind,
+        effective_date=effective_date,
+        use_llm=use_llm,
+    )
+    if document is not None:
+        await store.save(document)
     return document
 
 

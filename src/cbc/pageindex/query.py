@@ -70,6 +70,19 @@ def score_page(page: PageEntry, terms: list[str]) -> tuple[float, list[str]]:
             score += 0.5
             why.append(f"{term} in description")
 
+    # The whole phrase, not just its words. "hand dryer" matched a page of
+    # surgical glove dispensers as strongly as the page of hand dryers, because
+    # both mention both words somewhere; the page that is *about* the thing asked
+    # for has to win.
+    phrase = " ".join(t for t in terms if t.lower() not in _STOPWORDS)
+    if phrase:
+        if phrase in title:
+            score += 5.0
+            why.insert(0, f"page is titled {page.title!r}")
+        elif phrase in keywords:
+            score += 3.0
+            why.insert(0, f"{phrase} is what this page sells")
+
     # A page that carries prices is the one a pricing pass wants; an item-number
     # listing is where you go to find the code first.
     if score and page.has_prices:

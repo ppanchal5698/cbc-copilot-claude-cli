@@ -51,6 +51,29 @@ _FINISH = re.compile(r"^US\d{1,2}[A-Z]?$")
 _YEAR = re.compile(r"^(?:19|20)\d{2}$")
 
 
+# Column labels that head a table rather than name a section. Without a learned
+# profile these win the first-heading fallback and title every ASI page "MODEL
+# NUMBER", which tells a reader nothing about what is on it.
+_GENERIC_HEADING = frozenset(
+    {
+        "MODEL NUMBER",
+        "CATEGORY",
+        "DESCRIPTION",
+        "PRICE EACH",
+        "ITEM",
+        "ITEM NUMBER",
+        "PRODUCT",
+        "PRODUCT NAME",
+        "SHIPPING",
+        "PART NUMBER",
+        "LIST PRICE",
+        "NET PRICE",
+        "PAGE",
+        "QTY",
+        "QUANTITY",
+    }
+)
+
 # Page furniture that is never a section heading, for the no-profile fallback.
 _NOT_A_HEADING = re.compile(
     r"^(?:\d{1,4}|[\d/.\-]{6,}|(?:https?://)?www\..*|.*@.*|page \d+.*)$", re.IGNORECASE
@@ -287,6 +310,10 @@ def describe_page(
     # names every page in the book "114" and routes nothing.
     if not title:
         title = _first_heading(body) or _first_heading(lines) or ""
+        # A column label is not a section name. What the page sells is a better
+        # title than the header of the table it sells it in.
+        if title.strip().upper() in _GENERIC_HEADING and keywords:
+            title = keywords[0].title()
         if title:
             confidence = min(confidence, 0.5)
 

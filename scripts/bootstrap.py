@@ -58,9 +58,10 @@ def main() -> int:
             pricebook_dir = (ROOT / pricebook_dir).resolve()
         if pricebook_dir.is_dir():
             print(f"[bootstrap] building catalog index at {index_path}")
-            from cbc.catalog.rebuild import rebuild
+            from cbc.pageindex.build import build_all
 
-            rebuild(pricebook_dir)
+            import asyncio
+            asyncio.run(build_all())
             print("[bootstrap] catalog index ready")
         else:
             print(f"[bootstrap] pricebook dir missing ({pricebook_dir}) — index not built")

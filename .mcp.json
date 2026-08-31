@@ -29,12 +29,6 @@
       "args": [
         "./mcp-servers/catalog/server.py"
       ]
-    },
-    "document-index": {
-      "command": "python",
-      "args": [
-        "./mcp-servers/document-index/server.py"
-      ]
     }
   }
 }

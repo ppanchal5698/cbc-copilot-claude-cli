@@ -34,7 +34,6 @@ from cbc.core import claude_cli as runner, streaming  # noqa: E402
 from scripts.validate_project import validate_job_artifacts  # noqa: E402
 from apps.worker import prompts  # noqa: E402
 from apps.worker.handlers.catalog import delete_catalog, index_catalog  # noqa: E402
-from apps.worker.handlers.document_index import delete_document, index_document  # noqa: E402
 from apps.worker.handlers.ingest import ingest_pricebook  # noqa: E402
 
 logging.basicConfig(
@@ -357,8 +356,6 @@ async def sync_results(job: dict, project: dict | None) -> str:
 LOCAL_HANDLERS = {
     "index_catalog": index_catalog,
     "delete_catalog": delete_catalog,
-    "index_document": index_document,
-    "delete_document": delete_document,
 }
 
 
@@ -373,12 +370,9 @@ async def process_locally(job: dict) -> None:
         # A bad payload, a missing file, or a layout the extractor cannot read all
         # read exactly the same way on the third attempt. Retrying them spends the
         # attempt budget to reach the same conclusion more slowly.
-        from cbc.catalog.pipeline import IndexingError
-        from cbc.documents.pipeline import IndexingError as DocumentIndexingError
+        from apps.worker.handlers.catalog import IndexingError
 
-        permanent = isinstance(
-            exc, (ValueError, FileNotFoundError, IndexingError, DocumentIndexingError)
-        )
+        permanent = isinstance(exc, (ValueError, FileNotFoundError, IndexingError))
         await finish(job, False, str(exc), "", permanent=permanent)
         return
     finally:
@@ -486,7 +480,7 @@ async def process(job: dict) -> None:
             recording,
             job["type"],
             max_turns,
-            _CATALOG_INDEX_PATH,
+            None,
             cancel_event.is_set,
         )
     finally:
@@ -573,17 +567,18 @@ async def process(job: dict) -> None:
     await finish(job, True, None, result.output, combined or None)
 
 
-# Path to the SQLite catalog index for MCP pricing lookups.
-_CATALOG_INDEX_PATH: str | None = os.environ.get("CATALOG_INDEX_PATH")
-
-
 async def loop(once: bool = False) -> int:
-    global _CATALOG_INDEX_PATH
-    _CATALOG_INDEX_PATH = os.environ.get("CATALOG_INDEX_PATH")
-    if _CATALOG_INDEX_PATH:
-        log.info("catalog server will read index at %s", _CATALOG_INDEX_PATH)
-    else:
-        log.warning("CATALOG_INDEX_PATH is unset; catalog MCP lookups may return nothing")
+    # The catalog server reads the page index from MongoDB with a credential that
+    # cannot write, handed to it per job by cbc.core.toolsets. Say so if there is
+    # none, because a pricing pass with no catalog flags every line MANUAL and
+    # looks like a model failure rather than a missing credential.
+    from cbc.db import readonly_uri
+
+    if not readonly_uri():
+        log.warning(
+            "no read-only MongoDB credential; the catalog server will not be able "
+            "to read the page index and pricing will fall back to manual entry"
+        )
 
     log.info(
         "worker up - polling every %ss (phase jobs %ss/%s turns, full pipeline %ss/%s turns)",

@@ -211,14 +211,46 @@ export interface Product {
   effective?: string | null;
 }
 
+/** A page of a vendor price book worth opening - not a priced line.
+ *
+ * The price books are PDFs. They used to be pre-extracted into product rows so
+ * they could be listed beside the estimator's own parts, and that produced an
+ * index where 37.8% of the codes carried no letter and dates were recorded as
+ * part numbers. The vendor half now says where to look instead of guessing what
+ * is there. */
+export interface CatalogPage {
+  catalog_id: string;
+  vendor: string;
+  file: string;
+  pdf_page: number;
+  printed_page: string | null;
+  /** How the book itself names this page, e.g. "PDF p297 (printed p23)". */
+  locator: string;
+  title: string;
+  description: string;
+  code_prefixes: string[];
+  keywords: string[];
+  has_prices: boolean;
+  kind: string;
+  price_basis: string;
+  effective_date: string | null;
+  score: number;
+  /** Why this page matched, so a wrong hit is legible rather than mysterious. */
+  why: string[];
+}
+
 export interface ProductSearchResponse {
+  /** The estimator's own parts. Editable. */
   products: Product[];
+  /** Pages of the vendor price books. Read-only, and not priced lines. */
+  pages?: CatalogPage[];
   total: number;
-  counts?: { manual: number; catalog: number };
+  counts?: { manual: number; pages: number };
   divisions: { division: string; count: number }[];
-  /** False until `python -m catalog_index.rebuild` has been run. */
+  /** False until `python -m cbc.pageindex.build --all` has been run. */
   indexAvailable?: boolean;
   note?: string | null;
+  pagesNote?: string | null;
 }
 
 export interface PriceBook {

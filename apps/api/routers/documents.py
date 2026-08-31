@@ -19,7 +19,6 @@ from apps.api.deps import Actor
 from apps.api.routers.projects import load
 from apps.api.routers.versions import snapshot
 from cbc.services import audit, jobs, pdf, storage
-from cbc.services.document_index import enqueue_index
 
 router = APIRouter(prefix="/api/projects/{code}/documents", tags=["documents"])
 
@@ -115,20 +114,6 @@ async def upload_document(
             actor=actor,
         )
 
-    document_index_id, deep_index_job = await enqueue_index(
-        source_path=storage.relative(target),
-        client_id=project["slug"],
-        document_type=kind,
-        effective_date=None,
-        actor=actor,
-        trigger="upload",
-        project_id=str(project["_id"]),
-    )
-    await db.documents.update_one(
-        {"_id": result.inserted_id},
-        {"$set": {"documentIndexId": document_index_id}},
-    )
-
     await audit.record(
         "document.upload",
         actor,
@@ -139,8 +124,6 @@ async def upload_document(
     return {
         "document": serialise(document),
         "job": serialise(job),
-        "deepIndexJob": serialise(deep_index_job),
-        "documentIndexId": document_index_id,
         "autopilot": bool(project.get("autopilot")) and kind != "addendum",
         "version": version["version"] if version else None,
         "note": (
