@@ -18,7 +18,7 @@ from apps.api.deps import Actor, AdminActor
 from cbc.schemas import PriceBookCreate, PriceBookUpdate
 from cbc.services import audit, jobs, storage
 from cbc.services.document_index import enqueue_index, inventory_kind, should_deep_index_pricebook
-from cbc.catalog import basis
+from cbc.pageindex import basis
 from cbc.services.reference_library import sync_vendor_categories
 
 router = APIRouter(prefix="/api/price-books", tags=["price-books"])

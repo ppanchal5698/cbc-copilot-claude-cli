@@ -13,7 +13,7 @@ import json
 import pytest
 
 from apps.worker.handlers.ingest import _prices_for
-from cbc.catalog import basis
+from cbc.pageindex import basis
 
 
 @pytest.fixture(autouse=True)

@@ -19,7 +19,7 @@ import sqlite3
 from typing import Any
 
 from cbc.db import db, serialise
-from cbc.catalog import basis
+from cbc.pageindex import basis
 from cbc.catalog import db as index_db
 from cbc.catalog import search as index_search
 

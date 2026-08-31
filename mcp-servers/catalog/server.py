@@ -30,7 +30,7 @@ sys.path.insert(0, str(ROOT / "mcp-servers"))
 from _runtime import serve  # noqa: E402
 from tools import TOOLS  # noqa: E402
 
-from cbc.catalog import basis as price_basis_of  # noqa: E402
+from cbc.pageindex import basis as price_basis_of  # noqa: E402
 from cbc.catalog import db as index_db  # noqa: E402
 from cbc.catalog import search as index_search  # noqa: E402
 

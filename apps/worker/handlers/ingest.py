@@ -7,7 +7,7 @@ from pathlib import Path
 
 from bson import ObjectId
 
-from cbc.catalog import basis
+from cbc.pageindex import basis
 from cbc.db import db
 from cbc.core.paths import repo_root
 
