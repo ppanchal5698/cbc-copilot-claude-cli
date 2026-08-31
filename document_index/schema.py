@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import re
 
-from cbc_core.llm import LLMClient, load_prompt
+from cbc_core.llm import LLMClient
+from document_index.templates import load_prompt
 from document_index.models import FieldSchema, PageExtract, SchemaConfig
 
 

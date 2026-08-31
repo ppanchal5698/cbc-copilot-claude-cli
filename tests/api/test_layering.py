@@ -46,14 +46,37 @@ def _files(package: str) -> list[Path]:
     ]
 
 
+# Everything that sits above the shared floor. `catalog_index` and `document_index`
+# were added to the repo long after this test was written and were never added
+# here, so `cbc_core` importing one of them would have gone unnoticed.
+ABOVE_CORE = {"api", "worker", "catalog_index", "document_index"}
+
+
 def test_cbc_core_depends_on_neither_side() -> None:
     """It is the shared floor. The moment it imports upward, it is not."""
     offenders = {
-        path.relative_to(ROOT).as_posix(): sorted(_imported_roots(path) & {"api", "worker"})
+        path.relative_to(ROOT).as_posix(): sorted(_imported_roots(path) & ABOVE_CORE)
         for path in _files("cbc_core")
     }
     offenders = {name: roots for name, roots in offenders.items() if roots}
     assert not offenders, f"cbc_core imports upward: {offenders}"
+
+
+def test_cbc_core_does_not_reach_upward_by_path() -> None:
+    """An import is not the only way to depend on something.
+
+    `cbc_core.llm` held `PROMPTS_DIR = <root>/document_index/prompts` and read the
+    templates itself - a hard dependency on a feature package that the import test
+    above cannot see, because there is no import. The prompts now live beside the
+    code that sends them, in document_index.templates.
+    """
+    offenders: dict[str, list[str]] = {}
+    for path in _files("cbc_core"):
+        body = path.read_text(encoding="utf-8")
+        hits = sorted(name for name in ABOVE_CORE if f'"{name}"' in body or f"'{name}'" in body)
+        if hits:
+            offenders[path.relative_to(ROOT).as_posix()] = hits
+    assert not offenders, f"cbc_core names a package above it: {offenders}"
 
 
 def test_the_api_does_not_import_the_worker() -> None:

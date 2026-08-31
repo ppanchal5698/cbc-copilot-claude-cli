@@ -4,7 +4,8 @@ from __future__ import annotations
 import json
 import re
 
-from cbc_core.llm import LLMClient, load_prompt, render_prompt
+from cbc_core.llm import LLMClient
+from document_index.templates import load_prompt, render_prompt
 from document_index.models import SchemaConfig, SectionExtractionResult
 from document_index.schema import schema_to_prompt_json
 

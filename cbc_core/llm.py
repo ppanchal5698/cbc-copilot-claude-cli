@@ -1,4 +1,4 @@
-"""Single reusable LLM client for document indexing.
+"""Single reusable LLM client.
 
 Resolves credentials the same way the worker does (provider.build_env), so the
 model and gateway can be swapped without touching pipeline logic.
@@ -11,34 +11,22 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import httpx
 
 log = logging.getLogger("cbc.llm")
 
-PROMPTS_DIR = Path(__file__).resolve().parents[1] / "document_index" / "prompts"
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+# Sonnet 5 is the current model in the tier this pipeline was written for; the
+# pin it replaced (a dated Sonnet 4 snapshot) named a model two generations back.
+# Overridable per deployment with ANTHROPIC_MODEL - moving to another tier is a
+# cost and capability decision, so it is not made here.
+DEFAULT_MODEL = "claude-sonnet-5"
 MAX_TOKENS = 8192
 
 
 def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
-
-
-def load_prompt(name: str) -> str:
-    path = PROMPTS_DIR / name
-    if not path.exists():
-        raise FileNotFoundError(f"prompt template missing: {path}")
-    return path.read_text(encoding="utf-8")
-
-
-def render_prompt(template: str, **values: str) -> str:
-    rendered = template
-    for key, value in values.items():
-        rendered = rendered.replace(f"{{{{{key}}}}}", value)
-    return rendered
 
 
 def _extract_json(text: str) -> dict[str, Any]:
