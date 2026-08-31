@@ -60,4 +60,7 @@ EXPOSE 8001
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
 
 # Overridden per service in docker-compose.yml. The API is the sensible default.
-CMD ["python", "-m", "uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8001"]
+# The domain package lives under src/, so both applications can import `cbc`.
+ENV PYTHONPATH="/app:/app/src"
+
+CMD ["python", "-m", "uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8001"]

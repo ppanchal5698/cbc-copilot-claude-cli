@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from catalog_index import extractors, validate
-from catalog_index.models import ProductRecord
+from cbc.catalog import extractors, validate
+from cbc.catalog.models import ProductRecord
 
 ROW = ["010108", 'BB1279 4-1/2" x 4-1/2" US26D', "4.42"]
 
@@ -225,7 +225,7 @@ def test_a_rendered_page_defaults_to_the_cache_not_the_source_directory(tmp_path
     `projects/{slug}/uploads/raw/`, where raw uploads are immutable
     (.claude/rules/file-safety.md).
     """
-    from cbc_core import pdfpages
+    from cbc.core import pdfpages
 
     raw = tmp_path / "uploads" / "raw"
     raw.mkdir(parents=True)
@@ -235,7 +235,7 @@ def test_a_rendered_page_defaults_to_the_cache_not_the_source_directory(tmp_path
 @pytest.mark.parametrize("protected", ["pricebooks", "reference-library"])
 def test_read_only_reference_data_is_refused(protected: str) -> None:
     """pricebooks/ is mounted :ro on the worker; the failure should say why."""
-    from cbc_core import pdfpages
+    from cbc.core import pdfpages
 
     with pytest.raises(ValueError, match="read-only reference data"):
         pdfpages._writable_target(
@@ -250,7 +250,7 @@ def test_read_only_reference_data_is_refused(protected: str) -> None:
 def test_writing_into_uploads_raw_is_refused_even_when_asked(tmp_path) -> None:
     """The guard is here because the PreToolUse hook cannot see this write:
     it happens inside PyMuPDF, not through Write or Bash."""
-    from cbc_core import pdfpages
+    from cbc.core import pdfpages
 
     raw = tmp_path / "uploads" / "raw"
     raw.mkdir(parents=True)
@@ -259,7 +259,7 @@ def test_writing_into_uploads_raw_is_refused_even_when_asked(tmp_path) -> None:
 
 
 def test_an_ordinary_output_directory_is_allowed(tmp_path) -> None:
-    from cbc_core import pdfpages
+    from cbc.core import pdfpages
 
     processed = tmp_path / "uploads" / "processed"
     assert pdfpages._writable_target(tmp_path / "plans.pdf", processed) == processed.resolve()

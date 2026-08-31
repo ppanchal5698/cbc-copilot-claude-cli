@@ -18,8 +18,8 @@ import time
 
 import pytest
 
-from catalog_index import db, registry, search
-from catalog_index.models import ProductRecord
+from cbc.catalog import db, registry, search
+from cbc.catalog.models import ProductRecord
 
 
 def _records(vendor: str, count: int, prefix: str) -> list[ProductRecord]:

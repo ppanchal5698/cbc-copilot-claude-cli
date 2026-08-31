@@ -11,8 +11,8 @@ import sqlite3
 
 import pytest
 
-from catalog_index import db, registry, search
-from catalog_index.models import ProductRecord, looks_like_code, normalize_code
+from cbc.catalog import db, registry, search
+from cbc.catalog.models import ProductRecord, looks_like_code, normalize_code
 
 
 @pytest.fixture()
@@ -326,7 +326,7 @@ def test_readers_cannot_write(tmp_path) -> None:
 def test_a_csv_price_sheet_indexes_and_is_searchable(index, tmp_path) -> None:
     """The client's real workflow: drop one CSV net sheet in and its parts are
     searchable. The deterministic pipeline does the work - no Claude in the path."""
-    from catalog_index import pipeline
+    from cbc.catalog import pipeline
 
     parts = [
         ("B-2888", "Surface paper towel dispenser", "72.00"),

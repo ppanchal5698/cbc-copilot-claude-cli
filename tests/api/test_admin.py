@@ -16,7 +16,7 @@ def client():
 
 @pytest.fixture()
 def as_role():
-    from api.config import settings
+    from cbc.config import settings
     from pymongo import MongoClient
 
     raw = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)

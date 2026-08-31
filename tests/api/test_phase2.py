@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from api.config import settings
+from cbc.config import settings
 from tests.shared import ROOT, opshub_client  # noqa: E402
 
 TEST_DB = "cbc_opshub_test_phase2"

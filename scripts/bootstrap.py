@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 
@@ -57,7 +58,7 @@ def main() -> int:
             pricebook_dir = (ROOT / pricebook_dir).resolve()
         if pricebook_dir.is_dir():
             print(f"[bootstrap] building catalog index at {index_path}")
-            from catalog_index.rebuild import rebuild
+            from cbc.catalog.rebuild import rebuild
 
             rebuild(pricebook_dir)
             print("[bootstrap] catalog index ready")

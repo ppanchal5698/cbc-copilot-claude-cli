@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from api.services import reference_library as reflib
+from cbc.services import reference_library as reflib
 from tests.shared import TEST_ACTOR, opshub_client
 
 TEST_DB = "cbc_opshub_test_reference"
@@ -41,7 +41,7 @@ def preserve_reference_files():
 
 
 def test_update_margins_round_trip() -> None:
-    from cbc_core import calc
+    from cbc.core import calc
 
     updated = reflib.update_margins(bands={"commodity": 0.30})
     band = next(b for b in updated["bands"] if b["key"] == "commodity")
@@ -75,14 +75,14 @@ def test_update_margins_rejects_unknown_band() -> None:
 
 
 def test_update_tax_rates_round_trip() -> None:
-    from cbc_core import calc
+    from cbc.core import calc
 
     reflib.update_tax_rates(rates={"OH": 0.0825})
     assert calc.tax_rates()["OH"] == 0.0825  # the pricing engine sees the edit
 
 
 def test_update_tax_rates_add_and_remove() -> None:
-    from cbc_core import calc
+    from cbc.core import calc
 
     reflib.update_tax_rates(rates={"IN": 0.07})
     assert calc.tax_rates()["IN"] == 0.07
@@ -220,7 +220,7 @@ def admin_client():
 
 @pytest.fixture()
 def as_role():
-    from api.config import settings
+    from cbc.config import settings
     from pymongo import MongoClient
 
     raw = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)

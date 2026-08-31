@@ -7,8 +7,8 @@ import pytest
 from bson import ObjectId
 from pymongo import MongoClient
 
-from api import db as db_module
-from api.config import settings
+from cbc import db as db_module
+from cbc.config import settings
 from tests.shared import FIXTURE_PDF, TEST_ACTOR, opshub_client
 
 TEST_DB = "cbc_opshub_test_project_delete"
@@ -99,7 +99,7 @@ def test_admin_delete_purges_mongo_and_disk(client) -> None:
 
 
 def test_admin_delete_removes_queued_job_history(client) -> None:
-    from api.services.jobs import enqueue
+    from cbc.services.jobs import enqueue
 
     project = _create_project(client)
     project_id = _project_id(project)

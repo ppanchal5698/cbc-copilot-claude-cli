@@ -15,7 +15,7 @@ from scripts.validate_project import (
 )
 from tests.shared import ROOT
 
-from cbc_core import calc  # noqa: E402
+from cbc.core import calc  # noqa: E402
 
 
 def _write(project: str, relative: str, payload) -> Path:
@@ -122,7 +122,7 @@ def test_compute_totals_treats_null_sale_as_unpriced(calc):
 
 
 def test_match_and_price_prompt_uses_agent_tool_not_paths():
-    from worker import prompts
+    from apps.worker import prompts
 
     assert ".claude/agents/" not in prompts.MATCH_AND_PRICE
     assert "product-matcher" in prompts.MATCH_AND_PRICE
@@ -130,7 +130,7 @@ def test_match_and_price_prompt_uses_agent_tool_not_paths():
 
 
 def test_build_proposal_prompt_uses_agent_tool_not_paths():
-    from worker import prompts
+    from apps.worker import prompts
 
     assert ".claude/agents/" not in prompts.BUILD_PROPOSAL
     assert "quote-builder" in prompts.BUILD_PROPOSAL

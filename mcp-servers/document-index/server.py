@@ -8,12 +8,13 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "mcp-servers"))
 
 from _runtime import serve  # noqa: E402
 from tools import TOOLS  # noqa: E402
 
-from document_index import search  # noqa: E402
+from cbc.documents import search  # noqa: E402
 
 
 def search_index(

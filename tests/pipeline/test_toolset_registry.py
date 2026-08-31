@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 
-from cbc_core import toolsets
+from cbc.core import toolsets
 from tests.shared import ROOT
 
 

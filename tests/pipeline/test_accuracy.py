@@ -175,7 +175,7 @@ def test_every_job_type_is_either_gated_or_explicitly_unchecked() -> None:
     with no human checkpoints - ended up with no artifact checks either."""
     from typing import get_args
 
-    from api.schemas.common import JobType
+    from cbc.schemas.common import JobType
     from scripts.validate_project import ARTIFACT_CHECKS, UNCHECKED_JOB_TYPES
 
     uncovered = set(get_args(JobType)) - set(ARTIFACT_CHECKS) - UNCHECKED_JOB_TYPES

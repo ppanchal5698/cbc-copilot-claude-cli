@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from pymongo import MongoClient
 
-from api.config import settings
+from cbc.config import settings
 from tests.shared import TEST_ACTOR, opshub_client
 
 TEST_DB = "cbc_opshub_test_authz"
@@ -125,20 +125,20 @@ def test_a_base_url_off_the_allowlist_is_refused(client, as_role) -> None:
     ["https://api.anthropic.com", "http://localhost:4000", "http://host.docker.internal:4000"],
 )
 def test_the_documented_providers_are_allowed(url: str) -> None:
-    from api.services import provider
+    from cbc.services import provider
 
     provider.check_base_url(url)  # must not raise
 
 
 def test_a_non_http_scheme_is_refused() -> None:
-    from api.services import provider
+    from cbc.services import provider
 
     with pytest.raises(ValueError, match="http or https"):
         provider.check_base_url("file:///etc/passwd")
 
 
 def test_an_operator_can_widen_the_allowlist(monkeypatch) -> None:
-    from api.services import provider
+    from cbc.services import provider
 
     with pytest.raises(ValueError):
         provider.check_base_url("https://gateway.internal.corp")
@@ -151,7 +151,7 @@ def test_an_operator_can_widen_the_allowlist(monkeypatch) -> None:
 
 
 def test_repeated_sign_in_attempts_are_throttled(client) -> None:
-    from api.routers import auth
+    from apps.api.routers import auth
 
     auth._attempts.clear()
     body = {"email": "someone@example.com", "password": "wrong"}

@@ -11,7 +11,7 @@ subprocess. Search now costs a fraction of a millisecond, because the reading
 happened once, in the background, when the catalog was uploaded.
 
 The vendor PDFs remain the source of truth. This index is derived from them and can
-be thrown away and rebuilt: `python -m catalog_index.rebuild`.
+be thrown away and rebuilt: `python -m cbc.catalog.rebuild`.
 """
 from __future__ import annotations
 
@@ -24,13 +24,14 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "mcp-servers"))
 
 from _runtime import serve  # noqa: E402
 from tools import TOOLS  # noqa: E402
 
-from catalog_index import db as index_db  # noqa: E402
-from catalog_index import search as index_search  # noqa: E402
+from cbc.catalog import db as index_db  # noqa: E402
+from cbc.catalog import search as index_search  # noqa: E402
 
 TIERS_FILE = ROOT / "reference-library" / "multipliers" / "vendor_tiers.json"
 SPECIAL_NETS_FILE = ROOT / "reference-library" / "multipliers" / "hager_special_nets.json"
@@ -58,7 +59,7 @@ def _db() -> sqlite3.Connection:
         if not path.exists():
             raise FileNotFoundError(
                 f"the catalog index does not exist at {path}. Build it with "
-                "`python -m catalog_index.rebuild` - it is derived from pricebooks/ "
+                "`python -m cbc.catalog.rebuild` - it is derived from pricebooks/ "
                 "and takes about 20 seconds."
             )
         _connection = index_db.connect(path, readonly=True)
@@ -159,7 +160,7 @@ def list_catalogs(vendor: str | None = None) -> dict[str, Any]:
 
 
 def get_catalog_status(catalog_id: str) -> dict[str, Any]:
-    from catalog_index import registry
+    from cbc.catalog import registry
 
     found = registry.status_of(_bounded(), catalog_id)
     if found is None:
@@ -445,7 +446,7 @@ def _sample_product_code() -> str | None:
 def _demo() -> None:
     """Runnable check against the real index."""
     catalogs = list_catalogs()
-    assert catalogs["searchable"] > 0, "no catalogs indexed - run catalog_index.rebuild"
+    assert catalogs["searchable"] > 0, "no catalogs indexed - run cbc.catalog.rebuild"
 
     code = _sample_product_code()
     assert code, "catalogs are indexed but hold no priced products - rebuild the index"

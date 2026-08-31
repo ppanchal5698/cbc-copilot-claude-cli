@@ -15,8 +15,8 @@ from tests.shared import ROOT, opshub_client  # noqa: E402
 
 TEST_DB = "cbc_opshub_test_provider"
 
-from api.services import provider  # noqa: E402
-from cbc_core import secrets  # noqa: E402
+from cbc.services import provider  # noqa: E402
+from cbc.core import secrets  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -304,7 +304,7 @@ def test_a_masked_value_sent_back_unedited_keeps_the_stored_credential(client):
     # The credential itself, not merely "configured" - which a mask satisfies too.
     from pymongo import MongoClient
 
-    from api.config import settings as app_settings
+    from cbc.config import settings as app_settings
 
     raw = MongoClient(app_settings.mongodb_uri)
     try:
@@ -320,7 +320,7 @@ def test_saving_settings_records_the_change_without_the_values(client):
     """The trail has to show that a credential changed, and never what it became."""
     from pymongo import MongoClient
 
-    from api.config import settings as app_settings
+    from cbc.config import settings as app_settings
 
     client.put(
         "/api/settings/claude",

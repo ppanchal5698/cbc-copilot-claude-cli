@@ -1,8 +1,8 @@
 """Tests for completeness reconciliation logic."""
 from __future__ import annotations
 
-from document_index.completeness import count_regex_matches, reconcile_section, split_text_halves
-from document_index.models import SchemaConfig, SectionExtractionResult
+from cbc.documents.completeness import count_regex_matches, reconcile_section, split_text_halves
+from cbc.documents.models import SchemaConfig, SectionExtractionResult
 
 
 def _schema() -> SchemaConfig:

@@ -36,7 +36,7 @@ echo "[$(date -Iseconds)] Starting Phase 0-6 for ${PROJECT_NAME}"
 # Ops-Hub worker runs. This script used to restate it - a third hand-copy of the
 # rules, after _phase.sh was already moved onto the shared source. Same pipeline,
 # whichever way it is started.
-PROMPT="$(PYTHONPATH="${ROOT}" python -m worker.prompts --pipeline "${PROJECT_DIR}")" || {
+PROMPT="$(PYTHONPATH="${ROOT}:${ROOT}/src" python -m apps.worker.prompts --pipeline "${PROJECT_DIR}")" || {
   echo "Could not build the pipeline prompt from worker/prompts.py" >&2
   exit 1
 }

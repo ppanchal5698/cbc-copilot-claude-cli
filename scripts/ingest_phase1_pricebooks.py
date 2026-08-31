@@ -21,6 +21,7 @@ from pathlib import Path
 from pymongo import MongoClient
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 URI = "mongodb://cbc:cbc_local_dev@localhost:27017/cbc_opshub?authSource=admin"
@@ -299,9 +300,9 @@ def upsert_mongo(uri: str, db_name: str) -> dict[str, str]:
 
 
 async def index_price_book(book_id: str, filename: str) -> str:
-    from api import db as db_module
-    from api.config import settings
-    from api.services.jobs import enqueue
+    from cbc import db as db_module
+    from cbc.config import settings
+    from cbc.services.jobs import enqueue
 
     settings.mongodb_db = os.environ.get("MONGODB_DB", "cbc_opshub")
     db_module._client = None
@@ -325,7 +326,7 @@ def main() -> int:
     ids = upsert_mongo(uri, db_name)
 
     if args.no_index:
-        print("\nSkipped index_catalog jobs (--no-index). Run: python -m catalog_index.rebuild")
+        print("\nSkipped index_catalog jobs (--no-index). Run: python -m cbc.catalog.rebuild")
         return 0
 
     queued = 0
@@ -338,7 +339,7 @@ def main() -> int:
 
     print(
         f"\nQueued {queued} index job(s). Watch: docker logs -f cbc-worker\n"
-        "Or rebuild locally: python -m catalog_index.rebuild"
+        "Or rebuild locally: python -m cbc.catalog.rebuild"
     )
     return 0
 

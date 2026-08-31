@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from document_index import storage
-from document_index.versioning import (
+from cbc.documents import storage
+from cbc.documents.versioning import (
     get_current_version,
     list_versions,
     promote_current_version,

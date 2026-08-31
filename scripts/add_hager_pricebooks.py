@@ -20,6 +20,7 @@ from pathlib import Path
 from pymongo import MongoClient
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 URI = "mongodb://cbc:cbc_local_dev@localhost:27017/cbc_opshub?authSource=admin"
@@ -155,9 +156,9 @@ def upsert_mongo(uri: str, db_name: str) -> dict[str, str]:
 
 
 async def index_price_book(book_id: str, filename: str) -> str:
-    from api import db as db_module
-    from api.config import settings
-    from api.services.jobs import enqueue
+    from cbc import db as db_module
+    from cbc.config import settings
+    from cbc.services.jobs import enqueue
 
     settings.mongodb_db = os.environ.get("MONGODB_DB", "cbc_opshub")
     db_module._client = None

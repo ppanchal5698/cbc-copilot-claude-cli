@@ -29,7 +29,7 @@ def test_api_app_imports_with_its_routes() -> None:
     FastAPI stores an included router is an internal detail that has already
     changed once (0.141 keeps lazy wrappers where 0.115 flattened).
     """
-    from api.main import app
+    from apps.api.main import app
 
     paths = set(app.openapi()["paths"])
     assert "/api/health" in paths
@@ -53,7 +53,7 @@ def test_api_app_imports_with_its_routes() -> None:
     ],
 )
 def test_upload_filename_stays_in_its_directory(tmp_path, hostile: str) -> None:
-    from api.services import storage
+    from cbc.services import storage
 
     target = storage.unique_filename(tmp_path, hostile)
     assert target.parent == tmp_path, f"{hostile!r} escaped to {target}"
@@ -61,7 +61,7 @@ def test_upload_filename_stays_in_its_directory(tmp_path, hostile: str) -> None:
 
 
 def test_ordinary_filename_survives_intact(tmp_path) -> None:
-    from api.services import storage
+    from cbc.services import storage
 
     assert storage.unique_filename(tmp_path, "Bid Set 25-073.pdf").name == "Bid Set 25-073.pdf"
 
@@ -72,7 +72,7 @@ def test_ordinary_filename_survives_intact(tmp_path) -> None:
 def test_pricebook_ingest_refuses_a_path_outside_the_cache() -> None:
     import asyncio
 
-    from worker.handlers.ingest import ingest_pricebook
+    from apps.worker.handlers.ingest import ingest_pricebook
 
     job = {
         "type": "ingest_pricebook",
@@ -86,7 +86,7 @@ def test_pricebook_ingest_refuses_a_path_outside_the_cache() -> None:
 
 
 def test_production_rejects_the_default_secrets(monkeypatch) -> None:
-    from api.config import DEV_SECRET, Settings
+    from cbc.config import DEV_SECRET, Settings
 
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("APP_SECRET_KEY", DEV_SECRET)
@@ -97,7 +97,7 @@ def test_production_rejects_the_default_secrets(monkeypatch) -> None:
 
 
 def test_production_starts_on_real_secrets(monkeypatch) -> None:
-    from api.config import Settings
+    from cbc.config import Settings
 
     monkeypatch.setenv("APP_ENV", "production")
     monkeypatch.setenv("APP_SECRET_KEY", "a-real-secret-from-secrets-manager")
@@ -110,6 +110,6 @@ def test_production_starts_on_real_secrets(monkeypatch) -> None:
 def test_development_keeps_working_with_no_configuration(monkeypatch) -> None:
     for name in ("APP_ENV", "APP_SECRET_KEY", "INTERNAL_API_TOKEN", "MONGODB_URI"):
         monkeypatch.delenv(name, raising=False)
-    from api.config import DEV_SECRET, Settings
+    from cbc.config import DEV_SECRET, Settings
 
     assert Settings().internal_api_token == DEV_SECRET

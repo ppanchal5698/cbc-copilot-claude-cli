@@ -6,9 +6,21 @@ while `worker.runner` reached back for `api.services.secrets` to redact what it
 captured. Python allowed it because both edges were function-local imports, which
 is the shape a cycle takes when nobody wants to admit to one.
 
-The CLI layer now sits below both, in `cbc_core`. These tests fail if that
-inverts again - which is the only reliable way to keep a layering rule, since a
-comment saying "do not import from api here" has never stopped anyone.
+The first fix put the CLI layer below both, in `cbc_core`. That left a subtler
+version of the same problem: `api` still owned the configuration, the database
+handle and every domain service, so `worker` had to import the web application to
+reach them - an edge this file used to assert as *allowed*, because it was.
+
+The domain now lives in `cbc`, under `src/`, and both applications sit above it in
+`apps/`. The rule is one-way and there is no longer an exception to carve out:
+
+    apps/api  ─┐
+               ├─→  cbc  (config, db, schemas, services, core, catalog, documents)
+    apps/worker┘
+
+These tests fail if that inverts again - which is the only reliable way to keep a
+layering rule, since a comment saying "do not import from apps here" has never
+stopped anyone.
 """
 from __future__ import annotations
 
@@ -19,97 +31,94 @@ import pytest
 
 from tests.shared import ROOT
 
-SOURCE_DIRS = {"api": ROOT / "api", "worker": ROOT / "worker", "cbc_core": ROOT / "cbc_core"}
+SOURCE_DIRS = {
+    "apps.api": ROOT / "apps" / "api",
+    "apps.worker": ROOT / "apps" / "worker",
+    "cbc": ROOT / "src" / "cbc",
+    "cbc.core": ROOT / "src" / "cbc" / "core",
+}
 
 
 def _imported_roots(path: Path) -> set[str]:
-    """Every top-level package this file imports, wherever the import is written.
+    """Every dotted module prefix this file imports, wherever the import is written.
 
     Walks the whole tree rather than the module header, because an import inside
     a function body is still an edge - and was how both halves of the cycle hid.
+    Returns full dotted paths (`apps.api.routers.jobs`), not just the first
+    segment, so `apps.worker` importing `apps.worker.handlers` is distinguishable
+    from it importing `apps.api`.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    roots: set[str] = set()
+    modules: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            roots.update(alias.name.split(".")[0] for alias in node.names)
+            modules.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            roots.add(node.module.split(".")[0])
-    return roots
+            modules.add(node.module)
+    return modules
 
 
 def _files(package: str) -> list[Path]:
-    return [
-        path
-        for path in SOURCE_DIRS[package].rglob("*.py")
-        if "__pycache__" not in path.parts
-    ]
+    directory = SOURCE_DIRS[package]
+    assert directory.is_dir(), f"{package} is not at {directory} - did the layout move?"
+    return [path for path in directory.rglob("*.py") if "__pycache__" not in path.parts]
 
 
-# Everything that sits above the shared floor. `catalog_index` and `document_index`
-# were added to the repo long after this test was written and were never added
-# here, so `cbc_core` importing one of them would have gone unnoticed.
-ABOVE_CORE = {"api", "worker", "catalog_index", "document_index"}
-
-
-def test_cbc_core_depends_on_neither_side() -> None:
-    """It is the shared floor. The moment it imports upward, it is not."""
-    offenders = {
-        path.relative_to(ROOT).as_posix(): sorted(_imported_roots(path) & ABOVE_CORE)
-        for path in _files("cbc_core")
-    }
-    offenders = {name: roots for name, roots in offenders.items() if roots}
-    assert not offenders, f"cbc_core imports upward: {offenders}"
-
-
-def test_cbc_core_does_not_reach_upward_by_path() -> None:
-    """An import is not the only way to depend on something.
-
-    `cbc_core.llm` held `PROMPTS_DIR = <root>/document_index/prompts` and read the
-    templates itself - a hard dependency on a feature package that the import test
-    above cannot see, because there is no import. The prompts now live beside the
-    code that sends them, in document_index.templates.
-    """
-    offenders: dict[str, list[str]] = {}
-    for path in _files("cbc_core"):
-        body = path.read_text(encoding="utf-8")
-        hits = sorted(name for name in ABOVE_CORE if f'"{name}"' in body or f"'{name}'" in body)
+def _imports_into(package: str, prefix: str) -> dict[str, list[str]]:
+    offenders = {}
+    for path in _files(package):
+        hits = sorted(
+            module
+            for module in _imported_roots(path)
+            if module == prefix or module.startswith(prefix + ".")
+        )
         if hits:
             offenders[path.relative_to(ROOT).as_posix()] = hits
-    assert not offenders, f"cbc_core names a package above it: {offenders}"
+    return offenders
+
+
+@pytest.mark.parametrize("package", ["cbc", "cbc.core"])
+def test_the_domain_never_imports_an_application(package: str) -> None:
+    """It is the shared floor. The moment it imports upward, it is not."""
+    offenders = _imports_into(package, "apps")
+    assert not offenders, f"{package} imports upward: {offenders}"
+
+
+def test_the_worker_does_not_import_the_api() -> None:
+    """The edge this restructure existed to remove.
+
+    The worker needed configuration, the database and the domain services. Those
+    lived inside the web application, so it imported the web application. They are
+    in `cbc` now, so it does not have to - and must not.
+    """
+    offenders = _imports_into("apps.worker", "apps.api")
+    assert not offenders, f"the worker imports the api: {offenders}"
 
 
 def test_the_api_does_not_import_the_worker() -> None:
-    """This edge is the one that closed the cycle."""
-    offenders = {
-        path.relative_to(ROOT).as_posix(): sorted(_imported_roots(path) & {"worker"})
-        for path in _files("api")
-    }
-    offenders = {name: roots for name, roots in offenders.items() if roots}
+    """This edge is the one that closed the original cycle."""
+    offenders = _imports_into("apps.api", "apps.worker")
     assert not offenders, f"api imports worker: {offenders}"
 
 
-def test_the_worker_may_still_use_the_api() -> None:
-    """Not a cycle - a direction. The worker is a consumer of the domain.
+@pytest.mark.parametrize("package", ["apps.api", "apps.worker"])
+def test_each_application_actually_uses_the_domain(package: str) -> None:
+    """Not a cycle - a direction, and one that is really taken.
 
-    Asserted so the intent is on the record: this edge is allowed, the other is
-    not, and the test above is not simply "nothing imports anything".
+    Asserted so the rule above is not satisfied trivially by an application that
+    imports nothing at all.
     """
-    importers = [
-        path.relative_to(ROOT).as_posix()
-        for path in _files("worker")
-        if "api" in _imported_roots(path)
-    ]
-    assert importers, "expected the worker to use the API's services"
+    users = [name for name, hits in _imports_into(package, "cbc").items() if hits]
+    assert users, f"expected {package} to import the domain"
 
 
-@pytest.mark.parametrize("package", ["api", "worker"])
+@pytest.mark.parametrize("package", ["apps.api", "apps.worker"])
 def test_nothing_loads_an_mcp_server_in_process(package: str) -> None:
     """`load_server` execs a server module and juggles `sys.modules['tools']`.
 
     It exists for the test suite, which imports several servers into one process.
-    Application code shares the domain functions through `cbc_core` instead, so
-    the money math has one implementation without the API holding a transport
+    Application code shares the domain functions through `cbc` instead, so the
+    money math has one implementation without an application holding a transport
     artifact.
     """
     offenders = [

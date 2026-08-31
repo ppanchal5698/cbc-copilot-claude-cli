@@ -8,8 +8,8 @@ import sys
 from fastapi.testclient import TestClient
 from pymongo import MongoClient
 
-from api.config import settings
-from api.main import app
+from cbc.config import settings
+from apps.api.main import app
 
 TOKEN = settings.internal_api_token
 HEADERS = {"X-Internal-Token": TOKEN, "X-Actor": "estimator@cbc.com"}

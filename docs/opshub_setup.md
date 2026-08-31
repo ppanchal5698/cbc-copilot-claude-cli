@@ -62,7 +62,7 @@ under `DOCUMENT_INDEX_ROOT` (default `.index/documents/`). Uploading a multiplie
 sheet or a bid PDF enqueues an `index_document` job automatically. Manual rebuild:
 
 ```bash
-python -m document_index.rebuild --client hager --type multiplier_sheet --file pricebooks/hager_multipliers.pdf --no-llm
+python -m cbc.documents.rebuild --client hager --type multiplier_sheet --file pricebooks/hager_multipliers.pdf --no-llm
 ```
 
 Query via the `document-index` MCP server (`search_index` → `get_section_content`).
@@ -84,7 +84,7 @@ To reset everything manually:
 
 ```bash
 python scripts/seed_db.py --reset --demo
-python -m catalog_index.rebuild
+python -m cbc.catalog.rebuild
 ```
 
 ## Configuring Claude Code

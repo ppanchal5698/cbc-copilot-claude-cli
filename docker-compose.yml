@@ -115,7 +115,7 @@ services:
     image: cbc-opshub-app:latest
     container_name: cbc-worker
     restart: unless-stopped
-    command: ["python", "worker/main.py"]
+    command: ["python", "apps/worker/main.py"]
     environment:
       <<: *app-env
       WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}

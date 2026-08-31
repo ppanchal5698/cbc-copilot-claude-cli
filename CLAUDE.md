@@ -14,7 +14,7 @@ manual workflow a CBC estimator follows (Phase 0–6). It drafts, sources, and c
 3. **Rules** (`.claude/rules/`) — 8 project-scoped constraint files
 4. **Guardrails** (`.claude/hooks/`) — 5 executable hooks (PreToolUse / PostToolUse)
 5. **Memory** (`.claude/memory/`) — 13 persistent reference-data files
-6. **MCP Servers** (`mcp-servers/`) — 6 tool providers (pdf, pricebook, catalog, calc, storage, P21),
+6. **MCP Servers** (`mcp-servers/`) — 6 tool providers (pdf, catalog, calc, storage, P21, document-index),
    registered in **`.mcp.json`** at the repo root. `.claude/settings.json` has no
    `mcpServers` key — a block there is ignored, and the run silently gets no tools.
 7. **Workflows** (`workflows/`) — headless orchestration scripts for autopilot
@@ -23,26 +23,37 @@ manual workflow a CBC estimator follows (Phase 0–6). It drafts, sources, and c
 The estimator drives the pipeline through a web app; Claude Code works behind it.
 
 - **`web/`** — Next.js 15 UI (dashboard, bid board, the four bid stages, catalog, price books)
-- **`api/`** — FastAPI. Owns MongoDB and every business rule. Quote arithmetic is
-  delegated to `cbc_core/calc.py`, so the numbers have one implementation.
-- **`worker/`** — claims queued jobs and runs `claude --print`, then syncs what
+- **`apps/api/`** — FastAPI: routing, request/response, auth. The web layer, and only that.
+- **`apps/worker/`** — claims queued jobs and runs `claude --print`, then syncs what
   Claude wrote on disk into MongoDB.
-- **`catalog_index/`** — the product search index. Vendor PDFs in `pricebooks/`
-  are the source of truth; this keeps a **rebuildable** SQLite FTS5 index of what
-  is in them, so a search costs a fraction of a millisecond instead of re-reading
-  1 391 pages. Uploading a sheet queues `index_catalog`; deleting one queues
-  `delete_catalog` and the cascade removes its search records. There is no product
-  table to maintain by hand — `python -m catalog_index.rebuild` reconstructs the
-  lot. The index lives on a **named volume**, never a bind mount: SQLite needs
-  dependable locking and WAL needs shared memory, and `/app/projects` is 9p.
-- **`cbc_core/`** — what `api` and `worker` both need and neither should own:
-  the money math, the PDF page operations, credential redaction, and the one
-  place that spawns the CLI. It imports from neither of them, which is what keeps
-  the dependency direction one-way — `tests/api/test_layering.py` asserts it.
-  The `calc-engine` and `pdf-tools` MCP servers are adapters over the same
-  modules, so a price a run computes and a price the API computes cannot drift.
-  `pdfrows` is shared with `catalog_index` for the same reason: a price book and a
-  bid set must not disagree about what a page says.
+- **`src/cbc/`** — the domain, and the one thing both applications import.
+  Configuration, the Mongo handle, the schemas and every business rule live here,
+  so neither application depends on the other. That edge used to exist: `api`
+  owned the rules, so `worker` had to import the web application to reach them.
+  - `cbc/config.py`, `cbc/db.py`, `cbc/schemas/`, `cbc/services/` — the rules.
+    Quote arithmetic is delegated to `cbc/core/calc.py`, so the numbers have one
+    implementation.
+  - `cbc/core/` — the pure kernel: the money math, the PDF page operations,
+    credential redaction, and the one place that spawns the CLI. It imports
+    nothing above it. The `calc-engine` and `pdf-tools` MCP servers are adapters
+    over these same modules, so a price a run computes and a price the API
+    computes cannot drift.
+  - `cbc/catalog/` — the product search index. The vendor sheets under the
+    `pricebooks` directory are the source of truth; this keeps a **rebuildable**
+    SQLite FTS5 index of what is in them, so a search costs a fraction of a
+    millisecond instead of re-reading 1 391 pages. Uploading a sheet queues
+    `index_catalog`; deleting one queues `delete_catalog` and the cascade removes
+    its search records. There is no product table to maintain by hand —
+    `python -m cbc.catalog.rebuild` reconstructs the lot. The index lives on a
+    **named volume**, never a bind mount: SQLite needs dependable locking and WAL
+    needs shared memory, and `/app/projects` is 9p.
+  - `cbc/documents/` — LLM deep indexing for large, messy PDFs, with versioning
+    and diffing. `cbc/core/pdfrows` is shared with `cbc/catalog` so a price book
+    and a bid set cannot disagree about what a page says.
+
+**The dependency rule, in one line:** `apps/*` imports `cbc`; `cbc` imports neither
+application. `tests/api/test_layering.py` asserts it, and walks function-level
+imports too — that is the shape a cycle takes when nobody wants to admit to one.
 - **MongoDB** — the system of record between the two actors. PDFs stay on the
   filesystem under `projects/{slug}/uploads/raw/`, which is what the skills expect.
 
@@ -51,7 +62,7 @@ The estimator drives the pipeline through a web app; Claude Code works behind it
   refuses `--dangerously-skip-permissions` under root, and its entrypoint marks
   `/app` trusted because an untrusted workspace silently denies every MCP call.
 - **Provider** — which Claude Code runs the passes is configured on the settings
-  screen and resolved in one place, `api/services/provider.py`. The environment
+  screen and resolved in one place, `src/cbc/services/provider.py`. The environment
   wins over the database, so Secrets Manager stays authoritative in production.
 
 Setup and the job flow: `docs/opshub_setup.md`

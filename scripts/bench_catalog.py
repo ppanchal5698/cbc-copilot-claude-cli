@@ -18,9 +18,10 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from catalog_index import db, registry, search  # noqa: E402
-from catalog_index.models import ProductRecord  # noqa: E402
+from cbc.catalog import db, registry, search  # noqa: E402
+from cbc.catalog.models import ProductRecord  # noqa: E402
 
 # Measured on this corpus (18 PDFs, 1 391 pages) before the index existed.
 BASELINE_COLD_MS = 6020.0
@@ -144,7 +145,7 @@ def main() -> int:
     args = parser.parse_args()
 
     if not db.index_path().exists():
-        print(f"no index at {db.index_path()} - run `python -m catalog_index.rebuild`")
+        print(f"no index at {db.index_path()} - run `python -m cbc.catalog.rebuild`")
         return 1
 
     status = 0

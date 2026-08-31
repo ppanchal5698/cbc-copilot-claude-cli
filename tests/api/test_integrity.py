@@ -23,7 +23,7 @@ def test_repeated_marks_get_their_own_stable_keys() -> None:
     Keying both on `mark:05` made each run insert two fresh rows and orphan the
     previous pair, because the lookup built before the loop only held one of them.
     """
-    from api.services.sync import _distinct_keys, _identity
+    from cbc.services.sync import _distinct_keys, _identity
 
     openings = [{"mark": "01"}, {"mark": "05"}, {"mark": "05"}, {"mark": "07"}]
     keys = _distinct_keys(openings, _identity)
@@ -36,7 +36,7 @@ def test_repeated_marks_get_their_own_stable_keys() -> None:
 
 def test_priced_lines_key_on_content_not_position() -> None:
     """Re-ordering a re-priced quote must not duplicate every line."""
-    from api.services.sync import _content_key, _distinct_keys
+    from cbc.services.sync import _content_key, _distinct_keys
 
     first = [
         {"part_number": "150CX18", "description": "Hinge", "division": "08 71 00"},
@@ -50,7 +50,7 @@ def test_priced_lines_key_on_content_not_position() -> None:
 
 
 def test_an_explicit_line_id_wins() -> None:
-    from api.services.sync import _content_key
+    from cbc.services.sync import _content_key
 
     assert _content_key({"line_id": "L-7", "part_number": "X"}) == "L-7"
 
@@ -64,7 +64,7 @@ def test_a_negative_cost_reports_unpriced_instead_of_raising() -> None:
     A single stored -45 used to raise out of the loop and 400 the quote and
     proposal screens, leaving no UI to correct it from.
     """
-    from api.services import pricing
+    from cbc.services import pricing
 
     priced = pricing.price_line(cost=-45.0, margin=0.27, qty=1, division="08 71 00")
 
@@ -74,7 +74,7 @@ def test_a_negative_cost_reports_unpriced_instead_of_raising() -> None:
 
 
 def test_an_ordinary_line_still_prices() -> None:
-    from api.services import pricing
+    from cbc.services import pricing
 
     priced = pricing.price_line(cost=74.33, margin=0.27, qty=3, division="08 71 00")
     assert priced["priced"] is True
@@ -85,7 +85,7 @@ def test_an_ordinary_line_still_prices() -> None:
 def test_quote_line_schema_rejects_a_negative_cost() -> None:
     from pydantic import ValidationError
 
-    from api.schemas.quote import QuoteLineUpdate
+    from cbc.schemas.quote import QuoteLineUpdate
 
     with pytest.raises(ValidationError):
         QuoteLineUpdate(cost=-45)
@@ -96,7 +96,7 @@ def test_quote_line_schema_rejects_a_negative_cost() -> None:
 
 def test_a_bad_cost_from_a_pipeline_run_is_flagged_not_stored() -> None:
     """The schema bounds what an estimator types; a run writes straight to Mongo."""
-    from api.services.sync import _sane_cost
+    from cbc.services.sync import _sane_cost
 
     cost, flags = _sane_cost({"cost": -45})
     assert cost is None and "negative cost" in flags[0]
@@ -119,8 +119,8 @@ def test_pricebook_ingest_is_not_an_exclusive_job() -> None:
     Including it made the second price-book upload of the day silently return the
     first one's job instead of being queued.
     """
-    from api.schemas.common import EXCLUSIVE_JOB_TYPES
-    from api.services.jobs import EXCLUSIVE
+    from cbc.schemas.common import EXCLUSIVE_JOB_TYPES
+    from cbc.services.jobs import EXCLUSIVE
 
     assert "ingest_pricebook" not in EXCLUSIVE_JOB_TYPES
     assert EXCLUSIVE == set(EXCLUSIVE_JOB_TYPES)
@@ -130,7 +130,7 @@ def test_pricebook_ingest_is_not_an_exclusive_job() -> None:
 
 
 def test_a_missing_cli_is_not_retried(monkeypatch) -> None:
-    from cbc_core import claude_cli as runner
+    from cbc.core import claude_cli as runner
 
     monkeypatch.setattr(runner, "resolve_binary", lambda: None)
     result = runner.run_claude("hello")
@@ -141,7 +141,7 @@ def test_a_missing_cli_is_not_retried(monkeypatch) -> None:
 
 def test_an_authentication_failure_is_not_retried() -> None:
     """The CLI exits 0 on an auth failure, so only the message identifies it."""
-    from cbc_core import claude_cli as runner
+    from cbc.core import claude_cli as runner
 
     result = runner._interpret("Invalid API key", "", 0, timeout=90, redact_values=None)
 
@@ -150,7 +150,7 @@ def test_an_authentication_failure_is_not_retried() -> None:
 
 
 def test_an_ordinary_failure_is_still_retried() -> None:
-    from cbc_core import claude_cli as runner
+    from cbc.core import claude_cli as runner
 
     result = runner._interpret("", "transient network blip", 1, timeout=90, redact_values=None)
 

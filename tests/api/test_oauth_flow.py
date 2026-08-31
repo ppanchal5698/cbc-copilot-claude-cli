@@ -23,8 +23,8 @@ import pytest
 
 from tests.shared import ROOT  # noqa: E402
 
-from api.routers import settings as settings_router  # noqa: E402
-from cbc_core import secrets  # noqa: E402
+from apps.api.routers import settings as settings_router  # noqa: E402
+from cbc.core import secrets  # noqa: E402
 
 ESC = chr(27)
 

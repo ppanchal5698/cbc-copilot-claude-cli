@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from document_index.diff import generate_diff_report
-from document_index import db as content_db
+from cbc.documents.diff import generate_diff_report
+from cbc.documents import db as content_db
 
 
 @pytest.fixture

@@ -25,6 +25,7 @@ import bcrypt
 from pymongo import MongoClient
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 URI = "mongodb://cbc:cbc_local_dev@localhost:27017/cbc_opshub?authSource=admin"
@@ -216,7 +217,7 @@ def seed_products(db) -> int:
 
 def seed_demo_project(db) -> str | None:
     """Create the Dutch Bros bid from the fixture already in the repo."""
-    from api.services import storage
+    from cbc.services import storage
 
     fixture = ROOT / "tests" / "fixtures" / "pdfs" / "1_Architectural.pdf"
     if not fixture.exists():
