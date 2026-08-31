@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import Any
 
 import fitz  # PyMuPDF
+from cbc_core.paths import repo_root
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = repo_root()
 
 # Rendered pages are derived data: cheap to recreate, and not something to leave
 # beside the drawings they came from. Shared with api/services/pdf.py so there is

@@ -7,8 +7,9 @@ import re
 import tempfile
 from pathlib import Path
 from typing import Any
+from cbc_core.paths import repo_root
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = repo_root()
 TIERS_FILE = ROOT / "reference-library" / "multipliers" / "vendor_tiers.json"
 HARDWARE_SETS = ROOT / "reference-library" / "hardware_sets"
 MARGINS_FILE = ROOT / "reference-library" / "margins" / "margin_framework.json"

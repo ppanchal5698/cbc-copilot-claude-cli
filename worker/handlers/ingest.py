@@ -8,8 +8,9 @@ from pathlib import Path
 from bson import ObjectId
 
 from api.db import db
+from cbc_core.paths import repo_root
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = repo_root()
 
 
 def _now() -> datetime:

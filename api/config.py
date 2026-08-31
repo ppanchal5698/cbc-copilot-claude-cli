@@ -8,8 +8,9 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
+from cbc_core.paths import repo_root
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = repo_root()
 
 # The committed local-development values. Named so the production guard below and
 # the defaults above cannot drift apart.

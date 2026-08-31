@@ -6,8 +6,9 @@ import shutil
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
+from cbc_core.paths import repo_root
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = repo_root()
 
 
 def root_path() -> Path:

@@ -23,8 +23,9 @@ from decimal import ROUND_HALF_UP, Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from cbc_core.paths import repo_root
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = repo_root()
 MARGIN_FILE = ROOT / "reference-library" / "margins" / "margin_framework.json"
 TAX_FILE = ROOT / "reference-library" / "tax" / "sales_tax_rates.json"
 

@@ -22,8 +22,9 @@ from __future__ import annotations
 import os
 import sqlite3
 from pathlib import Path
+from cbc_core.paths import repo_root
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = repo_root()
 SCHEMA = Path(__file__).resolve().parent / "schema.sql"
 
 # Filesystems where SQLite locking is not dependable. Names as they appear in

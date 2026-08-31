@@ -18,8 +18,9 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from cbc_core.paths import repo_root
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = repo_root()
 
 # Server name -> the script that serves it, mirroring .mcp.json.
 SERVERS = {

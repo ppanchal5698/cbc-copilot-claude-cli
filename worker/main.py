@@ -20,6 +20,9 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+# This is an entry point run as a file (`python worker/main.py`), so sys.path[0]
+# is this directory, not the repo. The root has to be derived from __file__ here,
+# before any repo import - cbc_core.paths.repo_root() is not importable yet.
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 

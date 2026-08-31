@@ -15,9 +15,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from cbc_core import secrets
+from cbc_core.paths import repo_root
 
-from cbc_core import secrets  # noqa: E402
+REPO_ROOT = repo_root()
 
 MAX_LOG_CHARS = 20_000
 
