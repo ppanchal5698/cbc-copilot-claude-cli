@@ -68,14 +68,14 @@ def test_a_take_off_cannot_see_the_pricing_tools():
     servers = json.loads(toolsets.config_for("extract_bid_set"))["mcpServers"]
 
     assert set(servers) == {"pdf-tools", "artifact-storage"}
-    for absent in ("pricebook", "catalog", "calc-engine", "p21-connector"):
+    for absent in ("catalog", "calc-engine", "p21-connector"):
         assert absent not in servers
 
 
 def test_pricing_gets_the_tools_it_needs():
     servers = json.loads(toolsets.config_for("match_and_price"))["mcpServers"]
 
-    for needed in ("catalog", "pricebook", "calc-engine", "p21-connector"):
+    for needed in ("catalog", "calc-engine", "p21-connector"):
         assert needed in servers
     assert "pdf-tools" not in servers  # the schedule is already extracted
 

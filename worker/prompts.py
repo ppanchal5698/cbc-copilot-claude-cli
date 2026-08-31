@@ -16,8 +16,8 @@ from typing import Any
 
 PREAMBLE = """Constraints that override anything else:
 
-- **Use the MCP tools. Do not reimplement them.** pdf-tools, pricebook,
-  calc-engine, artifact-storage, p21-connector and catalog are connected and are
+- **Use the MCP tools. Do not reimplement them.** pdf-tools, catalog,
+  calc-engine, artifact-storage and p21-connector are connected and are
   the supported way to read a PDF, price a line and write an artifact. Do not
   open a PDF with `python -c "import fitz ..."`, and do not write a throwaway
   parser in Bash. The first real run of this pipeline did exactly that 52 times

@@ -28,8 +28,8 @@ def calc():
 
 
 @pytest.fixture(scope="session")
-def pricebook():
-    return load_server("pricebook")
+def catalog():
+    return load_server("catalog")
 
 
 @pytest.fixture(scope="session")

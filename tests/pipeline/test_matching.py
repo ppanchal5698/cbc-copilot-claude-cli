@@ -40,32 +40,32 @@ def test_reference_library_is_complete_and_valid():
         _load(relative)
 
 
-def test_price_books_are_indexed(pricebook):
-    catalog = pricebook.list_vendors()
-    assert catalog["count"] >= 10, "expected the full vendor set to be indexed"
-    vendors = {book["vendor"] for book in catalog["pricebooks"]}
+def test_price_books_are_indexed(catalog):
+    indexed = catalog.list_vendors()
+    assert indexed["count"] >= 10, "expected the full vendor set to be indexed"
+    vendors = {book["vendor"] for book in indexed["pricebooks"]}
     for expected in ("hager", "asi", "bradley", "rockwood", "national_guard", "pemko"):
         assert expected in vendors, f"{expected} price book not indexed"
 
 
-def test_hager_multiplier_is_per_category(pricebook):
-    locks = pricebook.get_multiplier("hager", "locks")
+def test_hager_multiplier_is_per_category(catalog):
+    locks = catalog.get_multiplier("hager", "locks")
     assert locks["multiplier"] == 0.29
     assert locks["effective_date"] == "2026-03-02"
     assert locks["account"] == "HGR 17907"
 
-    hinges = pricebook.get_multiplier("hager", "architectural_hinges")
+    hinges = catalog.get_multiplier("hager", "architectural_hinges")
     assert hinges["multiplier"] == 0.21, "hinges must not inherit the locks tier"
 
 
-def test_unknown_vendor_returns_manual_not_a_guess(pricebook):
-    result = pricebook.get_multiplier("acme_doors")
+def test_unknown_vendor_returns_manual_not_a_guess(catalog):
+    result = catalog.get_multiplier("acme_doors")
     assert result["multiplier"] is None
     assert "never guess" in result["note"]
 
 
-def test_unknown_category_returns_manual_not_a_guess(pricebook):
-    result = pricebook.get_multiplier("hager", "unicorn_hardware")
+def test_unknown_category_returns_manual_not_a_guess(catalog):
+    result = catalog.get_multiplier("hager", "unicorn_hardware")
     assert result["multiplier"] is None
     assert "available_categories" in result
 
@@ -114,32 +114,32 @@ def test_confidence_threshold(confidence, should_flag):
     assert (confidence < CONFIDENCE_THRESHOLD) is should_flag
 
 
-def test_search_finds_a_real_part_with_page_traceability(pricebook):
-    result = pricebook.search_product("4040XP", vendor="hager", limit=5)
+def test_search_finds_a_real_part_with_page_traceability(catalog):
+    result = catalog.search_product("4040XP", vendor="hager", limit=5)
     for hit in result["hits"]:
         assert hit["source_page"] >= 1, "every hit must carry source_page (NFR-3)"
         assert 0.0 <= hit["score"] <= 1.0
 
 
-def test_ambiguous_lookup_refuses_to_pick_a_price(pricebook):
+def test_ambiguous_lookup_refuses_to_pick_a_price(catalog):
     """Many candidate rows must not collapse into one confident number."""
-    result = pricebook.lookup_pricing("3400", "hager", "locks")
+    result = catalog.lookup_pricing("3400", "hager", "locks")
     assert result["match_count"] > 1
     assert result["net_cost"] is None
     assert result["cost_source"] == "MANUAL"
     assert result["multiplier"] == 0.29, "the tier is still reported for the estimator"
 
 
-def test_hager_special_net_overrides_category_math(pricebook):
+def test_hager_special_net_overrides_category_math(catalog):
     """Multiplier sheet pp 2-4 fixed nets beat list x category."""
-    result = pricebook.lookup_pricing("ECBB1100", "hager", "architectural_hinges")
+    result = catalog.lookup_pricing("ECBB1100", "hager", "architectural_hinges")
     assert result["net_cost"] == 3.23
     assert result["cost_source"] == "SPECIAL_NET"
     assert result["special_net"]["item_code"] == "075048"
 
 
-def test_stock_list_marks_known_hager_parts(pricebook):
-    hit = pricebook.is_stock_item("hager", "BB1279")
+def test_stock_list_marks_known_hager_parts(catalog):
+    hit = catalog.is_stock_item("hager", "BB1279")
     assert hit["stock"] is True
-    miss = pricebook.is_stock_item("hager", "NOT-A-REAL-PART-XYZ")
+    miss = catalog.is_stock_item("hager", "NOT-A-REAL-PART-XYZ")
     assert miss["stock"] is False

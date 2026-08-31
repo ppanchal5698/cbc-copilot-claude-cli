@@ -24,7 +24,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # Server name -> the script that serves it, mirroring .mcp.json.
 SERVERS = {
     "pdf-tools": "./mcp-servers/pdf-tools/server.py",
-    "pricebook": "./mcp-servers/pricebook/server.py",
     "calc-engine": "./mcp-servers/calc-engine/server.py",
     "artifact-storage": "./mcp-servers/artifact-storage/server.py",
     "p21-connector": "./mcp-servers/p21-connector/server.py",
@@ -36,9 +35,14 @@ SERVERS = {
 # stage, because nothing is priced at this stage.
 _READING = ["pdf-tools", "artifact-storage"]
 
-# Costing a confirmed schedule: the catalog and the price books for what things
-# cost, calc-engine for the arithmetic, p21 for last-PO history.
-_PRICING = ["catalog", "pricebook", "calc-engine", "p21-connector", "artifact-storage"]
+# Costing a confirmed schedule: the catalog for what things cost, calc-engine for
+# the arithmetic, p21 for last-PO history.
+#
+# `catalog` used to appear here beside a `pricebook` server that was a pure alias
+# over it, so a pricing pass carried search_product, list_vendors, lookup_pricing
+# and get_multiplier twice under two names - the exact duplication this module
+# exists to prevent.
+_PRICING = ["catalog", "calc-engine", "p21-connector", "artifact-storage"]
 
 # One run that spans every phase needs every server. Per-phase scoping is a real
 # cost and quality lever when a job does one thing; here the same pass reads
@@ -54,7 +58,7 @@ PROFILES: dict[str, list[str]] = {
     "match_and_price": _PRICING,
     # The proposal totals an already-priced quote; it reads no drawings.
     "build_proposal": ["calc-engine", "artifact-storage"],
-    "ingest_pricebook": ["pricebook", "catalog", "artifact-storage"],
+    "ingest_pricebook": ["catalog", "artifact-storage"],
 }
 
 # Built-in tools no bid job has a use for. Bare names remove them from the

@@ -420,14 +420,38 @@ assert not [t for t in TOOLS if any(word in t["name"].lower() for word in _FORBI
 )
 
 
+def _sample_product_code() -> str | None:
+    """A part number actually in the index, for the demo to search for.
+
+    This check used to search for a hardcoded Bobrick part, B-2888. That part came
+    from a price list that purchasing later replaced with the HP program net sheet,
+    so the demo - and the CI step that runs it - started failing on a healthy index
+    holding 16 000 products. What the check is for is that indexing and search agree;
+    naming a specific part was never part of that, and tied a self-test to one
+    vendor's catalogue surviving unchanged.
+
+    Requires a letter, a digit and a price, which together exclude the page
+    furniture the extractors sometimes pick up (effective dates read as codes).
+    """
+    row = _bounded().execute(
+        "select product_code from products "
+        "where product_code glob '*[A-Za-z]*' and product_code glob '*[0-9]*' "
+        "  and length(product_code) > 3 and price is not null "
+        "order by id limit 1"
+    ).fetchone()
+    return row[0] if row else None
+
+
 def _demo() -> None:
     """Runnable check against the real index."""
     catalogs = list_catalogs()
     assert catalogs["searchable"] > 0, "no catalogs indexed - run catalog_index.rebuild"
 
-    hit = search_products("B-2888")
-    assert hit["count"] >= 1, hit
-    assert hit["results"][0]["product_code"] == "B-2888", hit["results"][0]
+    code = _sample_product_code()
+    assert code, "catalogs are indexed but hold no priced products - rebuild the index"
+    hit = search_products(code)
+    assert hit["count"] >= 1, (code, hit)
+    assert any(r["product_code"] == code for r in hit["results"]), (code, hit["results"][:3])
 
     miss = search_products("definitely-not-a-real-part-xyz")
     assert miss["count"] == 0 and "MANUAL cut-off" in miss["note"]
