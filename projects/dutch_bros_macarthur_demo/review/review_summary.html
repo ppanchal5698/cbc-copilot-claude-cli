@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Estimator Review - dutch_bros_macarthur_demo</title>
+<style>
+  :root {
+    --ink:#1a1a1a; --muted:#5b6169; --rule:#d6d9de; --bg:#fff; --band:#f4f6f8;
+    --red:#b3261e; --red-bg:#fdecea; --yellow:#8a6100; --yellow-bg:#fff6e0;
+    --green:#0f5132; --green-bg:#e6f4ea; --total:#0f3d2e;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:28px; background:var(--bg); color:var(--ink);
+         font:14px/1.5 "Segoe UI",Arial,Helvetica,sans-serif; }
+  .sheet { max-width:1180px; margin:0 auto; }
+  header { border-bottom:3px solid var(--total); padding-bottom:14px; }
+  h1 { margin:0; font-size:20px; }
+  .sub { color:var(--muted); font-size:13px; margin-top:4px; }
+  .counts { display:flex; gap:12px; margin:20px 0; flex-wrap:wrap; }
+  .count { flex:1; min-width:130px; padding:12px 14px; border-radius:6px;
+           border:1px solid var(--rule); }
+  .count b { display:block; font-size:24px; line-height:1.1; }
+  .count span { font-size:12px; color:var(--muted); text-transform:uppercase;
+                letter-spacing:.05em; }
+  .count.red { background:var(--red-bg); border-color:var(--red); color:var(--red); }
+  .count.yellow { background:var(--yellow-bg); border-color:var(--yellow); color:var(--yellow); }
+  .count.green { background:var(--green-bg); border-color:var(--green); color:var(--green); }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.07em;
+       color:var(--muted); margin:28px 0 8px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+       color:var(--muted); border-bottom:1px solid var(--rule); padding:6px 8px; }
+  td { padding:7px 8px; border-bottom:1px solid var(--rule); vertical-align:top; }
+  tr.red td:first-child { border-left:4px solid var(--red); }
+  tr.yellow td:first-child { border-left:4px solid var(--yellow); }
+  tr.green td:first-child { border-left:4px solid var(--green); }
+  .pill { display:inline-block; padding:1px 7px; border-radius:10px; font-size:11px;
+          font-weight:600; white-space:nowrap; }
+  .pill.red { background:var(--red-bg); color:var(--red); }
+  .pill.yellow { background:var(--yellow-bg); color:var(--yellow); }
+  .pill.green { background:var(--green-bg); color:var(--green); }
+  .src { color:var(--muted); font-size:11px; }
+  .num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .actions button { font:inherit; font-size:12px; padding:3px 9px; margin-right:4px;
+                    border:1px solid var(--rule); border-radius:4px; background:#fff;
+                    cursor:pointer; }
+  .actions button:hover { background:var(--band); }
+  .actions button.primary { border-color:var(--green); color:var(--green); }
+  .actions button.danger { border-color:var(--red); color:var(--red); }
+  .halt { margin-top:30px; padding:14px 18px; border:2px solid var(--total);
+          border-radius:6px; background:var(--band); }
+  .halt b { color:var(--total); }
+  .blocked li { margin-bottom:5px; }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<header>
+  <h1>Estimator Review &mdash; dutch_bros_macarthur_demo</h1>
+  <div class="sub">
+        &middot; generated 2026-08-31 16:56 UTC
+  </div>
+</header>
+
+<div class="counts">
+  <div class="count"><b>27</b><span>Lines</span></div>
+  <div class="count red"><b>0</b><span>Need attention</span></div>
+  <div class="count yellow"><b>27</b><span>Worth a look</span></div>
+  <div class="count green"><b>0</b><span>Confident</span></div>
+  <div class="count"><b>459.55</b><span>Draft total</span></div>
+</div>
+
+<h2>Line items</h2>
+<table>
+  <thead>
+    <tr>
+      <th style="width:8%">Opening</th>
+      <th style="width:24%">Item</th>
+      <th style="width:11%">Part number</th>
+      <th style="width:9%">Vendor</th>
+      <th class="num" style="width:5%">Qty</th>
+      <th class="num" style="width:9%">Cost</th>
+      <th class="num" style="width:7%">Conf.</th>
+      <th style="width:12%">Status</th>
+      <th style="width:15%">Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class="yellow">
+      <td>accessories</td>
+      <td>
+        ASI Hand Dryer
+<div class="src">asi_price_list.pdf p34</div><div class="src">Drawing p.14 &middot; ASI Price List 2026</div>      </td>
+      <td>10-0199-1-41</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">202.20</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">PRICED</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="1">Accept</button>
+        <button data-action="edit" data-line="1">Edit</button>
+        <button class="danger" data-action="delete" data-line="1">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>01</td>
+      <td>
+        IVES 700 83&#34; 630
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>700</td>
+      <td>&mdash;</td>
+      <td class="num">3</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="2">Accept</button>
+        <button data-action="edit" data-line="2">Edit</button>
+        <button class="danger" data-action="delete" data-line="2">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>01</td>
+      <td>
+        LCN 4040XP RW/PA ALUM.
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>4040XP</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="3">Accept</button>
+        <button data-action="edit" data-line="3">Edit</button>
+        <button class="danger" data-action="delete" data-line="3">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>01</td>
+      <td>
+        ALARM CLOCK ETDL27R1G/26DV 99
+<div class="src">Alarm Clock</div><div class="src">Drawing p.14</div>      </td>
+      <td>ETDL27R1G/26DV</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="4">Accept</button>
+        <button data-action="edit" data-line="4">Edit</button>
+        <button class="danger" data-action="delete" data-line="4">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>01</td>
+      <td>
+        VON DURPIN 99EO 42&#34; 626
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>99EO</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="5">Accept</button>
+        <button data-action="edit" data-line="5">Edit</button>
+        <button class="danger" data-action="delete" data-line="5">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>01</td>
+      <td>
+        IVES 8400 40&#34;x30&#34; 630
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>8400</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="6">Accept</button>
+        <button data-action="edit" data-line="6">Edit</button>
+        <button class="danger" data-action="delete" data-line="6">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>01</td>
+      <td>
+        PEMKO 275A 42&#34;
+<div class="src">Multiplier not found</div><div class="src">Drawing p.14</div>      </td>
+      <td>275A</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="7">Accept</button>
+        <button data-action="edit" data-line="7">Edit</button>
+        <button class="danger" data-action="delete" data-line="7">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>01</td>
+      <td>
+        ZERO 39A SWEEP 42&#34;
+<div class="src">Zero</div><div class="src">Drawing p.14</div>      </td>
+      <td>39A</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="8">Accept</button>
+        <button data-action="edit" data-line="8">Edit</button>
+        <button class="danger" data-action="delete" data-line="8">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>01</td>
+      <td>
+        ZERO 188S BK 18&#39;
+<div class="src">Zero</div><div class="src">Drawing p.14</div>      </td>
+      <td>188S BK</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="9">Accept</button>
+        <button data-action="edit" data-line="9">Edit</button>
+        <button class="danger" data-action="delete" data-line="9">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>01</td>
+      <td>
+        IVES FS43 626
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>FS43</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="10">Accept</button>
+        <button data-action="edit" data-line="10">Edit</button>
+        <button class="danger" data-action="delete" data-line="10">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>02</td>
+      <td>
+        IVES 700 83&#34; 630
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>700</td>
+      <td>&mdash;</td>
+      <td class="num">3</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="11">Accept</button>
+        <button data-action="edit" data-line="11">Edit</button>
+        <button class="danger" data-action="delete" data-line="11">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>02</td>
+      <td>
+        LCN 4040XP RW/PA ALUM.
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>4040XP</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="12">Accept</button>
+        <button data-action="edit" data-line="12">Edit</button>
+        <button class="danger" data-action="delete" data-line="12">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>02</td>
+      <td>
+        ALARM CLOCK ETDL27R1G/26DV 99
+<div class="src">Alarm Clock</div><div class="src">Drawing p.14</div>      </td>
+      <td>ETDL27R1G/26DV</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="13">Accept</button>
+        <button data-action="edit" data-line="13">Edit</button>
+        <button class="danger" data-action="delete" data-line="13">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>02</td>
+      <td>
+        VON DURPIN 99EO 26&#34; 626
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>99EO</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="14">Accept</button>
+        <button data-action="edit" data-line="14">Edit</button>
+        <button class="danger" data-action="delete" data-line="14">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>02</td>
+      <td>
+        IVES 8400 34&#34;x30&#34; 630
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>8400</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="15">Accept</button>
+        <button data-action="edit" data-line="15">Edit</button>
+        <button class="danger" data-action="delete" data-line="15">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>02</td>
+      <td>
+        PEMKO 275A 36&#34;
+<div class="src">Multiplier not found</div><div class="src">Drawing p.14</div>      </td>
+      <td>275A</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="16">Accept</button>
+        <button data-action="edit" data-line="16">Edit</button>
+        <button class="danger" data-action="delete" data-line="16">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>02</td>
+      <td>
+        ZERO 39A SWEEP 36&#34;
+<div class="src">Zero</div><div class="src">Drawing p.14</div>      </td>
+      <td>39A</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="17">Accept</button>
+        <button data-action="edit" data-line="17">Edit</button>
+        <button class="danger" data-action="delete" data-line="17">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>02</td>
+      <td>
+        ZERO 188S BK 18&#39;
+<div class="src">Zero</div><div class="src">Drawing p.14</div>      </td>
+      <td>188S BK</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="18">Accept</button>
+        <button data-action="edit" data-line="18">Edit</button>
+        <button class="danger" data-action="delete" data-line="18">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>02</td>
+      <td>
+        IVES FS43 626
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>FS43</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="19">Accept</button>
+        <button data-action="edit" data-line="19">Edit</button>
+        <button class="danger" data-action="delete" data-line="19">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>03</td>
+      <td>
+        IVES (3) 5BB1 4.5 NRP 626
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>5BB1</td>
+      <td>&mdash;</td>
+      <td class="num">3</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="20">Accept</button>
+        <button data-action="edit" data-line="20">Edit</button>
+        <button class="danger" data-action="delete" data-line="20">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>03</td>
+      <td>
+        LCN 4040XP RW/PA ALUM.
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>4040XP</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="21">Accept</button>
+        <button data-action="edit" data-line="21">Edit</button>
+        <button class="danger" data-action="delete" data-line="21">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>03</td>
+      <td>
+        SCHLAGE B57 INDICATOR 626
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>B57</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="22">Accept</button>
+        <button data-action="edit" data-line="22">Edit</button>
+        <button class="danger" data-action="delete" data-line="22">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>03</td>
+      <td>
+        IVES 8200 6&#34;x16&#34; 630
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>8200</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="23">Accept</button>
+        <button data-action="edit" data-line="23">Edit</button>
+        <button class="danger" data-action="delete" data-line="23">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>03</td>
+      <td>
+        IVES 8303 6&#34;x16&#34; 630
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>8303</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="24">Accept</button>
+        <button data-action="edit" data-line="24">Edit</button>
+        <button class="danger" data-action="delete" data-line="24">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>03</td>
+      <td>
+        IVES 8400 34&#34;x12&#34; 630
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>8400</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="25">Accept</button>
+        <button data-action="edit" data-line="25">Edit</button>
+        <button class="danger" data-action="delete" data-line="25">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>03</td>
+      <td>
+        IVES FS43 626
+<div class="src">Allegion</div><div class="src">Drawing p.14</div>      </td>
+      <td>FS43</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">LOW CONFIDENCE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="26">Accept</button>
+        <button data-action="edit" data-line="26">Edit</button>
+        <button class="danger" data-action="delete" data-line="26">Delete</button>
+      </td>
+    </tr>
+    <tr class="yellow">
+      <td>04</td>
+      <td>
+        JL INDUSTRIES 36&#34;x36&#34; ACCESS PANEL
+<div class="src">Out of scope: JL Industries</div><div class="src">Drawing p.14</div>      </td>
+      <td>XPA-3636H4W-R</td>
+      <td>&mdash;</td>
+      <td class="num">1</td>
+      <td class="num">&mdash;</td>
+      <td class="num">&mdash;</td>
+      <td><span class="pill yellow">OUT OF SCOPE</span></td>
+      <td class="actions">
+        <button class="primary" data-action="accept" data-line="27">Accept</button>
+        <button data-action="edit" data-line="27">Edit</button>
+        <button class="danger" data-action="delete" data-line="27">Delete</button>
+      </td>
+    </tr>
+  </tbody>
+</table>
+<p class="actions"><button data-action="add">+ Add a line</button></p>
+
+<h2>Flags</h2>
+<table>
+  <thead><tr><th style="width:10%">Severity</th><th style="width:10%">Opening</th><th style="width:15%">Field</th><th>Note</th><th style="width:8%">Page</th></tr></thead>
+  <tbody>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="red">
+      <td><span class="pill red">high</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr class="yellow">
+      <td><span class="pill yellow">medium</span></td>
+      <td>&mdash;</td>
+      <td>&mdash;</td>
+      <td></td>
+      <td></td>
+    </tr>
+  </tbody>
+</table>
+
+
+
+
+<div class="halt">
+  <b>Draft ready for estimator review.</b>
+  Nothing has been sent. The copilot drafts, sources and calculates &mdash; it does
+  not send. Approve here, then send the quotation yourself to the person who
+  initiated the request in the queue.
+</div>
+
+</div>
+<script>
+  // Records the estimator's decisions locally so corrections can be captured as
+  // structured feedback (FR-9 / FR-13). No network calls - this page never
+  // transmits anything.
+  const decisions = {};
+  document.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action]");
+    if (!button) return;
+    const { action, line } = button.dataset;
+    if (line) decisions[line] = action;
+    button.closest("tr")?.style.setProperty("opacity", action === "delete" ? "0.45" : "1");
+    console.log("review decisions", decisions);
+  });
+</script>
+</body>
+</html>

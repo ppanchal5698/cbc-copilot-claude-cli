@@ -1,0 +1,137 @@
+{
+  "flags": [
+    {
+      "line_id": 2,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for IVES 700"
+    },
+    {
+      "line_id": 3,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for LCN 4040XP"
+    },
+    {
+      "line_id": 4,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for ALARM CLOCK ETDL27R1G/26DV"
+    },
+    {
+      "line_id": 5,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for VON DURPIN 99EO"
+    },
+    {
+      "line_id": 6,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for IVES 8400"
+    },
+    {
+      "line_id": 7,
+      "severity": "high",
+      "description": "Manual cost required for PEMKO 275A"
+    },
+    {
+      "line_id": 8,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for ZERO 39A"
+    },
+    {
+      "line_id": 9,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for ZERO 188S BK"
+    },
+    {
+      "line_id": 10,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for IVES FS43"
+    },
+    {
+      "line_id": 11,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for IVES 700"
+    },
+    {
+      "line_id": 12,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for LCN 4040XP"
+    },
+    {
+      "line_id": 13,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for ALARM CLOCK ETDL27R1G/26DV"
+    },
+    {
+      "line_id": 14,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for VON DURPIN 99EO"
+    },
+    {
+      "line_id": 15,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for IVES 8400"
+    },
+    {
+      "line_id": 16,
+      "severity": "high",
+      "description": "Manual cost required for PEMKO 275A"
+    },
+    {
+      "line_id": 17,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for ZERO 39A"
+    },
+    {
+      "line_id": 18,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for ZERO 188S BK"
+    },
+    {
+      "line_id": 19,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for IVES FS43"
+    },
+    {
+      "line_id": 20,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for IVES 5BB1"
+    },
+    {
+      "line_id": 21,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for LCN 4040XP"
+    },
+    {
+      "line_id": 22,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for SCHLAGE B57"
+    },
+    {
+      "line_id": 23,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for IVES 8200"
+    },
+    {
+      "line_id": 24,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for IVES 8303"
+    },
+    {
+      "line_id": 25,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for IVES 8400"
+    },
+    {
+      "line_id": 26,
+      "severity": "high",
+      "description": "Low confidence match and missing cost for IVES FS43"
+    },
+    {
+      "line_id": 27,
+      "severity": "medium",
+      "description": "Out of scope: JL Industries Access Panel"
+    }
+  ],
+  "blocked_on": [],
+  "rfis": [],
+  "prior_quotes": []
+}

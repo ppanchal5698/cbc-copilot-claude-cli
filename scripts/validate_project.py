@@ -59,6 +59,15 @@ PRICING_LINE_FIELDS = ("line_id", "group", "group_type", "quantity", "cost_sourc
 PRICING_GROUP_TYPES = frozenset({"door", "accessories", "frp", "other"})
 
 
+
+def _added_by_hand(row: dict) -> bool:
+    """Did the estimator enter this line themselves, rather than a drawing produce it?
+
+    The UI writes both markers when someone adds a line; either one is enough.
+    """
+    return bool(row.get("added_by_hand")) or str(row.get("status") or "").lower() == "by_hand"
+
+
 def _emit(problems: list[str], warnings: list[str]) -> int:
     for warning in warnings:
         print(f"WARN  {warning}")
@@ -203,9 +212,30 @@ def check_extraction(project: str, *, require_scope: bool = False) -> tuple[list
 
     for opening in openings:
         opening = _normalize_opening(opening)
-        label = opening.get("door_number") or opening.get("raw_row", "?")[:30]
+        label = opening.get("door_number") or opening.get("description") or "?"
         if opening.get("hw_set") and not opening.get("hardware_set"):
             warnings.append(f"{project}: opening {label} uses hw_set; prefer hardware_set")
+
+        # A line the estimator added by hand was never read off a drawing, so it has
+        # no page, no bbox and no door number - a hand dryer nobody drew is still a
+        # line on the quote. Every one of those checks fired on it, reporting five
+        # problems against a healthy project, and the same demand one layer down
+        # made a pricing pass invent a page number to satisfy it (NFR-2).
+        #
+        # What still applies is the part that is about the estimator's own entry:
+        # it needs something to identify it, and a confidence score.
+        if _added_by_hand(opening):
+            if not (opening.get("description") or opening.get("door_number")):
+                problems.append(
+                    f"{project}: hand-added opening has neither a door_number nor a "
+                    "description - nothing identifies it on the quote"
+                )
+            if opening.get("confidence") is None:
+                problems.append(
+                    f"{project}: hand-added opening {label} has no confidence score (NFR-2)"
+                )
+            continue
+
         for field in HARD_FIELDS:
             if not opening.get(field):
                 problems.append(f"{project}: opening {label} is missing {field}")

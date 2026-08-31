@@ -222,3 +222,57 @@ def test_a_door_line_still_must_name_its_page(validate_project):
     )
     problems, _ = check_pricing(validate_project)
     assert any("has no source_page" in p for p in problems), problems
+
+
+def test_a_hand_added_opening_needs_no_drawing_page(validate_project):
+    """A hand dryer nobody drew is still a line on the quote.
+
+    Every drawing-provenance check fired on the estimator's own entry, reporting
+    five problems against a healthy project - and the same demand one layer down
+    made a pricing pass invent a page number to satisfy it (NFR-2).
+    """
+    _write(
+        validate_project,
+        "extracted/door_schedule.json",
+        {
+            "openings": [
+                _good_opening(),
+                {
+                    "description": "Hand Dryer",
+                    "qty": 1.0,
+                    "confidence": 1.0,
+                    "status": "by_hand",
+                    "added_by_hand": True,
+                    "confirmed_by": "admin@cbc.com",
+                    "door_number": None,
+                    "source_page": None,
+                    "bbox": None,
+                    "page_size": None,
+                },
+            ]
+        },
+    )
+    problems, _ = check_extraction(validate_project)
+    assert not problems, problems
+
+
+def test_a_hand_added_opening_must_still_identify_itself(validate_project):
+    _write(
+        validate_project,
+        "extracted/door_schedule.json",
+        {"openings": [{"added_by_hand": True, "confidence": 1.0, "qty": 1.0}]},
+    )
+    problems, _ = check_extraction(validate_project)
+    assert any("neither a door_number nor a description" in p for p in problems), problems
+
+
+def test_a_drawing_opening_still_needs_its_provenance(validate_project):
+    """Relaxing the hand-added case must not relax the drawing case."""
+    _write(
+        validate_project,
+        "extracted/door_schedule.json",
+        {"openings": [_good_opening(source_page=None, bbox=None)]},
+    )
+    problems, _ = check_extraction(validate_project)
+    assert any("missing source_page" in p for p in problems), problems
+    assert any("bbox" in p for p in problems), problems
