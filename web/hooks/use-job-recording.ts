@@ -9,6 +9,8 @@ import {
   renderStream,
   type LogEntry,
 } from "@/lib/claude-stream";
+import { endpoints } from "@/lib/endpoints";
+import { proxyFetch } from "@/lib/proxy-fetcher";
 
 export type RecordingState = "connecting" | "live" | "ended" | "unavailable";
 
@@ -66,7 +68,7 @@ export function useJobRecording(
     (async () => {
       let replay: TerminalReplay;
       try {
-        const response = await fetch(`/api/proxy/jobs/${jobId}/terminal`);
+        const response = await proxyFetch(endpoints.jobTerminal(jobId));
         if (!response.ok) throw new Error(`the API answered ${response.status}`);
         replay = (await response.json()) as TerminalReplay;
       } catch (error) {

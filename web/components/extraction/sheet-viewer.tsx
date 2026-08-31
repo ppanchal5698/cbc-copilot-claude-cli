@@ -214,6 +214,8 @@ export function SheetViewer({
                 setActiveDocId(doc.id);
                 setPageNumber(1);
               }}
+              aria-label={`Show ${doc.filename}`}
+              aria-current={doc.id === activeDocId ? "page" : undefined}
               className="whitespace-nowrap rounded-md px-2.5 py-1 text-[11.5px]"
               style={{
                 background: doc.id === activeDocId ? "var(--app-accent-soft)" : "transparent",
@@ -252,7 +254,7 @@ export function SheetViewer({
           </button>
           <button
             onClick={fitZoomToHighlight}
-            title="Zoom to the highlight"
+            aria-label="Zoom to the highlight"
             style={{ color: "var(--app-tx-2)" }}
           >
             <ArrowsOut size={14} weight="bold" />

@@ -14,7 +14,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     name: session.user.name ?? "Estimator",
     email: session.user.email ?? "",
     initials:
-      (session.user as { initials?: string }).initials ??
+      session.user.initials ??
       (session.user.name ?? "E")
         .split(" ")
         .map((part) => part[0])
@@ -34,6 +34,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <UiStateProvider>
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-[var(--app-panel)] focus:px-3 focus:py-2 focus:text-[13px] focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
       <div className="flex h-screen overflow-hidden">
         <Rail staleBooks={staleBooks} user={user} />
         <div className="flex min-w-0 flex-1 flex-col">{children}</div>

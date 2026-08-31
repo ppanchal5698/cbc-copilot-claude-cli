@@ -6,6 +6,7 @@ import { Checks, ClockCounterClockwise, Warning } from "@phosphor-icons/react/di
 import { toast } from "sonner";
 
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import { FetchError } from "@/components/ui/fetch-error";
 import type { VersionDiff, VersionsResponse } from "@/lib/types";
 
 /**
@@ -16,12 +17,28 @@ export function VersionsPanel({ code }: { code: string }) {
   const [diff, setDiff] = useState<VersionDiff | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const { data, mutate } = useSWR<VersionsResponse>(
+  const { data, error, mutate } = useSWR<VersionsResponse>(
     `/api/proxy/projects/${code}/versions`,
     proxyFetcher,
   );
 
   const versions = data?.versions ?? [];
+
+  if (error) {
+    return (
+      <section
+        className="rounded-xl"
+        style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
+      >
+        <FetchError
+          title="Could not load addendum versions"
+          error={error}
+          onRetry={() => mutate()}
+        />
+      </section>
+    );
+  }
+
   if (versions.length === 0) return null;
 
   async function loadDiff(version: number) {

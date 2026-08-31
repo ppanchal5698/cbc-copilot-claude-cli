@@ -29,14 +29,14 @@ export function Header({
 }) {
   const { openNotes, setPaletteOpen, setTerminalOpen, focusMode, notesVersion, theme, toggleTheme } =
     useUiState();
-  const [noteCount, setNoteCount] = useState(0);
+  const [noteCount, setNoteCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (!code) return;
     const controller = new AbortController();
     proxyFetcher<CallsResponse>(`/api/proxy/projects/${code}/calls`, controller.signal)
       .then((data) => setNoteCount(data.count))
-      .catch(() => undefined);
+      .catch(() => setNoteCount(null));
     return () => controller.abort();
   }, [code, notesVersion]);
 
@@ -92,7 +92,7 @@ export function Header({
         // opens the real session rather than a separate control somewhere else.
         <button
           onClick={() => setTerminalOpen(true)}
-          title="Watch the Claude Code session"
+          aria-label="Watch the Claude Code session"
           className="anim-fadein flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] transition"
           style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
         >
@@ -114,7 +114,7 @@ export function Header({
       >
         <PhoneCall size={14} weight="duotone" />
         Calls &amp; notes
-        {noteCount > 0 && (
+        {noteCount !== null && noteCount > 0 && (
           <span
             className="tnum rounded-full px-1.5 text-[10.5px] font-semibold"
             style={{ background: "var(--app-accent-soft)", color: "var(--app-accent)" }}

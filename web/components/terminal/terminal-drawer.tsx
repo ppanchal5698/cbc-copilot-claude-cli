@@ -3,12 +3,15 @@
 import dynamic from "next/dynamic";
 import { useCallback, useState } from "react";
 import useSWR from "swr";
-import { X } from "@phosphor-icons/react/dist/ssr";
+import { X, Prohibit } from "@phosphor-icons/react/dist/ssr";
+import { toast } from "sonner";
 
 import { useUiState } from "@/components/shell/ui-state";
 import { useDialog } from "@/hooks/use-dialog";
 import type { Job, JobStatus } from "@/lib/types";
-import { proxyFetcher } from "@/lib/proxy-fetcher";
+import { FetchError } from "@/components/ui/fetch-error";
+import { endpoints } from "@/lib/endpoints";
+import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 
 // xterm builds against the DOM, so it must never be evaluated on the server.
 const RunTerminal = dynamic(
@@ -59,8 +62,9 @@ export function TerminalDrawer({ code }: { code: string | null }) {
 
   const close = useCallback(() => setTerminalOpen(false), [setTerminalOpen]);
   const dialogRef = useDialog<HTMLDivElement>(terminalOpen, close);
+  const [cancelling, setCancelling] = useState(false);
 
-  const { data } = useSWR<{ jobs: Job[] }>(
+  const { data, error, mutate } = useSWR<{ jobs: Job[] }>(
     terminalOpen && code ? `/api/proxy/jobs?project=${encodeURIComponent(code)}&limit=12` : null,
     proxyFetcher,
     { refreshInterval: 5000 },
@@ -70,6 +74,29 @@ export function TerminalDrawer({ code }: { code: string | null }) {
 
   const jobs = data?.jobs ?? [];
   const active = jobs.find((j) => j.id === selected) ?? jobs[0];
+  const canCancel =
+    active && (active.status === "queued" || active.status === "running");
+
+  async function cancelActiveJob() {
+    if (!active || !canCancel) return;
+    if (
+      !window.confirm(
+        `Cancel this ${active.type} run? Claude will stop after the current step finishes.`,
+      )
+    ) {
+      return;
+    }
+    setCancelling(true);
+    try {
+      await proxyMutate(endpoints.jobCancel(active.id), { method: "POST" });
+      toast.success("Run cancelled");
+      mutate();
+    } catch (problem) {
+      toast.error("Could not cancel that run", { description: errorMessage(problem) });
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   return (
     <div
@@ -126,6 +153,22 @@ export function TerminalDrawer({ code }: { code: string | null }) {
         </div>
 
         <span className="flex-1" />
+        {canCancel && (
+          <button
+            type="button"
+            onClick={cancelActiveJob}
+            disabled={cancelling}
+            aria-label="Cancel the active run"
+            className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] disabled:opacity-50"
+            style={{
+              border: "1px solid var(--app-neg-line)",
+              color: "var(--app-neg)",
+            }}
+          >
+            <Prohibit size={12} weight="bold" />
+            {cancelling ? "Cancelling…" : "Cancel run"}
+          </button>
+        )}
         <div
           className="flex overflow-hidden rounded"
           style={{ border: "1px solid var(--app-line)" }}
@@ -133,6 +176,7 @@ export function TerminalDrawer({ code }: { code: string | null }) {
           <button
             onClick={() => setRaw(false)}
             aria-pressed={!raw}
+            aria-label="Structured log view"
             className="px-2 py-0.5 text-[11px]"
             style={{
               background: !raw ? "var(--app-accent-soft)" : "transparent",
@@ -144,6 +188,7 @@ export function TerminalDrawer({ code }: { code: string | null }) {
           <button
             onClick={() => setRaw(true)}
             aria-pressed={raw}
+            aria-label="Raw terminal output"
             className="px-2 py-0.5 text-[11px]"
             style={{
               background: raw ? "var(--app-accent-soft)" : "transparent",
@@ -165,7 +210,13 @@ export function TerminalDrawer({ code }: { code: string | null }) {
       </div>
 
       <div className="min-h-0 flex-1">
-        {active ? (
+        {error ? (
+          <FetchError
+            title="Could not load runs"
+            error={error}
+            onRetry={() => mutate()}
+          />
+        ) : active ? (
           <RunTerminal
             key={`${active.id}-${raw}`}
             jobId={active.id}

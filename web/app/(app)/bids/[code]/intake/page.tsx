@@ -26,12 +26,10 @@ export default async function IntakePage({ params }: { params: Promise<{ code: s
   const [documents, jobs] = await Promise.all([
     api
       .get<{ documents: BidDocument[] }>(`/api/projects/${code}/documents`)
-      .then((r) => r.documents)
-      .catch(() => [] as BidDocument[]),
+      .then((r) => r.documents),
     api
       .get<{ jobs: Job[] }>(`/api/jobs?project=${code}&limit=1`)
-      .then((r) => r.jobs)
-      .catch(() => [] as Job[]),
+      .then((r) => r.jobs),
   ]);
 
   const record: [string, string | null | undefined][] = [
@@ -60,8 +58,8 @@ export default async function IntakePage({ params }: { params: Promise<{ code: s
       />
       <StageBar project={project} current="intake" />
 
-      <main className="min-h-0 flex-1 overflow-auto p-4">
-        <div className="grid gap-4" style={{ gridTemplateColumns: "1fr 340px" }}>
+      <main id="main-content" className="min-h-0 flex-1 overflow-auto p-4">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_340px]">
           <div className="flex flex-col gap-4">
             <UploadPanel code={project.code} initialDocuments={documents} />
             <VersionsPanel code={project.code} />

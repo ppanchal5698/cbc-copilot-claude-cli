@@ -1,12 +1,19 @@
 "use client";
 
-import { AuditLogPanel, UsersAdminPanel } from "@/components/settings/admin-panels";
+import {
+  AuditLogPanel,
+  PipelineSettingsPanel,
+  UsersAdminPanel,
+} from "@/components/settings/admin-panels";
 
 export function AdminSettingsClient() {
   return (
-    <div className="grid gap-4 xl:grid-cols-2">
-      <UsersAdminPanel />
-      <AuditLogPanel />
+    <div className="flex flex-col gap-4">
+      <PipelineSettingsPanel />
+      <div className="grid gap-4 xl:grid-cols-2">
+        <UsersAdminPanel />
+        <AuditLogPanel />
+      </div>
     </div>
   );
 }

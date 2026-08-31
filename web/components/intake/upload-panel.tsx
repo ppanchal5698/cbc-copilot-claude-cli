@@ -7,6 +7,7 @@ import { Tray, FilePdf, UploadSimple, Trash } from "@phosphor-icons/react/dist/s
 import { toast } from "sonner";
 
 import type { BidDocument, Job, UploadResult } from "@/lib/types";
+import { FetchError } from "@/components/ui/fetch-error";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 const KINDS = [
   { key: "plan", label: "Plan set" },
@@ -31,14 +32,14 @@ export function UploadPanel({
     null,
   );
 
-  const { data, mutate } = useSWR<{ documents: BidDocument[] }>(
+  const { data, error: docsError, mutate } = useSWR<{ documents: BidDocument[] }>(
     `/api/proxy/projects/${code}/documents`,
     proxyFetcher,
     { fallbackData: { documents: initialDocuments } },
   );
   const documents = data?.documents ?? [];
 
-  const { data: jobData } = useSWR<{ jobs: Job[] }>(
+  const { data: jobData, error: jobsError } = useSWR<{ jobs: Job[] }>(
     `/api/proxy/jobs?project=${code}&limit=1`,
     proxyFetcher,
     {
@@ -118,7 +119,8 @@ export function UploadPanel({
         <span className="text-[15px] font-semibold">Bid documents</span>
         <span className="text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
           {documents.length} file{documents.length === 1 ? "" : "s"}
-          {job && (job.status === "running" || job.status === "queued")
+          {jobsError ? " · job status unavailable" : ""}
+          {!jobsError && job && (job.status === "running" || job.status === "queued")
             ? " · Claude is reading"
             : ""}
         </span>
@@ -140,6 +142,15 @@ export function UploadPanel({
           ))}
         </div>
       </div>
+
+      {docsError && (
+        <FetchError
+          title="Could not load documents"
+          error={docsError}
+          onRetry={() => mutate()}
+          compact
+        />
+      )}
 
       {documents.length > 0 && (
         <div className="overflow-x-auto">

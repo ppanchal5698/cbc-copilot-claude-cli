@@ -27,12 +27,10 @@ export default async function ExtractionPage({
   const [documents, jobs] = await Promise.all([
     api
       .get<{ documents: BidDocument[] }>(`/api/projects/${code}/documents`)
-      .then((r) => r.documents)
-      .catch(() => [] as BidDocument[]),
+      .then((r) => r.documents),
     api
       .get<{ jobs: Job[] }>(`/api/jobs?project=${code}&limit=1`)
-      .then((r) => r.jobs)
-      .catch(() => [] as Job[]),
+      .then((r) => r.jobs),
   ]);
 
   return (

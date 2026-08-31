@@ -84,6 +84,7 @@ export function BulkBar({
       <button
         onClick={onConfirm}
         disabled={busy}
+        aria-label={`Confirm ${selected} selected lines`}
         className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50"
         style={{ background: "var(--app-accent)", color: "#fff" }}
       >
@@ -93,6 +94,7 @@ export function BulkBar({
       <button
         onClick={onRemove}
         disabled={busy}
+        aria-label={`Remove ${selected} selected lines`}
         className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] disabled:opacity-50"
         style={{ border: "1px solid var(--app-neg-line)", color: "var(--app-neg)" }}
       >

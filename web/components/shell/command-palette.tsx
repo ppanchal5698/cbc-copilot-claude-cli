@@ -20,6 +20,7 @@ import { formatMoney } from "@/lib/format";
 import type { Product, ProductSearchResponse, Project } from "@/lib/types";
 
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import { FetchError } from "@/components/ui/fetch-error";
 
 const STAGES = [
   { key: "intake", label: "Intake" },
@@ -44,7 +45,7 @@ export function CommandPalette({ code }: { code: string | null }) {
   const close = useCallback(() => setPaletteOpen(false), [setPaletteOpen]);
   const dialogRef = useDialog<HTMLDivElement>(paletteOpen, close);
 
-  const { data: projectData } = useSWR<{ projects: Project[] }>(
+  const { data: projectData, error: projectsError, mutate: mutateProjects } = useSWR<{ projects: Project[] }>(
     paletteOpen ? "/api/proxy/projects?limit=50" : null,
     proxyFetcher,
   );
@@ -145,21 +146,32 @@ export function CommandPalette({ code }: { code: string | null }) {
         <CommandEmpty>Nothing matches that.</CommandEmpty>
 
         <CommandGroup heading="Bids">
-          {(projectData?.projects ?? []).slice(0, 8).map((project) => (
-            <CommandItem
-              key={project.id}
-              value={`${project.code} ${project.name} ${project.brand ?? ""} ${project.gc ?? ""}`}
-              onSelect={() => run(() => router.push(`/bids/${project.code}/${project.stage}`))}
-            >
-              <span className="tnum mr-2" style={{ color: "var(--app-accent)" }}>
-                {project.code}
-              </span>
-              <span className="flex-1 truncate">{project.name}</span>
-              <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
-                {project.stage}
-              </span>
-            </CommandItem>
-          ))}
+          {projectsError ? (
+            <div className="px-2 py-1">
+              <FetchError
+                title="Could not load bids"
+                error={projectsError}
+                onRetry={() => mutateProjects()}
+                compact
+              />
+            </div>
+          ) : (
+            (projectData?.projects ?? []).slice(0, 8).map((project) => (
+              <CommandItem
+                key={project.id}
+                value={`${project.code} ${project.name} ${project.brand ?? ""} ${project.gc ?? ""}`}
+                onSelect={() => run(() => router.push(`/bids/${project.code}/${project.stage}`))}
+              >
+                <span className="tnum mr-2" style={{ color: "var(--app-accent)" }}>
+                  {project.code}
+                </span>
+                <span className="flex-1 truncate">{project.name}</span>
+                <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                  {project.stage}
+                </span>
+              </CommandItem>
+            ))
+          )}
         </CommandGroup>
 
         {code && (

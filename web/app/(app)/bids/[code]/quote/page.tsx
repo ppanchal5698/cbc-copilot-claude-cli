@@ -20,10 +20,9 @@ export default async function QuotePage({ params }: { params: Promise<{ code: st
     throw error;
   }
 
-  const jobs = await api
-    .get<{ jobs: Job[] }>(`/api/jobs?project=${code}&limit=1`)
-    .then((r) => r.jobs)
-    .catch(() => [] as Job[]);
+  const jobs = (
+    await api.get<{ jobs: Job[] }>(`/api/jobs?project=${code}&limit=1`)
+  ).jobs;
 
   return (
     <>

@@ -450,3 +450,10 @@ export interface UserRow {
   initials: string;
   role: string;
 }
+
+export interface PipelineSettings {
+  autopilotDefault: boolean;
+  note?: string;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}

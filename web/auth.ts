@@ -48,16 +48,17 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   callbacks: {
     jwt({ token, user }) {
       if (user) {
-        token.initials = (user as { initials?: string }).initials;
-        token.role = (user as { role?: string }).role;
+        token.initials = user.initials;
+        token.role = user.role;
       }
       return token;
     },
     session({ session, token }) {
       if (session.user) {
         session.user.id = token.sub ?? "";
-        (session.user as { initials?: string }).initials = token.initials as string;
-        (session.user as { role?: string }).role = token.role as string;
+        session.user.initials =
+          typeof token.initials === "string" ? token.initials : "";
+        session.user.role = typeof token.role === "string" ? token.role : "estimator";
       }
       return session;
     },

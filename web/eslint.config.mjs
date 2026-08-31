@@ -16,6 +16,7 @@ const eslintConfig = defineConfig([
     // reported ~1,473 warnings, which buried every real finding in this repo.
     "public/**",
     "**/*.min.mjs",
+    "e2e/**",
   ]),
 ]);
 

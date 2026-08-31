@@ -23,7 +23,8 @@ import type {
   ProviderTest,
 } from "@/lib/types";
 
-import { ProxyError, errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import { endpoints } from "@/lib/endpoints";
+import { ProxyError, errorMessage, proxyFetch, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 
 type Mode = ClaudeSettings["mode"];
 
@@ -292,7 +293,7 @@ export function ClaudeSettingsClient() {
 
   async function finishSignIn() {
     if (!signIn || !code.trim()) return;
-    const response = await fetch("/api/proxy/settings/claude/oauth/code", {
+    const response = await proxyFetch(endpoints.claudeOauthCode(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session: signIn.session, code: code.trim() }),

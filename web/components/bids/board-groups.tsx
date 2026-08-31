@@ -136,9 +136,9 @@ export function BoardGroups({ projects }: { projects: Project[] }) {
               </button>
 
               {open && (
-                <div>
+                <div className="overflow-x-auto">
                   <div
-                    className="grid gap-3 border-y px-4 py-2 text-[10.5px] uppercase tracking-[0.07em]"
+                    className="grid min-w-[720px] gap-3 border-y px-4 py-2 text-[10.5px] uppercase tracking-[0.07em]"
                     style={{
                       gridTemplateColumns: "170px 1fr 110px 100px 90px 70px 110px",
                       borderColor: "var(--app-line)",
@@ -160,7 +160,7 @@ export function BoardGroups({ projects }: { projects: Project[] }) {
                       <Link
                         key={project.id}
                         href={`/bids/${project.code}/${project.stage}`}
-                        className="grid items-center gap-3 border-b px-4 py-2.5 no-underline last:border-b-0 hover:bg-[var(--app-panel-2)]"
+                        className="grid min-w-[720px] items-center gap-3 border-b px-4 py-2.5 no-underline last:border-b-0 hover:bg-[var(--app-panel-2)]"
                         style={{
                           gridTemplateColumns: "170px 1fr 110px 100px 90px 70px 110px",
                           borderColor: "var(--app-line)",

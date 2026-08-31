@@ -5,8 +5,11 @@ import useSWR from "swr";
 import { toast } from "sonner";
 
 import { useDebounced } from "@/hooks/use-debounced";
+import { FetchError } from "@/components/ui/fetch-error";
+import { endpoints } from "@/lib/endpoints";
+import { swrKeys } from "@/lib/swr-keys";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
-import type { AuditEntry, UserRow } from "@/lib/types";
+import type { AuditEntry, PipelineSettings, UserRow } from "@/lib/types";
 
 export function AuditLogPanel() {
   const [project, setProject] = useState("");
@@ -97,7 +100,10 @@ export function AuditLogPanel() {
 }
 
 export function UsersAdminPanel() {
-  const { data, mutate } = useSWR<{ users: UserRow[] }>("/api/proxy/users", proxyFetcher);
+  const { data, error, isLoading, mutate } = useSWR<{ users: UserRow[] }>(
+    "/api/proxy/users",
+    proxyFetcher,
+  );
   const [draft, setDraft] = useState({
     email: "",
     name: "",
@@ -204,6 +210,20 @@ export function UsersAdminPanel() {
         </div>
       </form>
 
+      {error && (
+        <FetchError
+          title="Could not load users"
+          error={error}
+          onRetry={() => mutate()}
+          compact
+        />
+      )}
+      {isLoading && !data && !error && (
+        <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+          Loading users…
+        </p>
+      )}
+
       <div className="divide-y" style={{ borderColor: "var(--app-line)" }}>
         {(data?.users ?? []).map((user) => (
           <div key={user.id} className="flex items-center gap-3 px-4 py-2.5">
@@ -231,6 +251,94 @@ export function UsersAdminPanel() {
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+export function PipelineSettingsPanel() {
+  const { data, error, isLoading, mutate } = useSWR<PipelineSettings>(
+    swrKeys.pipelineSettings(),
+    proxyFetcher,
+  );
+  const [busy, setBusy] = useState(false);
+
+  async function toggleAutopilot() {
+    if (!data) return;
+    setBusy(true);
+    try {
+      await proxyMutate<PipelineSettings>(endpoints.pipelineSettings(), {
+        method: "PUT",
+        body: { autopilotDefault: !data.autopilotDefault },
+      });
+      toast.success(
+        !data.autopilotDefault
+          ? "Autopilot enabled for new bids"
+          : "Autopilot disabled for new bids",
+      );
+      mutate();
+    } catch (problem) {
+      toast.error("Could not save pipeline settings", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section
+      className="rounded-xl"
+      style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
+    >
+      <div className="border-b px-4 py-3.5" style={{ borderColor: "var(--app-line)" }}>
+        <h2 className="text-[15px] font-semibold">Pipeline defaults</h2>
+        <p className="mt-1 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+          Global defaults for new bids. Each bid can override autopilot at creation.
+        </p>
+      </div>
+
+      {error && (
+        <FetchError
+          title="Could not load pipeline settings"
+          error={error}
+          onRetry={() => mutate()}
+          compact
+        />
+      )}
+      {isLoading && !data && !error && (
+        <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+          Loading…
+        </p>
+      )}
+      {data && (
+        <div className="flex flex-wrap items-start justify-between gap-4 px-4 py-4">
+          <div className="max-w-[520px]">
+            <p className="text-[13px] font-medium">Autopilot default for new bids</p>
+            <p className="mt-1 text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+              {data.note ??
+                "When enabled, uploading a drawing runs Phase 0–6 in one pass. Nothing is ever sent."}
+            </p>
+            {data.updatedBy && (
+              <p className="mt-2 text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                Last changed by {data.updatedBy}
+                {data.updatedAt ? ` · ${new Date(data.updatedAt).toLocaleString()}` : ""}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={toggleAutopilot}
+            disabled={busy}
+            aria-pressed={data.autopilotDefault}
+            className="rounded-md px-4 py-2 text-[12px] font-semibold disabled:opacity-50"
+            style={{
+              background: data.autopilotDefault ? "var(--app-accent)" : "var(--app-panel-2)",
+              color: data.autopilotDefault ? "#fff" : "var(--app-tx-2)",
+              border: `1px solid ${data.autopilotDefault ? "var(--app-accent-line)" : "var(--app-line)"}`,
+            }}
+          >
+            {busy ? "Saving…" : data.autopilotDefault ? "Autopilot on" : "Autopilot off"}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

@@ -47,7 +47,7 @@ async function toProxyError(response: Response): Promise<ProxyError> {
  * through here, so the redirect happens in one place instead of each screen
  * inventing its own handling.
  */
-function handleExpiredSession(status: number): void {
+export function handleExpiredSession(status: number): void {
   if (status !== 401 || typeof window === "undefined") return;
   const here = window.location.pathname + window.location.search;
   // Deliberately a full-document navigation rather than router.push: the server
@@ -56,6 +56,13 @@ function handleExpiredSession(status: number): void {
   const target = new URL("/signin", window.location.origin);
   target.searchParams.set("from", here);
   window.location.assign(target.toString());
+}
+
+/** Authenticated fetch that applies the same 401 redirect as proxyFetcher. */
+export async function proxyFetch(url: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(url, init);
+  if (!response.ok) handleExpiredSession(response.status);
+  return response;
 }
 
 /**

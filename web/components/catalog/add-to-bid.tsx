@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import type { LineItem, Product, Project } from "@/lib/types";
 
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import { FetchError } from "@/components/ui/fetch-error";
 
 /**
  * Put a catalog part straight onto an open bid.
@@ -20,7 +21,7 @@ export function AddToBid({ product }: { product: Product }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const { data } = useSWR<{ projects: Project[] }>(
+  const { data, error, isLoading, mutate } = useSWR<{ projects: Project[] }>(
     open ? "/api/proxy/projects?limit=50" : null,
     proxyFetcher,
   );
@@ -72,10 +73,17 @@ export function AddToBid({ product }: { product: Product }) {
         Add to which bid?
       </span>
 
-      {!data ? (
+      {!data && !error && isLoading ? (
         <p className="mt-2 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
           Loading bids…
         </p>
+      ) : error ? (
+        <FetchError
+          title="Could not load bids"
+          error={error}
+          onRetry={() => mutate()}
+          compact
+        />
       ) : candidates.length === 0 ? (
         <p className="mt-2 text-[12px]" style={{ color: "var(--app-tx-2)" }}>
           No open bids to add to. Bids at the proposal stage are excluded.

@@ -16,7 +16,8 @@ import { toast } from "sonner";
 import { formatMoney } from "@/lib/format";
 import type { EmailDraft, HandOffResult, ProposalResponse } from "@/lib/types";
 
-import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import { endpoints } from "@/lib/endpoints";
+import { errorMessage, proxyFetch, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 
 const MARKUPS = [
   { value: 0, label: "None" },
@@ -90,7 +91,7 @@ export function ProposalClient({ code }: { code: string }) {
 
   /** Try the server renderer; fall back to the browser's own print-to-PDF. */
   async function downloadPdf() {
-    const response = await fetch(`/api/proxy/projects/${code}/proposal/pdf`);
+    const response = await proxyFetch(endpoints.proposalPdf(code));
 
     if (response.ok) {
       const blob = await response.blob();

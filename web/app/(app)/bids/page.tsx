@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { PageHeader } from "@/components/shell/page-header";
 import { BoardGroups } from "@/components/bids/board-groups";
+import { BidBoardSearch } from "@/components/bids/bid-board-search";
 import { NewBidDialog } from "@/components/bids/new-bid-dialog";
 import { api } from "@/lib/api";
 import type { Project, Stage } from "@/lib/types";
@@ -37,7 +38,7 @@ export default async function BidBoardPage({
     <>
       <PageHeader crumbs={[{ label: "Workspace" }, { label: "Bid board" }]} />
 
-      <main className="min-h-0 flex-1 overflow-auto p-6">
+      <main id="main-content" className="min-h-0 flex-1 overflow-auto p-6">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-[20px] font-semibold">Bid board</h1>
@@ -70,7 +71,28 @@ export default async function BidBoardPage({
           })}
         </div>
 
-        <BoardGroups projects={projects} />
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <BidBoardSearch key={q ?? ""} stage={stage} initialQuery={q ?? ""} />
+        </div>
+
+        {projects.length === 0 ? (
+          <div
+            className="grid place-items-center gap-2 rounded-xl px-6 py-16 text-center"
+            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
+          >
+            <span className="text-[15px] font-semibold">
+              {q ? "No bids match that search" : "No bids yet"}
+            </span>
+            <span className="max-w-[420px] text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+              {q
+                ? "Try a different code, name, or brand — or clear the search to see all bids."
+                : "Create a bid to start intake. Upload a plan set and Claude reads the openings for you."}
+            </span>
+            {!q && <NewBidDialog />}
+          </div>
+        ) : (
+          <BoardGroups projects={projects} />
+        )}
       </main>
     </>
   );

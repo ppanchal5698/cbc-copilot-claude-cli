@@ -50,10 +50,24 @@ projects/*/.versions/
 tests/fixtures/scratch/
 tests/fixtures/projects/.runs/
 
-# Local/dev bid workspaces (committed fixtures live under tests/fixtures/projects/)
+# Local/dev bid workspaces (committed demo: dutch_bros_macarthur_2026;
+# frozen fixtures live under tests/fixtures/projects/)
 projects/adv_test_*/
 projects/assign_test*/
 projects/bid_*/
+projects/burger_king_2379_test/
+projects/collision_one/
+projects/collision_two/
+projects/no_initiator_bid/
+projects/other_bid/
 projects/ordinary_work/
+projects/phase_two_test_bid/
+projects/terminal_probe_one_page/
 projects/test/
 projects/verify/
+
+# Bootstrap artifacts and local PDF copies (canonical copies under docs/bootstrap/ and tests/fixtures/pdfs/)
+BUILD_PROMPT.md
+CBC_Req_Validation_v1_3.xlsx
+cbc_copilot_project_structure.md
+building-plans/

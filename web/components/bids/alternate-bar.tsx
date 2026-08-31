@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { formatMoneyShort } from "@/lib/format";
 
+import { FetchError } from "@/components/ui/fetch-error";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 import type { AlternatesResponse } from "@/lib/types";
 
@@ -31,12 +32,24 @@ export function AlternateBar({
   showTotals?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
-  const { data, mutate } = useSWR<AlternatesResponse>(
+  const { data, error, mutate } = useSWR<AlternatesResponse>(
     `/api/proxy/projects/${code}/alternates`,
     proxyFetcher,
   );
 
   const alternates = data?.alternates ?? [];
+
+  if (error) {
+    return (
+      <FetchError
+        title="Could not load alternates"
+        error={error}
+        onRetry={() => mutate()}
+        compact
+      />
+    );
+  }
+
   // With no alternates there is nothing to compare, so stay out of the way.
   if (alternates.length <= 1 && !adding) {
     return (
