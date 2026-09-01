@@ -64,8 +64,8 @@ is read by every session.
 - **Proposed fix:** `HOW_SOLO` instructs reading `.claude/agents/<name>.md` immediately before each phase — one file at a time. In the same change, remove the duplicate schema block added to `RUN_FULL_PIPELINE` earlier today. Grouped: applying either half alone leaves the contract missing or duplicated.
 - **Risk:** medium — changes core run behaviour.
 - **Verification:** the rendered solo `run_full_pipeline` prompt names `.claude/agents/` and no longer contains "group and group_type are not optional"; then re-run the pipeline on CBC-260002 with `force` and confirm the 12 bbox/`page_size` and 20 `group`/`group_type` problems clear.
-- **Status:** code done — static checks pass; the pipeline re-run is the Phase 3 verification
-- **Notes:** Solo prompt now names `.claude/agents/<name>.md` and cites the concrete failure so the instruction reads as load-bearing rather than housekeeping. 1211 chars of duplicated schema removed from `RUN_FULL_PIPELINE` in the same change. Delegated path deliberately unchanged - "not files to read" is still correct there.
+- **Status:** code done, **end-to-end verification blocked** — Ollama returns HTTP 429 (account session usage limit), so the pipeline cannot run
+- **Notes:** Blocked on the provider, not the change. Re-run when the limit clears: `docker compose exec worker python -c "import asyncio; from cbc.db import db; from cbc.services import jobs; ..."` enqueuing `run_full_pipeline` for CBC-260002 with `payload={"force": True}`, then confirm the 12 `bbox`/`page_size` and 20 `group`/`group_type` problems are gone. Static checks all pass: the rendered solo prompt reads the agent files, the duplicate block is gone, and `force` is honoured. Solo prompt now names `.claude/agents/<name>.md` and cites the concrete failure so the instruction reads as load-bearing rather than housekeeping. 1211 chars of duplicated schema removed from `RUN_FULL_PIPELINE` in the same change. Delegated path deliberately unchanged - "not files to read" is still correct there.
 
 ## Task 6: `CLAUDE.md` describes deleted subsystems
 - **File(s):** `CLAUDE.md:17`, `CLAUDE.md:41-52`
@@ -94,3 +94,33 @@ is read by every session.
 - `.mcp.json` — correct as-is: 5 servers, all referenced, all connected.
 - `~/.claude.json` duplicate project entry — cosmetic; editing the global file is riskier than the symptom.
 - Rewording agents or skills that are correct. This fixes defects, it does not redesign working prompts.
+
+---
+
+## Phase 3 — verification sweep
+
+Re-ran the Phase 0 contradiction checks against the modified files:
+
+| Original contradiction | Now |
+|---|---|
+| `CLAUDE.md` names deleted `document-index` | resolved |
+| `CLAUDE.md` server count wrong (6 vs 5) | resolved |
+| `CLAUDE.md` describes deleted `cbc/catalog` | resolved |
+| `CLAUDE.md` describes deleted `cbc/documents` | resolved |
+| `CLAUDE.md` omits `cbc/pageindex` | resolved |
+| Scope list duplicated across two auto-loaded files | resolved |
+| Manual cut-off prose duplicates the file it inlines | resolved |
+| Bootstrap gates on the deleted SQLite path | resolved — the one surviving mention is a history comment, not code |
+| `fresh_reset` does not drop `pageIndex` | resolved |
+| Solo prompt hides the agent definitions | resolved |
+| Duplicate schema block in `RUN_FULL_PIPELINE` | resolved |
+
+`python mcp-servers/main.py --selftest` — all 5 servers start. Their reported tool
+names match the allowlists in `apply_config_audit.py` exactly, which independently
+validates Task 4 without needing the script to have run.
+
+`python -m pytest tests -q` — 437 passed, 9 skipped.
+
+**Not verified:** every subagent routing and every skill activation, and the
+end-to-end pipeline run. All three need model calls, and the provider is
+returning HTTP 429. Nothing in the audit's static checks depends on them.
