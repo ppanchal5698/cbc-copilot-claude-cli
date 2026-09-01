@@ -108,11 +108,46 @@ def union_bbox(words: list[tuple]) -> list[float]:
     ]
 
 
+def to_display_space(page: fitz.Page, words: list[tuple]) -> list[tuple]:
+    """Move word boxes into the space the page is actually drawn in.
+
+    `get_text("words")` reports coordinates against the unrotated mediabox, while
+    `page.rect`, the rendered pixmap and therefore the viewer all use the rotated
+    frame. On a 270-rotated sheet those are transposed: 1584x2448 against
+    2448x1584. Two things went wrong because of it.
+
+    The visible one is that a bbox handed to the estimator's sheet viewer, which
+    scales against `page_size`, landed nowhere near its row.
+
+    The worse one is silent. Rows are clustered by y below, and on a rotated page
+    raw y runs along the *screen's x* - so the buckets were columns wearing the
+    word "row", and every table read off such a page was scrambled. 72 of the 87
+    pages in the first real bid set are rotated 270.
+
+    `rotation_matrix` is the identity when rotation is 0, so an upright page is
+    untouched and costs one matrix multiply per word.
+    """
+    if not page.rotation:
+        return words
+    matrix = page.rotation_matrix
+    moved = []
+    for word in words:
+        box = (fitz.Rect(word[:4]) * matrix).normalize()
+        moved.append((box.x0, box.y0, box.x1, box.y1, *word[4:]))
+    return moved
+
+
 def rows_from_words(
     page: fitz.Page, region: list[float] | None = None, shift: int = 0
 ) -> list[dict[str, Any]]:
-    """Cluster positioned words into rows of cells."""
+    """Cluster positioned words into rows of cells.
+
+    Coordinates in and out are display-space: the same frame as `page_size` and
+    the rendered image, so `region` is expressed the way the viewer shows it and
+    every bbox returned can be drawn straight onto the page.
+    """
     words = page.get_text("words")  # (x0, y0, x1, y1, word, block, line, word_no)
+    words = to_display_space(page, words)
     if shift:
         words = [(*w[:4], shift_text(w[4], shift), *w[5:]) for w in words]
     if region:

@@ -85,3 +85,88 @@ def test_page_size_rejects_a_page_out_of_range(fixture_pdf):
 
     with pytest.raises(ValueError):
         load_server("pdf-tools").get_page_size(str(fixture_pdf), 999)
+
+
+def _rotated_page(tmp_path, rotation: int):
+    """A landscape sheet with two words on one visual line, as drawings are drawn."""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    # Same baseline, different x - one row to any human looking at the page.
+    page.insert_text((72, 300), "DOOR", fontsize=11)
+    page.insert_text((300, 300), "101", fontsize=11)
+    # Low on the tall mediabox: past the short edge of the rotated frame, so an
+    # untransformed bbox is provably outside the page rather than merely wrong.
+    page.insert_text((72, 700), "SILL", fontsize=11)
+    page.set_rotation(rotation)
+    path = tmp_path / f"rot{rotation}.pdf"
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_bboxes_are_in_the_frame_the_page_is_drawn_in(tmp_path):
+    """A bbox has to land on the row it came from, on a rotated sheet too.
+
+    `get_text("words")` reports against the unrotated mediabox while `page.rect`,
+    the rendered image and the viewer all use the rotated frame. On a 270-rotated
+    sheet those are transposed, so a highlight drawn from a raw bbox lands
+    somewhere else entirely - which is what the estimator saw.
+
+    72 of the 87 pages in the first real bid set are rotated 270.
+    """
+    import fitz
+
+    from cbc.core.pdfrows import rows_from_words
+
+    for rotation in (0, 90, 180, 270):
+        path = _rotated_page(tmp_path, rotation)
+        doc = fitz.open(path)
+        page = doc[0]
+        rows = rows_from_words(page)
+        assert rows, f"rotation {rotation}: no rows"
+        for row in rows:
+            assert fitz.Rect(row["bbox"]) in page.rect, (
+                f"rotation {rotation}: bbox {row['bbox']} outside page {tuple(page.rect)}"
+            )
+        doc.close()
+
+
+def _drawing_page(tmp_path):
+    """A landscape sheet the way a CAD tool writes one.
+
+    Text is drawn rotated 90 in mediabox space so that it reads horizontally once
+    the page's own 270 rotation is applied - which is exactly how the 72 rotated
+    pages of the first real bid set are built.
+    """
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((300, 200), "DOOR", fontsize=11, rotate=90)
+    page.insert_text((300, 400), "101", fontsize=11, rotate=90)
+    page.set_rotation(270)
+    path = tmp_path / "drawing.pdf"
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_row_is_grouped_as_it_appears_on_screen(tmp_path):
+    """Clustering is by y, and on a 270-rotated page raw y runs along screen x.
+
+    Before the display-space transform these two words fell in different buckets:
+    the buckets were columns wearing the word "row", and a schedule read off such
+    a page came out scrambled. They are one line to anyone looking at the sheet.
+    """
+    import fitz
+
+    from cbc.core.pdfrows import rows_from_words
+
+    doc = fitz.open(_drawing_page(tmp_path))
+    rows = [r["text"] for r in rows_from_words(doc[0])]
+    doc.close()
+    assert any("DOOR" in t and "101" in t for t in rows), (
+        f"one on-screen row split across rows -> {rows}"
+    )
