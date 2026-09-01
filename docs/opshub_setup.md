@@ -51,6 +51,28 @@ Still supported, and what `docs/headless_setup.md` assumes:
 docker compose up -d --build
 ```
 
+### On a Linux host, the mounted directories must belong to uid 1000
+
+The containers run as the non-root user `cbc`, uid **1000**. `projects/` and
+`pricebooks/` are bind-mounted, and a bind mount **replaces** the image's
+directory — including the ownership the Dockerfile set — with whatever the host
+has. If the host copies are owned by anyone else, the API cannot create a project
+directory and `POST /api/projects` returns 500:
+
+```
+PermissionError: [Errno 13] Permission denied: '/app/projects/<slug>'
+```
+
+Once, before the first start:
+
+```bash
+sudo chown -R 1000:1000 projects pricebooks
+```
+
+**Docker Desktop on macOS and Windows does not enforce bind-mount ownership**, so
+this never shows up there. It is not a CI quirk — it applies to any Linux
+deployment, and CI has a step that does exactly the above.
+
 On first start, `docker/entrypoint.sh` runs [`scripts/bootstrap.py`](../scripts/bootstrap.py) when
 `AUTO_BOOTSTRAP=1` (the default):
 

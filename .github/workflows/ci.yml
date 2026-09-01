@@ -109,6 +109,20 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      # The containers run as uid 1000 (cbc), and a bind mount replaces the
+      # image's chowned directory with the host's - which the runner checks out
+      # as its own user. Without this the API cannot create a project directory,
+      # POST /api/projects returns 500, and the specs time out waiting for a
+      # navigation that never happens.
+      #
+      # Docker Desktop hides this locally by not enforcing bind-mount ownership.
+      # A Linux host enforces it, and so does a real deployment - see the
+      # ownership note in docs/opshub_setup.md.
+      - name: Give the writable bind mounts to the container user
+        run: |
+          mkdir -p projects
+          sudo chown -R 1000:1000 projects pricebooks
+
       # AUTO_BOOTSTRAP seeds estimator@cbc.com and admin@cbc.com, which is what
       # e2e/helpers.ts signs in as. Without it every spec fails at the login form.
       - name: Start the stack
