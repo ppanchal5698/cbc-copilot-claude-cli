@@ -46,7 +46,9 @@ schedule itself lives on a details/schedules sheet (A2.x in the fixture, page 14
    derive it from the floor plan swing arc and hinge side. If neither works, flag
    it - never default to LH.
 6. Parse the HARDWARE GROUPS block into individual items: category, manufacturer,
-   part number, size, finish.
+   part number, size, finish. **You own this** - `spec-scope-analyst` only records
+   which pages carry the block, in `scope_summary.json.hardware_group_pages`. Read
+   that to find the pages rather than searching for them again.
 7. Cross-check the opening count against door tags on the floor plans. A mismatch
    usually means a schedule block was missed.
 8. Write `extracted/door_schedule.json`.

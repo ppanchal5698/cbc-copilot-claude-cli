@@ -127,8 +127,6 @@ export function jobTypeLabel(type: string): string {
     ingest_pricebook: "Read price book",
     index_catalog: "Index catalog",
     delete_catalog: "Remove catalog index",
-    index_document: "Deep-index document",
-    delete_document: "Remove deep index",
     run_full_pipeline: "Autopilot",
   };
   return labels[type] ?? type.replace(/_/g, " ");

@@ -13,10 +13,12 @@ import { SpecialMarginsPanel } from "@/components/settings/special-margins-panel
 import { FinishesPanel } from "@/components/settings/finishes-panel";
 import { FrameDepthsPanel } from "@/components/settings/frame-depths-panel";
 import { FrpConstantsPanel } from "@/components/settings/frp-constants-panel";
+import { QueueMetricsPanel } from "@/components/settings/queue-metrics-panel";
 
 export function AdminSettingsClient() {
   return (
     <div className="flex flex-col gap-4">
+      <QueueMetricsPanel />
       <IntegrationsPanel />
       <PipelineSettingsPanel />
       <div className="grid gap-4 xl:grid-cols-2">

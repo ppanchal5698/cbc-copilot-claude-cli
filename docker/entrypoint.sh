@@ -29,6 +29,26 @@ if not project.get("hasTrustDialogAccepted"):
     print("[entrypoint] /app marked as a trusted workspace")
 PY
 
+# The mounted directories must be writable by this user, and a bind mount can
+# silently take that away. The image chowns them to cbc (uid 1000), but a bind
+# mount replaces the image's directory with the host's, ownership included - so
+# a host directory owned by anyone else leaves this container unable to write to
+# a path it believes it owns.
+#
+# Docker Desktop does not enforce bind-mount ownership, so this is invisible on
+# macOS and Windows and appears only on a Linux host. Left unchecked it surfaces
+# minutes later as "POST /api/projects 500" with a PermissionError buried in a
+# traceback. Checking it here turns that into one line at start-up, naming the
+# fix. See the ownership note in docs/opshub_setup.md.
+for mounted in /app/projects /app/pricebooks; do
+  if [ -d "${mounted}" ] && [ ! -w "${mounted}" ]; then
+    echo "[entrypoint] FATAL: ${mounted} is not writable by $(id -un) (uid $(id -u))." >&2
+    echo "[entrypoint] It is owned by uid $(stat -c %u "${mounted}"). On the host, run:" >&2
+    echo "[entrypoint]     sudo chown -R $(id -u):$(id -g) ${mounted#/app/}" >&2
+    exit 1
+  fi
+done
+
 if [ "${AUTO_BOOTSTRAP:-1}" != "0" ]; then
   python /app/scripts/bootstrap.py || echo "[entrypoint] bootstrap skipped (MongoDB may still be starting)"
 fi

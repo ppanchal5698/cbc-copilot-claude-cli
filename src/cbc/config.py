@@ -71,7 +71,11 @@ class Settings:
             return
 
         insecure = []
-        if self.internal_api_token == DEV_SECRET:
+        if not self.internal_api_token.strip():
+            # Not the dev default, so the check below misses it - and an empty
+            # token used to mean the middleware skipped the comparison entirely.
+            insecure.append("INTERNAL_API_TOKEN (empty - that disables the check)")
+        elif self.internal_api_token == DEV_SECRET:
             insecure.append("INTERNAL_API_TOKEN (or APP_SECRET_KEY, which it falls back to)")
         if os.environ.get("APP_SECRET_KEY", DEV_SECRET) == DEV_SECRET:
             insecure.append("APP_SECRET_KEY")

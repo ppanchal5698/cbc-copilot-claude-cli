@@ -14,13 +14,11 @@ JobType = Literal[
     "build_proposal",
     "ingest_pricebook",
     "ingest_addendum",
-    # Catalog indexing. Deterministic extraction into the SQLite FTS index; the
-    # LLM `ingest_pricebook` pass stays as the adapter of last resort.
+    # Catalog indexing. Builds the PageIndex document that says what each page of
+    # a vendor sheet sells; the LLM `ingest_pricebook` pass stays as the adapter
+    # of last resort.
     "index_catalog",
     "delete_catalog",
-    # LLM deep index: section routing + content.db (local handler, not Claude pass).
-    "index_document",
-    "delete_document",
     # Phase 0-6 in one session, for a bid marked autopilot. The gated
     # extract_bid_set -> match_and_price -> build_proposal path is unchanged and
     # remains the default.

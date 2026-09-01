@@ -15,8 +15,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
-from scripts.validate_project import check_pricing  # noqa: E402
+from cbc.validation import check_pricing  # noqa: E402
 
 RENDER_SCRIPT = (
     ROOT / ".claude" / "skills" / "generate-quotation" / "scripts" / "render_quote.py"

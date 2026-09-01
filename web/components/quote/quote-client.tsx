@@ -20,6 +20,7 @@ import { AlternateBar } from "@/components/bids/alternate-bar";
 import { JobFailedBanner } from "@/components/jobs/job-failed-banner";
 import { useUiState } from "@/components/shell/ui-state";
 import { formatMoney, formatPercent } from "@/lib/format";
+import { belowBandTitle, isBelowBand } from "@/lib/margin";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 import { endpoints } from "@/lib/endpoints";
 import type { AlternatesResponse, IntegrationsResponse, Job, QuoteLine, QuoteResponse } from "@/lib/types";
@@ -122,6 +123,9 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
   const { openNotes, userRole } = useUiState();
   const [busy, setBusy] = useState(false);
   const [alternate, setAlternate] = useState<string | null | undefined>(undefined);
+  // NFR-8 is "below-band lines are flagged". The API flags them; until this
+  // existed nothing showed the flag, so the guardrail ended at the API boundary.
+  const [belowBandOnly, setBelowBandOnly] = useState(false);
 
   const { data: jobData } = useSWR<{ jobs: Job[] }>(
     `/api/proxy/jobs?project=${code}&limit=1`,
@@ -159,12 +163,15 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
     router.refresh();
   }, [mutate, router]);
 
-  const filtering = alternate !== undefined;
+  const filtering = alternate !== undefined || belowBandOnly;
   const groups = (data?.groups ?? [])
     .map((group) => {
       if (!filtering) return group;
       const lines = group.lines.filter(
-        (line) => (line.alternateGroup ?? null) === (alternate ?? null),
+        (line) =>
+          (alternate === undefined ||
+            (line.alternateGroup ?? null) === (alternate ?? null)) &&
+          (!belowBandOnly || isBelowBand(line)),
       );
       return {
         ...group,
@@ -177,6 +184,13 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
     .filter((group) => group.lines.length > 0);
 
   const visibleLines = groups.reduce((sum, group) => sum + group.lines.length, 0);
+
+  // Counted across every line the API returned, not the filtered view: a count
+  // that shrank when you filtered by it would be reporting the filter.
+  const belowBandTotal = (data?.groups ?? []).reduce(
+    (sum, group) => sum + group.lines.filter(isBelowBand).length,
+    0,
+  );
 
   // When a group is selected the footer must show that group's money, not the
   // whole bid's. These totals are the API's own per-alternate figures.
@@ -342,6 +356,23 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
                 below is editable
               </span>
             </span>
+
+            {belowBandTotal > 0 && (
+              <button
+                type="button"
+                onClick={() => setBelowBandOnly((on) => !on)}
+                aria-pressed={belowBandOnly}
+                className="rounded-lg px-2.5 py-1 text-[11.5px] font-medium transition-colors"
+                style={{
+                  color: belowBandOnly ? "var(--app-bg)" : "var(--app-neg)",
+                  background: belowBandOnly ? "var(--app-neg)" : "transparent",
+                  border: "1px solid var(--app-neg)",
+                }}
+                title="Lines whose margin is under its product-type floor (NFR-8)"
+              >
+                {belowBandTotal} below band
+              </button>
+            )}
 
             {!!data?.edited?.count && (
               <span
@@ -514,6 +545,18 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
                             <span className="text-[10.5px]" style={{ color: "var(--app-neg)" }}>
                               {line.addedByHand ? "added by hand" : "margin overridden"}
                               {line.overrideReason ? ` · ${line.overrideReason}` : ""}
+                            </span>
+                          )}
+                          {isBelowBand(line) && (
+                            <span
+                              className="ml-1 rounded px-1 py-[1px] text-[10.5px] font-medium"
+                              style={{
+                                color: "var(--app-neg)",
+                                border: "1px solid var(--app-neg)",
+                              }}
+                              title={belowBandTitle(line)}
+                            >
+                              below band
                             </span>
                           )}
                         </span>

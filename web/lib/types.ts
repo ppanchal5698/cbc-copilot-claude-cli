@@ -142,6 +142,19 @@ export interface QuoteLine {
   priceStatus?: string | null;
   /** The price book this cost came from is past its review window. */
   lapsed?: boolean;
+  /**
+   * Margin against its product-type floor (NFR-8). The API has computed this on
+   * every line since quote.py:68 and the screen ignored it, so the one guardrail
+   * that exists to make below-band pricing visible was visible to nobody.
+   * `status` is "pass" | "fail" | "unpriced" | "unknown_product_type".
+   */
+  marginCheck?: {
+    status: string;
+    flag?: string | null;
+    floor?: number;
+    applied_margin?: number;
+    product_type?: string;
+  } | null;
   alternateGroup?: string | null;
   flags: string[];
 }
@@ -621,4 +634,20 @@ export interface IntegrationStatus {
 
 export interface IntegrationsResponse {
   p21: IntegrationStatus;
+}
+
+/** `GET /api/jobs/metrics` — queue depth and throughput, for the admin screen. */
+export interface JobMetrics {
+  windowHours: number;
+  queued: number;
+  running: number;
+  oldestQueuedAt: string | null;
+  finished: number;
+  failed: number;
+  /** null when nothing finished in the window — no news, not good news. */
+  failureRate: number | null;
+  byType: Record<
+    string,
+    { total: number; done: number; failed: number; avgSeconds: number | null }
+  >;
 }

@@ -60,11 +60,15 @@ class InternalAuthMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/api/") or path in PUBLIC_PATHS:
             return await call_next(request)
 
+        # No `if token:` guard. An empty INTERNAL_API_TOKEN used to skip this
+        # comparison, which authenticated every caller that sent an X-Actor
+        # header - in any environment, with nothing in the logs to say so. A
+        # missing secret is the case that most needs the door shut, so an empty
+        # token now matches nothing and 401s.
         token = settings.internal_api_token
-        if token:
-            provided = request.headers.get("X-Internal-Token", "")
-            if not pysecrets.compare_digest(provided, token):
-                return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        provided = request.headers.get("X-Internal-Token", "")
+        if not token or not pysecrets.compare_digest(provided, token):
+            return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
 
         actor = request.headers.get("X-Actor", "").strip()
         if not actor:

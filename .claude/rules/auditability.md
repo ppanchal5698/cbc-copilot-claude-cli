@@ -6,7 +6,16 @@ or price-sheet version — including the vendor multiplier tier and its effectiv
 ## Required provenance on every extracted record
 - source_file — the PDF it came from
 - source_page — 1-indexed page number (**mandatory**, no exceptions)
+- bbox — the rectangle on that page, in PDF points (**mandatory**)
+- page_size — the width and height of that page, in the same frame as the bbox
 - extracted_at — ISO 8601 timestamp
+
+`bbox` and `page_size` are what the sheet viewer scales to draw the highlight, so
+a page number alone is not traceability: it names a sheet the estimator still has
+to search by eye. Both are checked by `cbc.validation.artifacts.check_extraction`,
+which also verifies the box sits on real text and that page_size matches the
+frame the box was measured in — a transposed width and height is every number
+being real and the highlight landing nowhere near its row.
 
 ## Required provenance on every priced line
 - cost_source — one of P21_LAST_PO | LIST_X_MULTIPLIER | VENDOR_RFQ | DISTRIBUTOR_MANUAL | MANUAL

@@ -22,6 +22,11 @@ from cbc.schemas.common import EXCLUSIVE_JOB_TYPES
 
 log = logging.getLogger("cbc.api.db")
 
+# How long a failed sign-in stays counted. It lives here rather than beside the
+# endpoint because the TTL index below has to agree with it, and `cbc` cannot
+# import the application that serves the route.
+AUTH_ATTEMPT_TTL = 300
+
 _client: AsyncIOMotorClient | None = None
 
 
@@ -102,9 +107,9 @@ class Collections:
         return database()["settings"]
 
     @property
-    def document_indexes(self):
-        """Deep-index metadata: progress, status, version pointers."""
-        return database()["documentIndexes"]
+    def auth_attempts(self):
+        """One document per sign-in attempt, expired by a TTL index."""
+        return database()["authAttempts"]
 
 
 db = Collections()
@@ -197,11 +202,13 @@ async def ensure_indexes() -> None:
     # Alternates are queried per group on both the extraction and quote screens.
     await db.line_items.create_index([("projectId", ASCENDING), ("alternateGroup", ASCENDING)])
     await db.quote_lines.create_index([("projectId", ASCENDING), ("alternateGroup", ASCENDING)])
-    await db.document_indexes.create_index([("documentId", ASCENDING)], unique=True)
-    await db.document_indexes.create_index(
-        [("clientId", ASCENDING), ("documentType", ASCENDING), ("effectiveDate", DESCENDING)]
+    # Sign-in attempts, counted across replicas rather than in one process. The
+    # TTL is only garbage collection - `verify` filters on `at` itself, so the
+    # window does not depend on when the background sweep last ran.
+    await db.auth_attempts.create_index(
+        [("at", ASCENDING)], name="attempt_ttl", expireAfterSeconds=AUTH_ATTEMPT_TTL
     )
-    await db.document_indexes.create_index([("status", ASCENDING), ("updatedAt", DESCENDING)])
+    await db.auth_attempts.create_index([("email", ASCENDING), ("at", DESCENDING)])
 
 
 def oid(value: str | ObjectId) -> ObjectId:

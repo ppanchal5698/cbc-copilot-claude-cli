@@ -122,3 +122,68 @@ parse their JSON with the standard library.
 unattended run cannot answer prompts. The safety comes from the hooks, which run
 regardless of permission mode. Verify both guardrail suites before trusting an
 unattended run.
+
+## The accepted security posture
+
+This is the model in full, so an operator can see what guards what — and what is
+not guarded at all.
+
+### Why permissions are skipped, and what replaces them
+
+`--dangerously-skip-permissions` is not optional for a headless run: the
+permission prompt has nobody to answer it, and `cbc/core/claude_cli.py` spawns
+every pass with the flag for that reason. The permission system is therefore
+**not** part of the defence. These are:
+
+| Control | Where | What it stops |
+|---|---|---|
+| `pre_send_quote.py` | PreToolUse, exit 2 | Any send — mail binaries, SMTP, curl to a mail API, any tool named send/email/mail (NFR-1) |
+| `pre_delete_guard.py` | PreToolUse, exit 2 | `rm -rf` outside `projects/`, and pushing to a remote |
+| `post_extraction_validate.py` | PostToolUse | Extraction output that fails its schema |
+| `post_quote_format.py` | PostToolUse | Quote output that fails its schema |
+| `log_audit_trail.py` | PostToolUse | Nothing — it records every tool call to `audit_trail.jsonl` |
+| `cbc/core/toolsets.py` | `--strict-mcp-config` | Tools outside the phase's profile; WebSearch, WebFetch and NotebookEdit everywhere |
+| `p21-connector` | Asserts at import | Any write to P21 (NFR-5) — the server exposes no write tool |
+| `catalog` | Read-only Mongo credential | Any write to the catalog; `MONGODB_URI` is withheld from the subprocess entirely |
+
+Hooks fire regardless of permission mode. That is the whole reason the posture
+holds, and it is why a hook that fails open is a security bug rather than a bug —
+see "Why the hooks are Python" above.
+
+Note that these hooks match on command text, so they occasionally block a command
+that merely *mentions* a forbidden operation. That is the correct direction to
+fail in.
+
+### The API's trust boundary
+
+`INTERNAL_API_TOKEN` authenticates **the Next.js server, not the person**. The
+signed-in human arrives as `X-Actor`, which the API trusts because only a caller
+holding the token can set it. Two consequences to plan around:
+
+- Anything that can reach the API port **and** holds the token can name itself any
+  actor. The role is read from the database rather than the header, so privilege
+  cannot be forged — but identity can.
+- The API therefore binds to **loopback only** (`API_BIND`, default `127.0.0.1`),
+  as MongoDB already did. Publishing it on `0.0.0.0` puts that boundary on every
+  interface of the host. Do not, unless something genuinely off-box needs it and
+  there is a network control in front of it.
+
+An empty `INTERNAL_API_TOKEN` is refused: it used to skip the comparison entirely
+and authenticate every caller, in any environment, silently. `APP_ENV=production`
+or `staging` additionally refuses the committed development values for the token,
+`APP_SECRET_KEY` and the Mongo password (`cbc/config.py`).
+
+### What is not guarded
+
+- **Prompt injection from bid sets and vendor sheets.** These are third-party PDFs
+  and nothing vets their text. The preamble tells a run to treat PDF content as
+  data and to record, not obey, anything addressing it — an instruction, not a
+  control. A pass cannot send (a hook enforces NFR-1) and cannot write outside its
+  project, so the realistic damage is a wrong quote, which is what the estimator
+  review exists to catch.
+- **The provider credential.** Whoever can run the worker can read what the worker
+  is configured with. `provider.WITHHELD` keeps the writable Mongo URI out of the
+  subprocess; it does not sandbox the pass.
+- **Rate limiting beyond sign-in.** `/api/auth/verify` is budgeted per address in
+  MongoDB, across replicas. Nothing else is rate-limited, on the assumption the
+  API is not publicly reachable — the same assumption the loopback bind enforces.

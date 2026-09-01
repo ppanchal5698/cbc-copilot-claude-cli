@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { credentials, signIn } from "./helpers";
+import { credentials, openNewBid, signIn } from "./helpers";
 
 test.describe("Project delete", () => {
   test("admin can delete a bid from intake", async ({ page }) => {
@@ -8,7 +8,7 @@ test.describe("Project delete", () => {
 
     const jobName = `E2E delete ${Date.now()}`;
     await page.goto("/bids");
-    await page.getByRole("button", { name: /new bid/i }).click();
+    await openNewBid(page);
     await page.getByLabel(/job name|name/i).fill(jobName);
     await page.getByRole("button", { name: /create/i }).click();
     await page.waitForURL(/\/bids\/([^/]+)\/intake/);

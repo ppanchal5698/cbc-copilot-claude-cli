@@ -66,7 +66,11 @@ PROFILES: dict[str, list[str]] = {
     "match_and_price": _PRICING,
     # The proposal totals an already-priced quote; it reads no drawings.
     "build_proposal": ["calc-engine", "artifact-storage"],
-    "ingest_pricebook": ["catalog", "artifact-storage"],
+    # Ingest reads a vendor sheet and writes what it found. `pdf-tools` is the
+    # only way to read it - the same trap as _PRICING above, and here it was
+    # total: the profile gave a job whose entire purpose is "read this PDF" no
+    # tool that opens a PDF.
+    "ingest_pricebook": ["catalog", "pdf-tools", "artifact-storage"],
 }
 
 # Built-in tools no bid job has a use for. Bare names remove them from the
@@ -94,12 +98,11 @@ def _readonly_uri() -> str | None:
         return os.environ.get("MONGODB_READONLY_URI")
 
 
-def config_for(job_type: str, catalog_index_path: str | None = None) -> str:
+def config_for(job_type: str) -> str:
     """The `--mcp-config` payload for a job type, as a JSON string.
 
     The catalog server reads the page index from MongoDB with a credential that
-    cannot write. `catalog_index_path` is accepted and ignored: it named a SQLite
-    file that no longer exists, and callers still pass it.
+    cannot write.
     """
     names = PROFILES.get(job_type) or list(SERVERS)
     servers: dict[str, Any] = {}
@@ -126,12 +129,31 @@ def config_for(job_type: str, catalog_index_path: str | None = None) -> str:
     return json.dumps({"mcpServers": servers})
 
 
-def flags_for(job_type: str, catalog_index_path: str | None = None) -> list[str]:
+def flags_for(job_type: str) -> list[str]:
     """CLI flags scoping a run to the tools its phase needs."""
     return [
         "--mcp-config",
-        config_for(job_type, catalog_index_path),
+        config_for(job_type),
         "--strict-mcp-config",
         "--disallowed-tools",
         *DISALLOWED,
     ]
+
+
+if __name__ == "__main__":  # `python -m cbc.core.toolsets <job_type>`
+    # One flag per line, for the shell entry points in workflows/. They used to
+    # spawn the CLI with no scoping at all, so a headless take-off carried every
+    # server in .mcp.json plus WebSearch and WebFetch - the exact surface this
+    # module exists to withhold, withheld only from the worker. The JSON payload
+    # contains no newlines, so a line is a flag.
+    import sys
+
+    if len(sys.argv) != 2:
+        sys.exit("usage: python -m cbc.core.toolsets <job_type>")
+    if sys.argv[1] not in PROFILES:
+        sys.exit(
+            f"unknown job type {sys.argv[1]!r}; expected one of "
+            + ", ".join(sorted(PROFILES))
+        )
+    for flag in flags_for(sys.argv[1]):
+        print(flag)

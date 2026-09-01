@@ -85,7 +85,13 @@ services:
     container_name: cbc-api
     restart: unless-stopped
     ports:
-      - "8001:8001"
+      # Loopback only, for the same reason as mongo above. `web` reaches this
+      # over the container network, so nothing off-box needs the published port
+      # - and the internal token authenticates the Next.js server rather than
+      # the person behind it, so anything that can reach this port and holds the
+      # token picks its own X-Actor. Set API_BIND=0.0.0.0 only when something
+      # genuinely off-box has to call the API directly.
+      - "${API_BIND:-127.0.0.1}:8001:8001"
     environment:
       <<: *app-env
       CORS_ORIGINS: http://localhost:3000

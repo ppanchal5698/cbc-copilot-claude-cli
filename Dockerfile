@@ -46,8 +46,16 @@ RUN pip install -e ./mcp-servers
 
 # The mounted data directories must exist and be writable before the volumes are
 # attached, or the first upload fails on a root-owned mount point.
+#
+# The chmod is not redundant with the file's mode in git. Windows checkouts run
+# with core.fileMode=false, so the execute bit is not tracked from there and the
+# script was committed 100644 - which Docker Desktop tolerates and a Linux host
+# does not, failing at container start with "permission denied" on the
+# entrypoint. Setting it here means the image is correct whatever the checkout
+# did.
 RUN mkdir -p /app/projects /app/pricebooks /app/.cache /app/.index /home/cbc/.claude \
-    && chown -R cbc:cbc /app /home/cbc
+    && chown -R cbc:cbc /app /home/cbc \
+    && chmod +x /app/docker/entrypoint.sh
 
 USER cbc
 ENV HOME=/home/cbc \

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.validate_project import (
+from cbc.validation.artifacts import (
     check_extraction,
     check_pricing,
     check_proposal,

@@ -51,22 +51,55 @@ Still supported, and what `docs/headless_setup.md` assumes:
 docker compose up -d --build
 ```
 
+### On a Linux host, the mounted directories must belong to uid 1000
+
+The containers run as the non-root user `cbc`, uid **1000**. `projects/` and
+`pricebooks/` are bind-mounted, and a bind mount **replaces** the image's
+directory — including the ownership the Dockerfile set — with whatever the host
+has. If the host copies are owned by anyone else, the API cannot create a project
+directory and `POST /api/projects` returns 500:
+
+```
+PermissionError: [Errno 13] Permission denied: '/app/projects/<slug>'
+```
+
+Once, before the first start:
+
+```bash
+sudo chown -R 1000:1000 projects pricebooks
+```
+
+**Docker Desktop on macOS and Windows does not enforce bind-mount ownership**, so
+this never shows up there. It is not a CI quirk — it applies to any Linux
+deployment, and CI has a step that does exactly the above.
+
 On first start, `docker/entrypoint.sh` runs [`scripts/bootstrap.py`](../scripts/bootstrap.py) when
 `AUTO_BOOTSTRAP=1` (the default):
 
 - Seeds users, price books, and sample catalog rows when the database is empty
-- Builds the SQLite catalog index when `CATALOG_INDEX_PATH` does not exist yet
+- Builds the PageIndex for any vendor sheet that does not have one yet
 
-Deep document indexes (multiplier sheets, failed catalog layouts, bid PDFs) live
-under `DOCUMENT_INDEX_ROOT` (default `.index/documents/`). Uploading a multiplier
-sheet or a bid PDF enqueues an `index_document` job automatically. Manual rebuild:
+**PageIndex**, not a pre-extracted product table. One JSON document per catalog in
+MongoDB's `pageIndex` collection describes *each page* - what it sells, which part
+families are on it, whether it carries prices. A pricing pass asks it which page
+to open and then reads the number off that page, so no stored value can be stale
+about a price, because no price is stored.
+
+Uploading a sheet enqueues `index_catalog`; deleting one enqueues `delete_catalog`
+and the cascade drops its document. Rebuild the lot by hand - idempotent on the
+file hash, so re-running it costs nothing for sheets that have not changed:
 
 ```bash
-python -m cbc.documents.rebuild --client hager --type multiplier_sheet --file pricebooks/hager_multipliers.pdf --no-llm
+python -m cbc.pageindex.build --all
 ```
 
-Query via the `document-index` MCP server (`search_index` → `get_section_content`).
-Status: `GET /api/document-index/{document_id}/status`.
+Query it through the `catalog` MCP server (`find_pages` → `get_page`), then read
+the price with `pdf-tools`.
+
+This replaced a SQLite FTS5 index that pre-extracted every product row. Vendor
+catalogs are too irregular for that: 37.8% of the codes it produced contained no
+letter at all, dates were recorded as part numbers, and one vendor's sheet yielded
+nothing while reporting success.
 
 Sign in with `estimator@cbc.com` or `admin@cbc.com` / `opshub`.
 
@@ -84,7 +117,7 @@ To reset everything manually:
 
 ```bash
 python scripts/seed_db.py --reset --demo
-python -m cbc.catalog.rebuild
+python -m cbc.pageindex.build --all
 ```
 
 ## Configuring Claude Code
