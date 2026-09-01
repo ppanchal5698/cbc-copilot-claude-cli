@@ -20,6 +20,8 @@ class LineItemBase(BaseModel):
     fireRating: str | None = None
     frameType: str | None = None
     wallType: str | None = None
+    # Derived from wallType against the five standard throats, never typed twice.
+    frameDepth: str | None = None
     notes: str | None = None
 
 
@@ -39,6 +41,7 @@ class LineItemUpdate(BaseModel):
     handing: str | None = None
     finish: str | None = None
     fireRating: str | None = None
+    frameDepth: str | None = None
     status: LineStatus | None = None
     notes: str | None = None
     alternateGroup: str | None = None

@@ -218,6 +218,10 @@ async def import_extraction(project: dict[str, Any]) -> dict[str, int]:
             "fireRating": item.get("fire_rating"),
             "frameType": item.get("frame_type"),
             "wallType": item.get("wall_type"),
+            # Derived from wallType before validation, and the bid-alternate tag
+            # the opening carries. All three were extracted and then dropped here.
+            "frameDepth": item.get("frame_depth"),
+            "alternateGroup": item.get("alternate") or item.get("alternate_group"),
             "confidence": item.get("confidence"),
             "flags": item.get("flags", []),
             "evidence": evidence,
@@ -313,6 +317,8 @@ async def export_line_items(project: dict[str, Any]) -> Path:
                 "fire_rating": doc.get("fireRating"),
                 "frame_type": doc.get("frameType"),
                 "wall_type": doc.get("wallType"),
+                "frame_depth": doc.get("frameDepth"),
+                "alternate": doc.get("alternateGroup"),
                 "source_file": evidence.get("sourceFile"),
                 "source_page": evidence.get("sourcePage"),
                 "bbox": evidence.get("bbox"),
@@ -638,3 +644,60 @@ def measure_bboxes(project: dict[str, Any]) -> tuple[int, int]:
             key = "openings" if "openings" in payload else "lines"
             _write_json(path, {**payload, key: openings})
     return attached, unmatched
+
+
+def derive_frame_depths(project: dict[str, Any]) -> tuple[int, int]:
+    """Fill in each opening's frame throat from its wall construction.
+
+    The depth is not on the drawing - it follows from the wall, which is why the
+    process flow calls wall type "the thing that derives the frame depth" and why
+    reference-library carries the five standard throats. The field was in the
+    extraction schema and nothing ever populated it: neither of the two real bid
+    sets produced a single frame_depth, and the table was reachable only through
+    the settings screen.
+
+    A lookup, not a guess. An opening whose wall type is missing or unrecognised
+    keeps a null depth and is flagged, which is the table's own instruction: "Do
+    NOT guess a depth. Flag the opening for estimator review." A frame ordered to
+    the wrong throat does not fit, and that is found out on site.
+
+    Returns (derived, flagged).
+    """
+    from cbc.services.reference_library import depth_for_wall_type
+
+    slug = project["slug"]
+    path = storage.project_dir(slug) / "extracted" / "door_schedule.json"
+    payload = _read_json(path)
+    if payload is None:
+        return 0, 0
+    openings = _normalize_schedule_payload(payload)["openings"]
+    if not openings:
+        return 0, 0
+
+    derived = flagged = 0
+    for opening in openings:
+        if opening.get("frame_depth"):
+            continue
+        entry = depth_for_wall_type(opening.get("wall_type"))
+        if entry:
+            opening["frame_depth"] = entry.get("depth")
+            opening["frame_depth_inches"] = entry.get("depth_inches")
+            derived += 1
+        else:
+            flagged += 1
+            flags = opening.setdefault("flags", [])
+            note = (
+                "wall_type_missing"
+                if not opening.get("wall_type")
+                else "wall_type_unrecognised"
+            )
+            if note not in flags:
+                flags.append(note)
+
+    if derived:
+        if isinstance(payload, list):
+            _write_json(path, openings)
+        else:
+            key = "openings" if "openings" in payload else "lines"
+            _write_json(path, {**payload, key: openings})
+    return derived, flagged

@@ -284,6 +284,12 @@ async def sync_results(job: dict, project: dict | None) -> str:
                 "%s bbox: %d measured from the sheet, %d left null and flagged",
                 project.get("code", slug), attached, unmatched,
             )
+        derived, no_depth = sync.derive_frame_depths(project)
+        if derived or no_depth:
+            log.info(
+                "%s frame depth: %d derived from wall type, %d flagged for review",
+                project.get("code", slug), derived, no_depth,
+            )
 
     if job["type"] in (
         "extract_bid_set",

@@ -417,3 +417,45 @@ def is_stock_part(vendor_key: str, part_number: str) -> dict[str, Any]:
         "status_note": payload.get("status_note"),
         "source": payload.get("source"),
     }
+
+
+# What architects write on a drawing, mapped to the wall types the table names.
+# A schedule says "CMU", "8\" MASONRY", "MTL STUD W/ GYP" - never "masonry" on its
+# own - so matching the table's labels literally finds nothing.
+_WALL_TYPE_ALIASES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("6\" metal stud", "6 inch metal stud", "6\" mtl stud", "6 mtl stud"),
+     "6 inch metal stud with 5/8 drywall"),
+    (("cmu", "masonry", "block", "brick"), "masonry"),
+    (("wood stud", "wood frame", "wood-frame", "timber"), "wood-frame"),
+    (("1/2\" drywall", "half inch drywall", "1/2 gyp", "half-inch drywall"),
+     "half-inch drywall"),
+    (("drywall", "gypsum", "gyp", "metal stud", "mtl stud", "stud"), "drywall"),
+)
+
+
+def depth_for_wall_type(wall_type: str | None) -> dict[str, Any] | None:
+    """The frame throat a wall construction implies, or None when it is unclear.
+
+    Never guesses. The table says so itself - "Do NOT guess a depth. Flag the
+    opening for estimator review" - because a frame ordered to the wrong throat
+    does not fit the wall, and that is discovered on site.
+
+    Aliases are ordered most specific first: a schedule reading
+    "6\" METAL STUD W/ 5/8\" GYP" must not match the bare "stud" rule and come
+    back 5-7/8 when the table says 8-1/4.
+    """
+    if not wall_type or not str(wall_type).strip():
+        return None
+    text = " ".join(str(wall_type).lower().split())
+
+    table = load_frame_depths()
+    by_type = {str(w.get("type", "")).lower(): w for w in table.get("wall_types", [])}
+
+    if text in by_type:
+        return dict(by_type[text])
+    for needles, canonical in _WALL_TYPE_ALIASES:
+        if any(needle in text for needle in needles):
+            entry = by_type.get(canonical)
+            if entry:
+                return {**entry, "matched_on": canonical}
+    return None
