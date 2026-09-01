@@ -36,12 +36,27 @@ echo "[$(date -Iseconds)] Starting Phase 0-6 for ${PROJECT_NAME}"
 # Ops-Hub worker runs. This script used to restate it - a third hand-copy of the
 # rules, after _phase.sh was already moved onto the shared source. Same pipeline,
 # whichever way it is started.
-PROMPT="$(PYTHONPATH="${ROOT}:${ROOT}/src" python -m apps.worker.prompts --pipeline "${PROJECT_DIR}")" || {
+# CBC_SOLO=1 for a provider that cannot call the Agent tool, matching the worker,
+# which asks `provider.supports_subagents` rather than assuming.
+PROMPT_ARGS=(--pipeline "${PROJECT_DIR}")
+[[ -n "${CBC_SOLO:-}" ]] && PROMPT_ARGS=(--pipeline --solo "${PROJECT_DIR}")
+
+PROMPT="$(PYTHONPATH="${ROOT}:${ROOT}/src" python -m apps.worker.prompts "${PROMPT_ARGS[@]}")" || {
   echo "Could not build the pipeline prompt from worker/prompts.py" >&2
   exit 1
 }
 
-"${CLAUDE_BIN}" --print --dangerously-skip-permissions "${PROMPT}"
+# A full run spans every phase, so it gets every server - but still through
+# toolsets.py, so it is the same list the worker builds and WebSearch, WebFetch
+# and NotebookEdit are removed here too. This used to spawn with no scoping at
+# all, which is how a headless pipeline ended up with a wider tool surface than
+# the same pipeline started from the Ops-Hub.
+mapfile -t SCOPE < <(PYTHONPATH="${ROOT}:${ROOT}/src" python -m cbc.core.toolsets run_full_pipeline) || {
+  echo "Could not read the tool scope for run_full_pipeline" >&2
+  exit 1
+}
+
+"${CLAUDE_BIN}" --print "${SCOPE[@]}" --dangerously-skip-permissions "${PROMPT}"
 
 echo
 echo "[$(date -Iseconds)] Pipeline finished."

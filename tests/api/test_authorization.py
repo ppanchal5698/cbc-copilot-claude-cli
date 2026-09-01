@@ -150,14 +150,77 @@ def test_an_operator_can_widen_the_allowlist(monkeypatch) -> None:
 # ── the sign-in endpoint is the one thing reachable unauthenticated ────────
 
 
-def test_repeated_sign_in_attempts_are_throttled(client) -> None:
-    from apps.api.routers import auth
+def _clear_attempts() -> None:
+    from pymongo import MongoClient
 
-    auth._attempts.clear()
+    from cbc.config import settings
+
+    raw = MongoClient(settings.mongodb_uri)
+    try:
+        raw[settings.mongodb_db]["authAttempts"].delete_many({})
+    finally:
+        raw.close()
+
+
+def test_repeated_sign_in_attempts_are_throttled(client) -> None:
+    _clear_attempts()
     body = {"email": "someone@example.com", "password": "wrong"}
 
     codes = [client.post("/api/auth/verify", json=body).status_code for _ in range(12)]
 
     assert codes[0] == 401, "a single wrong password is just wrong"
     assert 429 in codes, "unlimited guesses against an unauthenticated endpoint"
-    auth._attempts.clear()
+    _clear_attempts()
+
+
+def test_the_attempt_budget_is_shared_rather_than_per_process(client) -> None:
+    """The point of moving it out of a dict.
+
+    An in-process counter gave each API replica its own budget, so N replicas
+    meant N times the guesses and a restart meant a clean slate. The count is a
+    Mongo collection now, so a process that has never seen this address still
+    sees the attempts against it.
+    """
+    from pymongo import MongoClient
+
+    from cbc.config import settings
+
+    _clear_attempts()
+    body = {"email": "shared@example.com", "password": "wrong"}
+    for _ in range(3):
+        client.post("/api/auth/verify", json=body)
+
+    raw = MongoClient(settings.mongodb_uri)
+    try:
+        stored = raw[settings.mongodb_db]["authAttempts"].count_documents(
+            {"email": "shared@example.com"}
+        )
+    finally:
+        raw.close()
+
+    assert stored == 3, "the budget must be visible to every process, not one"
+    _clear_attempts()
+
+
+def test_a_correct_password_clears_the_budget(client) -> None:
+    """Otherwise four typos and a success still locks the person out."""
+    from pymongo import MongoClient
+
+    from cbc.config import settings
+    from tests.shared import TEST_ACTOR
+
+    _clear_attempts()
+    for _ in range(3):
+        client.post(
+            "/api/auth/verify", json={"email": TEST_ACTOR, "password": "wrong"}
+        )
+
+    raw = MongoClient(settings.mongodb_uri)
+    try:
+        before = raw[settings.mongodb_db]["authAttempts"].count_documents(
+            {"email": TEST_ACTOR}
+        )
+    finally:
+        raw.close()
+    assert before == 3
+    _clear_attempts()

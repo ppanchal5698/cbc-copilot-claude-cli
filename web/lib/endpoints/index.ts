@@ -9,4 +9,5 @@ export const endpoints = {
   proposalRender: (code: string) => `/api/proxy/projects/${code}/proposal/render`,
   jobTerminal: (jobId: string) => `/api/proxy/jobs/${jobId}/terminal`,
   claudeOauthCode: () => "/api/proxy/settings/claude/oauth/code",
+  jobMetrics: (hours = 24) => `/api/proxy/jobs/metrics?hours=${hours}`,
 } as const;

@@ -91,3 +91,69 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run build
+
+  # The suites above test the halves. This tests that they are one system: a real
+  # browser, against the real containers, signing in as a real seeded user.
+  #
+  # It runs only if both halves already pass - a broken unit test would fail here
+  # too, several minutes later and with a much worse error message.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [test, web]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      # AUTO_BOOTSTRAP seeds estimator@cbc.com and admin@cbc.com, which is what
+      # e2e/helpers.ts signs in as. Without it every spec fails at the login form.
+      - name: Start the stack
+        run: docker compose up -d --build
+        env:
+          AUTO_BOOTSTRAP: "1"
+
+      - name: Wait for the API and the web app
+        run: |
+          for i in $(seq 1 60); do
+            api=$(curl -fsS http://127.0.0.1:8001/api/health 2>/dev/null && echo ok || echo no)
+            web=$(curl -fsS -o /dev/null http://127.0.0.1:3000/signin && echo ok || echo no)
+            if [ "$api" != "no" ] && [ "$web" = "ok" ]; then
+              echo "stack is up after ${i}0s"; exit 0
+            fi
+            sleep 10
+          done
+          echo "stack did not come up" >&2
+          docker compose ps
+          docker compose logs --tail 100
+          exit 1
+
+      - name: Install Playwright
+        working-directory: web
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+
+      - name: Run the E2E suite
+        working-directory: web
+        run: npx playwright test
+        env:
+          PLAYWRIGHT_SKIP_WEBSERVER: "1"
+          PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+
+      # The traces are the only way to tell a real regression from a flake, and
+      # they are gone the moment the runner is torn down.
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: web/test-results/
+          retention-days: 7
+
+      - name: Container logs on failure
+        if: failure()
+        run: docker compose logs --tail 200

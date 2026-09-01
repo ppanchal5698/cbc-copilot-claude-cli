@@ -301,3 +301,108 @@ def test_two_versions_cannot_share_a_number(database) -> None:
 
     versions = run(two_snapshots())
     assert {v["version"] for v in versions} == {1, 2}
+
+
+# ── one indexing pass per sheet ─────────────────────────────────────────────
+
+
+def test_re_uploading_a_sheet_does_not_queue_a_second_index(database) -> None:
+    """`index_catalog` carries no project, so per-project exclusivity misses it.
+
+    The price-books screen makes a double upload easy, and two indexing passes
+    over one sheet raced to write the same pageIndex document. Indexing is
+    idempotent on the file hash, so the second was waste even when it won.
+    """
+    from cbc.services import jobs
+
+    payload = {"priceBookId": "0" * 24, "filename": "hager_price_book_18.pdf"}
+    first = run(jobs.enqueue("index_catalog", payload=dict(payload)))
+    second = run(jobs.enqueue("index_catalog", payload=dict(payload)))
+
+    assert first["_id"] == second["_id"]
+    assert database["jobs"].count_documents({"type": "index_catalog"}) == 1
+
+
+def test_a_different_sheet_still_gets_its_own_job(database) -> None:
+    from cbc.services import jobs
+
+    first = run(jobs.enqueue("index_catalog", payload={"filename": "rockwood.pdf"}))
+    second = run(jobs.enqueue("index_catalog", payload={"filename": "pemko.pdf"}))
+
+    assert first["_id"] != second["_id"]
+    assert database["jobs"].count_documents({"type": "index_catalog"}) == 2
+
+
+def test_a_finished_index_does_not_block_a_re_index(database) -> None:
+    """Coalescing is about work in flight. A sheet that changed must re-index."""
+    from cbc.services import jobs
+
+    first = run(jobs.enqueue("index_catalog", payload={"filename": "gamco.pdf"}))
+    database["jobs"].update_one({"_id": first["_id"]}, {"$set": {"status": "done"}})
+
+    second = run(jobs.enqueue("index_catalog", payload={"filename": "gamco.pdf"}))
+    assert first["_id"] != second["_id"]
+
+
+# ── the queue, visible without reading the logs ─────────────────────────────
+
+
+def test_metrics_report_depth_throughput_and_failures(database) -> None:
+    """The only operational view of the queue was `docker logs`."""
+    from cbc.services import jobs
+
+    now = _now()
+    # Distinct projects: `exclusive_active_job` is a unique partial index over
+    # (projectId, type) for queued and running jobs, so two active jobs of one
+    # type on one project is exactly what the schema forbids.
+    from bson import ObjectId
+
+    database["jobs"].insert_many([
+        {"type": "extract_bid_set", "status": "queued", "createdAt": now,
+         "projectId": ObjectId()},
+        {"type": "extract_bid_set", "status": "running", "createdAt": now,
+         "projectId": ObjectId()},
+        {"type": "match_and_price", "status": "done", "createdAt": now,
+         "projectId": ObjectId(),
+         "startedAt": now, "finishedAt": now + timedelta(seconds=90)},
+        {"type": "match_and_price", "status": "failed", "createdAt": now,
+         "projectId": ObjectId(),
+         "startedAt": now, "finishedAt": now + timedelta(seconds=5)},
+    ])
+
+    result = run(jobs.metrics(window_hours=24))
+
+    assert result["queued"] == 1
+    assert result["running"] == 1
+    assert result["finished"] == 2
+    assert result["failed"] == 1
+    assert result["failureRate"] == 0.5
+    assert result["byType"]["match_and_price"]["avgSeconds"] == 90.0
+
+
+def test_a_running_job_does_not_drag_the_average_down(database) -> None:
+    """It has a startedAt and no finishedAt, so it has no duration yet."""
+    from cbc.services import jobs
+
+    now = _now()
+    database["jobs"].insert_many([
+        {"type": "build_proposal", "status": "done", "createdAt": now,
+         "startedAt": now, "finishedAt": now + timedelta(seconds=60)},
+        {"type": "build_proposal", "status": "running", "createdAt": now, "startedAt": now},
+    ])
+
+    result = run(jobs.metrics())
+    assert result["byType"]["build_proposal"]["avgSeconds"] == 60.0
+
+
+def test_no_finished_jobs_reports_no_rate_rather_than_zero(database) -> None:
+    """A 0% failure rate over zero jobs is not good news, it is no news."""
+    from cbc.services import jobs
+
+    database["jobs"].insert_one(
+        {"type": "extract_bid_set", "status": "queued", "createdAt": _now()}
+    )
+    result = run(jobs.metrics())
+    assert result["failureRate"] is None
+    assert result["oldestQueuedAt"] is not None
+

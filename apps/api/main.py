@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from cbc.config import settings
+from cbc.core import logs
 from cbc.db import ensure_indexes, ensure_readonly_user
 from cbc.pageindex import store as pageindex_store
 from apps.api.deps import InternalAuthMiddleware
@@ -40,7 +41,7 @@ from apps.api.routers import (
     versions,
 )
 
-log = logging.getLogger("cbc.api")
+log = logs.configure("cbc.api")
 
 
 @asynccontextmanager

@@ -19,8 +19,10 @@ owner yet, so ingestion accuracy is the only real defence. A partial, honest lis
 beats a padded one - the estimator quotes from what you write.
 
 ## Your responsibilities
-1. Read the sheet at `pricebooks/{filename}` with the `pricebook` MCP server and
-   the `scan-product-catalog` skill.
+1. Read the sheet at `pricebooks/{filename}` with the `scan-product-catalog`
+   skill. Two servers do this between them, and neither is called `pricebook`:
+   `catalog` tells you **which page** carries a part family, and `pdf-tools`
+   opens that page and reads it. The price is on the sheet, never in the index.
 2. Identify the **effective date** and the **multiplier** or discount structure.
    Hager prices **by product category** - capture every category you find, not one
    headline number.

@@ -5,7 +5,7 @@ Five stdio MCP servers backing the estimating pipeline.
 | Server | Tools | Purpose |
 |---|---|---|
 | `pdf-tools` | `extract_text`, `extract_tables`, `get_page_image`, `search_pdf` | Read bid-set PDFs; every result carries `source_page` |
-| `pricebook` | `list_vendors`, `search_product`, `lookup_pricing`, `get_multiplier` | Cost path 2: list price x multiplier tier |
+| `catalog` | `find_pages`, `get_page`, `get_multiplier`, `get_special_net`, `is_stock_item`, `list_catalogs`, `get_catalog_overview` | Cost path 2: **which page** to open. It returns no prices - the price is read off the sheet with `pdf-tools` |
 | `calc-engine` | `calculate_line`, `apply_margin`, `compute_totals`, `validate_margin` | The only quote arithmetic in the system |
 | `artifact-storage` | `save_artifact`, `get_artifact`, `list_versions`, `list_project_files` | Project writes with SHA-256 version history |
 | `p21-connector` | `lookup_last_po`, `check_freshness`, `search_item` | Cost path 1, **READ-ONLY** |
@@ -13,7 +13,7 @@ Five stdio MCP servers backing the estimating pipeline.
 ## Install
 
 ```bash
-python -m pip install -r pdf-tools/requirements.txt -r pricebook/requirements.txt
+python -m pip install -r pdf-tools/requirements.txt -r catalog/requirements.txt
 ```
 
 Or install everything at once from the shared project:
@@ -39,15 +39,21 @@ This lists each server's tools and runs the three self-check demos
 
 ## Registration
 
-The servers are already registered in `.claude/settings.json`. To add them to a
-different Claude Code project:
+The servers are registered in **`.mcp.json` at the repo root**, not in
+`.claude/settings.json` - a `mcpServers` block there is ignored, and a run that
+relies on it silently gets no tools.
+
+Which servers a given job actually receives is narrower still: `cbc/core/toolsets.py`
+scopes each job type to the servers its phase uses and passes `--strict-mcp-config`,
+so the list is exhaustive rather than additive. To add a server to a different
+Claude Code project:
 
 ```bash
 claude mcp add pdf-tools -- python mcp-servers/pdf-tools/server.py
 ```
 
 ```bash
-claude mcp add pricebook -- python mcp-servers/pricebook/server.py
+claude mcp add catalog -- python mcp-servers/catalog/server.py
 ```
 
 ```bash
@@ -66,7 +72,7 @@ claude mcp add p21-connector -- python mcp-servers/p21-connector/server.py
 
 | Variable | Used by | Default |
 |---|---|---|
-| `PRICEBOOK_DIR` | `pricebook` | `pricebooks/` |
+| `PRICEBOOK_DIR` | `catalog` | `pricebooks/` |
 | `P21_BASE_URL` | `p21-connector` | unset - every lookup returns "manual entry required" |
 | `P21_API_KEY` | `p21-connector` | unset |
 

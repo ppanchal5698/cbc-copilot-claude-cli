@@ -5,27 +5,27 @@ good, and who is it?". Passwords are bcrypt-hashed and never leave the database.
 """
 from __future__ import annotations
 
-import time
-from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from fastapi import APIRouter, HTTPException
 
-from cbc.db import db, serialise
+from cbc.db import AUTH_ATTEMPT_TTL, db, serialise
 from cbc.schemas import Credentials
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 # `/api/auth/verify` is the one endpoint reachable without the internal token -
-# NextAuth calls it - and nothing in the stack rate-limits anything.
+# NextAuth calls it - so it is the one endpoint a stranger can hammer.
 #
-# ponytail: an in-process counter, so the budget is per API process rather than
-# per cluster. That is a real ceiling and an honest one; move it to Mongo or
-# Redis if this ever runs more than one replica.
+# The count lives in Mongo, one document per attempt, expired by a TTL index.
+# It used to be an in-process dict, which meant the budget was per API process:
+# two replicas behind a load balancer gave an attacker twice the attempts, and a
+# restart gave them a fresh ten. The window is enforced by the `at` filter below
+# rather than by the TTL sweep, so it is exact regardless of when Mongo last
+# collected.
 MAX_ATTEMPTS = 10
-WINDOW_SECONDS = 300
-_attempts: dict[str, list[float]] = defaultdict(list)
+WINDOW_SECONDS = AUTH_ATTEMPT_TTL
 
 # Verifying a password that does not exist has to cost the same as one that does.
 # Skipping bcrypt on a miss returned in microseconds where a hit took ~100 ms,
@@ -34,12 +34,14 @@ _attempts: dict[str, list[float]] = defaultdict(list)
 _DUMMY_HASH = bcrypt.hashpw(b"never-matches", bcrypt.gensalt()).decode("utf-8")
 
 
-def _too_many(key: str) -> bool:
-    now = time.monotonic()
-    recent = [at for at in _attempts[key] if now - at < WINDOW_SECONDS]
-    recent.append(now)
-    _attempts[key] = recent
-    return len(recent) > MAX_ATTEMPTS
+async def _too_many(email: str) -> bool:
+    """Record this attempt and say whether the window is now over budget."""
+    now = datetime.now(timezone.utc)
+    await db.auth_attempts.insert_one({"email": email, "at": now})
+    recent = await db.auth_attempts.count_documents(
+        {"email": email, "at": {"$gte": now - timedelta(seconds=WINDOW_SECONDS)}}
+    )
+    return recent > MAX_ATTEMPTS
 
 
 def hash_password(plain: str) -> str:
@@ -56,7 +58,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 @router.post("/verify")
 async def verify(body: Credentials) -> dict:
     email = body.email.lower()
-    if _too_many(email):
+    if await _too_many(email):
         raise HTTPException(429, "too many sign-in attempts; wait a few minutes")
 
     user = await db.users.find_one({"email": email})
@@ -67,7 +69,9 @@ async def verify(body: Credentials) -> dict:
     if not user or not correct:
         raise HTTPException(401, "invalid email or password")
 
-    _attempts.pop(email, None)
+    # A correct password clears the budget, so a person who mistypes four times
+    # and then gets it right is not locked out by their own success.
+    await db.auth_attempts.delete_many({"email": email})
 
     await db.users.update_one(
         {"_id": user["_id"]}, {"$set": {"lastSeenAt": datetime.now(timezone.utc)}}

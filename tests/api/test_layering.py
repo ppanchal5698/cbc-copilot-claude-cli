@@ -127,3 +127,43 @@ def test_nothing_loads_an_mcp_server_in_process(package: str) -> None:
         if "load_server" in path.read_text(encoding="utf-8")
     ]
     assert not offenders, f"{package} loads an MCP server in-process: {offenders}"
+
+
+# ── the kernel's own floor ──────────────────────────────────────────────────
+
+# `cbc/core` is described as importing nothing above it. It has exactly one edge
+# that does: `toolsets._readonly_uri` asks `cbc.db` how the read-only connection
+# string is built, inside the function, with an environment fallback when the
+# database is not configured.
+#
+# It is listed rather than removed. Reading MONGODB_READONLY_URI from the
+# environment alone - the obvious "fix" - deletes the derived path, so any
+# deployment that sets MONGODB_URI without separately setting the read-only
+# variant loses the catalog on every run and is told nothing. Naming the
+# exception keeps the rule enforceable for everything else, and makes a second
+# one a decision somebody has to write down here.
+KERNEL_EXCEPTIONS = {"src/cbc/core/toolsets.py": ["cbc.db"]}
+
+
+def test_the_kernel_imports_nothing_above_itself() -> None:
+    offenders: dict[str, list[str]] = {}
+    for path in _files("cbc.core"):
+        relative = path.relative_to(ROOT).as_posix()
+        hits = sorted(
+            module
+            for module in _imported_roots(path)
+            if module.startswith("cbc.") and not module.startswith("cbc.core")
+        )
+        allowed = KERNEL_EXCEPTIONS.get(relative, [])
+        unexpected = [m for m in hits if m not in allowed]
+        if unexpected:
+            offenders[relative] = unexpected
+    assert not offenders, f"cbc.core reaches up into the domain: {offenders}"
+
+
+def test_every_listed_kernel_exception_is_still_real() -> None:
+    """An exception nobody needs is a hole in the rule that looks like a decision."""
+    for relative, allowed in KERNEL_EXCEPTIONS.items():
+        imported = _imported_roots(ROOT / relative)
+        stale = [module for module in allowed if module not in imported]
+        assert not stale, f"{relative} no longer imports {stale} - drop the exception"

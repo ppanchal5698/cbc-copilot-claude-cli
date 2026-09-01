@@ -26,6 +26,16 @@ async def list_jobs(project: str | None = None, status: str | None = None, limit
     return {"jobs": serialise(found), "active": await job_service.active_count()}
 
 
+@router.get("/metrics")
+async def job_metrics(hours: int = 24) -> dict:
+    """Queue depth, throughput and failure rate.
+
+    Declared before `/{job_id}`: FastAPI matches in declaration order, so the
+    other way round this route is a job whose id is the word "metrics".
+    """
+    return serialise(await job_service.metrics(max(1, min(hours, 24 * 30))))
+
+
 @router.get("/{job_id}")
 async def get_job(job_id: str) -> dict:
     job = await db.jobs.find_one({"_id": oid(job_id)})

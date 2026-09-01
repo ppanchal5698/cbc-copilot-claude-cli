@@ -56,3 +56,42 @@ def test_a_take_off_still_cannot_see_the_pricing_tools():
 
     servers = json.loads(toolsets.config_for("extract_bid_set"))["mcpServers"]
     assert set(servers) == {"pdf-tools", "artifact-storage"}
+
+
+def test_ingest_can_read_the_sheet_it_is_given():
+    """Same trap as pricing, and here it was total.
+
+    `ingest_pricebook` exists to read a vendor PDF and write the parts off it.
+    Its profile listed catalog and artifact-storage - the index that says which
+    page to open, and somewhere to put the answer, with nothing in between that
+    opens a page.
+    """
+    import json
+
+    from cbc.core import toolsets
+
+    servers = json.loads(toolsets.config_for("ingest_pricebook"))["mcpServers"]
+    assert "pdf-tools" in servers, "ingest must be able to open the sheet"
+
+
+def test_every_job_type_is_either_a_prompt_or_a_local_handler():
+    """A job type nobody runs is a queue entry that fails at dispatch.
+
+    `index_document` and `delete_document` sat in this Literal after the deep-index
+    subsystem was deleted: enqueueable from the API, labelled in the job list, and
+    with no template and no handler, so they raised out of `prompts.build()`. The
+    two sets must partition the Literal exactly - a type in neither is unrunnable,
+    and a type in both has two implementations.
+    """
+    import typing
+
+    from apps.worker import prompts
+    from apps.worker.main import LOCAL_HANDLERS
+    from cbc.schemas.common import JobType
+
+    declared = set(typing.get_args(JobType))
+    served = set(prompts.TEMPLATES) | set(LOCAL_HANDLERS)
+
+    assert not declared - served, f"job types nothing runs: {sorted(declared - served)}"
+    assert not served - declared, f"handlers for undeclared types: {sorted(served - declared)}"
+    assert not (set(prompts.TEMPLATES) & set(LOCAL_HANDLERS)), "type served twice"

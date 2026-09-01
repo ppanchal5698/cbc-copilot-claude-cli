@@ -55,18 +55,29 @@ On first start, `docker/entrypoint.sh` runs [`scripts/bootstrap.py`](../scripts/
 `AUTO_BOOTSTRAP=1` (the default):
 
 - Seeds users, price books, and sample catalog rows when the database is empty
-- Builds the SQLite catalog index when `CATALOG_INDEX_PATH` does not exist yet
+- Builds the PageIndex for any vendor sheet that does not have one yet
 
-Deep document indexes (multiplier sheets, failed catalog layouts, bid PDFs) live
-under `DOCUMENT_INDEX_ROOT` (default `.index/documents/`). Uploading a multiplier
-sheet or a bid PDF enqueues an `index_document` job automatically. Manual rebuild:
+**PageIndex**, not a pre-extracted product table. One JSON document per catalog in
+MongoDB's `pageIndex` collection describes *each page* - what it sells, which part
+families are on it, whether it carries prices. A pricing pass asks it which page
+to open and then reads the number off that page, so no stored value can be stale
+about a price, because no price is stored.
+
+Uploading a sheet enqueues `index_catalog`; deleting one enqueues `delete_catalog`
+and the cascade drops its document. Rebuild the lot by hand - idempotent on the
+file hash, so re-running it costs nothing for sheets that have not changed:
 
 ```bash
-python -m cbc.documents.rebuild --client hager --type multiplier_sheet --file pricebooks/hager_multipliers.pdf --no-llm
+python -m cbc.pageindex.build --all
 ```
 
-Query via the `document-index` MCP server (`search_index` → `get_section_content`).
-Status: `GET /api/document-index/{document_id}/status`.
+Query it through the `catalog` MCP server (`find_pages` → `get_page`), then read
+the price with `pdf-tools`.
+
+This replaced a SQLite FTS5 index that pre-extracted every product row. Vendor
+catalogs are too irregular for that: 37.8% of the codes it produced contained no
+letter at all, dates were recorded as part numbers, and one vendor's sheet yielded
+nothing while reporting success.
 
 Sign in with `estimator@cbc.com` or `admin@cbc.com` / `opshub`.
 
@@ -84,7 +95,7 @@ To reset everything manually:
 
 ```bash
 python scripts/seed_db.py --reset --demo
-python -m cbc.catalog.rebuild
+python -m cbc.pageindex.build --all
 ```
 
 ## Configuring Claude Code

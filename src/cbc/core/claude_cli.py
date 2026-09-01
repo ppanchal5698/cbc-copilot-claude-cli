@@ -63,7 +63,6 @@ def run_claude(
     recording: "Path | None" = None,
     job_type: str | None = None,
     max_turns: int | None = None,
-    catalog_index_path: str | None = None,
     cancel_check: Callable[[], bool] | None = None,
 ) -> RunResult:
     """Run one headless Claude Code pass in the repo root.
@@ -96,7 +95,7 @@ def run_claude(
     if job_type:
         from cbc.core import toolsets
 
-        scope = toolsets.flags_for(job_type, catalog_index_path)
+        scope = toolsets.flags_for(job_type)
     if max_turns:
         scope += ["--max-turns", str(max_turns)]
 

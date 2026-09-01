@@ -111,7 +111,11 @@ def test_the_prompt_refuses_to_guess_a_flagged_line() -> None:
 def test_the_shell_entry_point_uses_the_same_prompt() -> None:
     """It used to carry a third hand-copy of the rules."""
     script = (ROOT / "workflows" / "run_full_pipeline.sh").read_text(encoding="utf-8")
-    assert "worker.prompts --pipeline" in script
+    # The flags are assembled into PROMPT_ARGS now, so that --solo can be added
+    # for a provider that cannot delegate. The point is unchanged: the prompt is
+    # asked for, never restated.
+    assert "apps.worker.prompts" in script
+    assert "--pipeline" in script
     assert "Respect every rule" not in script, "the rules are restated again"
 
 

@@ -29,17 +29,16 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from cbc import db as db_module  # noqa: E402
 from cbc.db import db  # noqa: E402
-from cbc.services import audit, provider, quote as quote_service, storage, sync  # noqa: E402
+from cbc.services import audit, provider, quote as quote_service, render, storage, sync  # noqa: E402
 from cbc.core import claude_cli as runner, streaming  # noqa: E402
-from scripts.validate_project import validate_job_artifacts  # noqa: E402
+from cbc.core import logs  # noqa: E402
+from cbc.validation import validate_job_artifacts  # noqa: E402
+from cbc.validation import review as review_flags  # noqa: E402
 from apps.worker import prompts  # noqa: E402
 from apps.worker.handlers.catalog import delete_catalog, index_catalog  # noqa: E402
 from apps.worker.handlers.ingest import ingest_pricebook  # noqa: E402
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(levelname)-7s %(message)s", datefmt="%H:%M:%S"
-)
-log = logging.getLogger("cbc.worker")
+log = logs.configure("cbc.worker")
 
 POLL_SECONDS = int(os.environ.get("WORKER_POLL_SECONDS", "5"))
 JOB_TIMEOUT = int(os.environ.get("WORKER_JOB_TIMEOUT_SECONDS", "3600"))
@@ -252,17 +251,41 @@ async def finish(
         note=error or note or None,
     )
 
+    # Bound rather than formatted in: under LOG_FORMAT=json these are their own
+    # keys, so "every failure of this job type on this project" is a query rather
+    # than a regex over sentences.
+    entry = logs.bind(
+        log,
+        job_id=str(job["_id"]),
+        job_type=job["type"],
+        project_id=str(job["projectId"]) if job.get("projectId") else None,
+        attempt=attempts,
+    )
     if retryable:
-        log.warning(
+        entry.warning(
             "job %s failed, retrying in %ss (attempt %s): %s",
             job["type"], RETRY_BASE_SECONDS * 2**attempts, attempts, error,
         )
     elif permanent and not ok:
-        log.error("job %s FAILED permanently (not retried): %s", job["type"], error)
+        entry.error("job %s FAILED permanently (not retried): %s", job["type"], error)
     elif ok:
-        log.info("job %s done - %s", job["type"], note or "no changes reported")
+        entry.info("job %s done - %s", job["type"], note or "no changes reported")
     else:
-        log.error("job %s FAILED: %s", job["type"], error)
+        entry.error("job %s FAILED: %s", job["type"], error)
+
+
+def _derive_review_flags(job_type: str, slug: str) -> None:
+    """Write the mechanical review findings before the summary is rendered.
+
+    Reported rather than raised, like the renders: a project whose artifacts are
+    too broken to derive flags from is a project whose flags the estimator most
+    needs, and losing the job would take the rest of the pass with it.
+    """
+    try:
+        count = review_flags.write_flags(slug)
+        log.info("%s: %d review flag(s) derived", job_type, count)
+    except Exception:
+        log.exception("%s: could not derive review flags for %s", job_type, slug)
 
 
 async def sync_results(job: dict, project: dict | None) -> str:
@@ -343,6 +366,13 @@ async def sync_results(job: dict, project: dict | None) -> str:
         # new priced lines are a change - otherwise the board shows no value until
         # somebody opens the bid.
         await quote_service.persist(project)
+        # Same deterministic render as the gated build_proposal below. On this
+        # path it matters more, not less: nobody confirms anything between the
+        # phases, so the review at the end is the only review there is.
+        _derive_review_flags(job["type"], slug)
+        for result in (render.render_quotation(slug), render.render_review_summary(slug)):
+            if not result.ok:
+                log.warning("%s: %s", job["type"], result.detail)
         artifacts = await sync.import_proposal_artifacts(project)
         await db.projects.update_one(
             {"_id": project["_id"]},
@@ -357,13 +387,29 @@ async def sync_results(job: dict, project: dict | None) -> str:
         )
 
     if job["type"] == "build_proposal":
+        # Render before syncing, so what lands in Mongo is the validated output
+        # rather than whatever the pass happened to write. The prompt asks the
+        # agents to run these scripts; this is what makes it true.
+        # The mechanical findings first: the summary is rendered from
+        # review_flags.json, so deriving after rendering would show the estimator
+        # a page built from whatever the pass happened to enumerate by hand.
+        _derive_review_flags(job["type"], slug)
+        renders = [render.render_quotation(slug), render.render_review_summary(slug)]
+        for result in renders:
+            if not result.ok:
+                log.warning("%s: %s", job["type"], result.detail)
+
         artifacts = await sync.import_proposal_artifacts(project)
         await db.projects.update_one(
             {"_id": project["_id"]},
             {"$set": {"stage": "proposal", "progress": 100, "updatedAt": _now()}},
         )
         written = sum(1 for present in artifacts.values() if present)
-        return f"{written} proposal artifact(s) synced from disk"
+        failed = [r.detail for r in renders if not r.ok]
+        note = f"{written} proposal artifact(s) synced from disk"
+        # Reported rather than raised: a good review with a quote that does not
+        # validate is still worth keeping, and the reason has to reach the job.
+        return f"{note} ({'; '.join(failed)})" if failed else note
 
     if job["type"] == "ingest_addendum":
         counts = await sync.import_addendum(project, job)

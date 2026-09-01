@@ -26,9 +26,13 @@ make the boundaries explicit.
 4. Extract **fire ratings** wherever they appear - schedule column, frame
    schedule, or general notes - and record where you found them. If none are
    present, say so explicitly rather than leaving it silent.
-5. Extract **hardware-set callouts** (`HW-1`, `GROUP 1`, `HDW-01`) and the
-   HARDWARE GROUPS block, item by item with manufacturer, part number, size and
-   finish.
+5. Extract **hardware-set callouts** (`HW-1`, `GROUP 1`, `HDW-01`) and record
+   **which pages** carry the HARDWARE GROUPS block in `hardware_group_pages`.
+   **Do not parse the block item by item** - `takeoff-engineer` owns that, and
+   writes it into `extracted/door_schedule.json`. Your output has one field for
+   this and it holds page numbers, so parsing here produces a second copy of the
+   hardware with nowhere to put it and no way to reconcile it against the first.
+   Find it and say where it is; the take-off reads it.
 6. Note **bid alternates** and any addenda referenced.
 7. **Record out-of-scope items you found** - storefront, coiling doors, ceiling
    grid, tile - so the estimator can tell the GC what CBC is not covering. Never

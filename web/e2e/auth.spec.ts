@@ -13,13 +13,29 @@ test.describe("Authentication", () => {
     await page.getByLabel("Email").fill("nobody@example.com");
     await page.getByLabel("Password").fill("wrong-password");
     await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByRole("alert")).toContainText(/do not match/i);
+
+    // Not getByRole("alert"): Next.js renders its own route announcer with that
+    // role on every page, so the query matched two elements and resolved to the
+    // empty one. The form gives its error a stable id.
+    await expect(page.locator("#signin-error")).toContainText(/do not match/i);
+  });
+
+  test("does not say whether the address exists", async ({ page }) => {
+    // The same wording either way - the timing is equalised server-side too.
+    await page.goto("/signin");
+    await page.getByLabel("Email").fill(credentials.estimator.email);
+    await page.getByLabel("Password").fill("definitely-not-the-password");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page.locator("#signin-error")).toContainText(/do not match/i);
   });
 
   test("signs in and reaches dashboard", async ({ page }) => {
     await signIn(page, credentials.estimator.email, credentials.estimator.password);
-    await expect(page.getByRole("heading", { name: /estimator home|dashboard/i })).toBeVisible({
-      timeout: 15_000,
-    });
+
+    // The dashboard h1 is a greeting - "Good morning, Kevin" - not the words
+    // "dashboard" or "estimator home". Assert the landing, not a copy string
+    // that changes with the time of day and the signed-in name.
+    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 15_000 });
   });
 });
