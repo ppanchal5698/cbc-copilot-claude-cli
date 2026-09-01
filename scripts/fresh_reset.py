@@ -14,7 +14,6 @@ import argparse
 import json
 import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
@@ -42,6 +41,9 @@ COLLECTIONS = (
     "estimateVersions",
     "counters",
     "settings",
+    # The page index. Absent here, a "fresh" install kept every indexed catalog
+    # while reset_pricebooks() deleted the very PDFs those pages point at.
+    "pageIndex",
 )
 
 PRICEBOOK_KEEP = frozenset({"index.json", "README.md"})
@@ -94,47 +96,6 @@ def reset_projects(storage_root: Path) -> None:
     print(f"projects     removed {removed} workspace(s)")
 
 
-def reset_catalog_index() -> None:
-    """Drop the Docker catalog volume and rebuild an empty index."""
-    subprocess.run(["docker", "compose", "stop", "api", "worker"], cwd=ROOT, check=False)
-    subprocess.run(["docker", "compose", "rm", "-sf", "api", "worker"], cwd=ROOT, check=False)
-
-    listed = subprocess.run(
-        ["docker", "volume", "ls", "-q", "--filter", "name=catalog_index"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    for volume in listed.stdout.splitlines():
-        volume = volume.strip()
-        if volume:
-            subprocess.run(["docker", "volume", "rm", volume], cwd=ROOT, check=False)
-
-    subprocess.run(["docker", "compose", "up", "-d", "api", "worker"], cwd=ROOT, check=True)
-
-    # Bootstrap creates the index when missing; with an empty pricebooks/ dir it stays empty.
-    for _ in range(30):
-        probe = subprocess.run(
-            [
-                "docker", "exec", "cbc-api", "python", "-c",
-                "import sqlite3, os; p=os.environ.get('CATALOG_INDEX_PATH','/app/.index/catalog.sqlite3'); "
-                "print('missing' if not os.path.exists(p) else sqlite3.connect(p).execute("
-                "'select count(*) from products').fetchone()[0])",
-            ],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if probe.returncode == 0 and probe.stdout.strip() in {"0", "missing"}:
-            break
-        import time
-        time.sleep(2)
-
-    print("catalog      catalog_index volume reset (empty index)")
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--yes", "-y", action="store_true", help="skip confirmation")
@@ -158,18 +119,11 @@ def main() -> int:
     reset_pricebooks(ROOT / "pricebooks")
     reset_projects(ROOT / "projects")
 
-    if not args.skip_docker:
-        try:
-            reset_catalog_index()
-        except subprocess.CalledProcessError as exc:
-            print(f"catalog      docker reset skipped ({exc})")
-            print("             run `docker compose up -d` and delete the catalog_index volume manually")
-    else:
-        local_index = ROOT / ".index" / "catalog.sqlite3"
-        for suffix in ("", "-wal", "-shm"):
-            path = Path(str(local_index) + suffix)
-            path.unlink(missing_ok=True)
-        print("catalog      local .index cleared (--skip-docker)")
+    # No catalog step here any more. The page index is a Mongo collection, so
+    # reset_mongo() above already dropped it - there is no `catalog_index`
+    # volume left in docker-compose.yml and no SQLite file to unlink. The worker
+    # rebuilds the index from pricebooks/ on its next start.
+    print("catalog      page index dropped with the other collections")
 
     print("\nFresh install ready. Sign in with estimator@cbc.com or admin@cbc.com / opshub")
     return 0

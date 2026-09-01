@@ -24,7 +24,8 @@ is read by every session.
 - **Proposed fix:** Delete the four directories.
 - **Risk:** low
 - **Verification:** `python -m pytest tests -q` unchanged; `python mcp-servers/main.py --selftest` passes; the four paths no longer exist.
-- **Status:** pending
+- **Status:** deferred to the external script
+- **Notes:** `rm -rf` from inside a run is blocked by `pre_delete_guard.py` — the guard working as designed (`file-safety.md`: "rm -rf is blocked outside projects/"). Not bypassed. Moved into `scripts/apply_config_audit.py`, the same human-run mechanism the plan already requires for the `.claude/**` tasks. All four confirmed untracked with zero non-`.pyc` files before deferring.
 
 ## Task 2: `scan-product-catalog` skill contradicts the system it documents
 - **File(s):** `.claude/skills/scan-product-catalog/SKILL.md` *(needs external script — `.claude` is guard-protected)*
@@ -42,7 +43,8 @@ is read by every session.
 - **Proposed fix:** Gate on whether the Mongo `pageIndex` collection is populated; correct the log message.
 - **Risk:** low
 - **Verification:** restart the worker — log names PageIndex, not `.sqlite3`, and reports skipping with 11 catalogs already indexed.
-- **Status:** pending
+- **Status:** done — worker logs `[bootstrap] page index already built (11 catalogs)`; suite 437/9
+- **Notes:** Scope grew once the file was read, and both additions are the same defect. `fresh_reset.py` dropped every collection **except** `pageIndex`, so a "fresh install" kept 11 indexed catalogs pointing at price books `reset_pricebooks()` had just deleted — `pageIndex` added to `COLLECTIONS`. And `reset_catalog_index()` stopped both containers to hunt for a `catalog_index` volume that no longer exists in `docker-compose.yml`, then probed the deleted SQLite file for a `products` table; the function, its call site and the now-dead `subprocess` import are gone.
 
 ## Task 4: No agent declares a `tools:` allowlist
 - **File(s):** all 10 `.claude/agents/*.md` *(needs external script)*
