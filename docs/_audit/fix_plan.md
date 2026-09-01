@@ -62,7 +62,8 @@ is read by every session.
 - **Proposed fix:** `HOW_SOLO` instructs reading `.claude/agents/<name>.md` immediately before each phase — one file at a time. In the same change, remove the duplicate schema block added to `RUN_FULL_PIPELINE` earlier today. Grouped: applying either half alone leaves the contract missing or duplicated.
 - **Risk:** medium — changes core run behaviour.
 - **Verification:** the rendered solo `run_full_pipeline` prompt names `.claude/agents/` and no longer contains "group and group_type are not optional"; then re-run the pipeline on CBC-260002 with `force` and confirm the 12 bbox/`page_size` and 20 `group`/`group_type` problems clear.
-- **Status:** pending
+- **Status:** code done — static checks pass; the pipeline re-run is the Phase 3 verification
+- **Notes:** Solo prompt now names `.claude/agents/<name>.md` and cites the concrete failure so the instruction reads as load-bearing rather than housekeeping. 1211 chars of duplicated schema removed from `RUN_FULL_PIPELINE` in the same change. Delegated path deliberately unchanged - "not files to read" is still correct there.
 
 ## Task 6: `CLAUDE.md` describes deleted subsystems
 - **File(s):** `CLAUDE.md:17`, `CLAUDE.md:41-52`

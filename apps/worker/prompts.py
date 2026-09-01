@@ -44,7 +44,18 @@ their whole text in this context and gains nothing:"""
 
 HOW_SOLO = """Do these yourself, in order, writing each file before starting the next. Do not
 call the Agent tool - it is unavailable here, and a phase left undelegated is a
-phase not done:"""
+phase not done.
+
+**Read the agent definition before each phase, and follow it.** In a delegating
+run these load themselves; here nothing loads them, and they hold the required
+output fields, the tool order and the traps for that phase. Read
+`.claude/agents/<name>.md` immediately before doing that phase's work - the one
+you are about to do, not all of them up front.
+
+That is not optional detail. A run that skipped them wrote a door schedule with
+no `bbox` or `page_size` and priced lines with no `group` or `group_type` - every
+one of those fields named in the agent file it did not read - and failed
+validation on all three attempts:"""
 
 
 PREAMBLE = """Constraints that override anything else:
@@ -286,26 +297,6 @@ Beyond the top-10 stock items take the MANUAL path (NR-13): cost null,
 cost_source "MANUAL", a plain-language reason, and - just as important - the
 specified item in `part_number`/`description`, copied from hardware_sets.json. A
 manual line an estimator cannot read is worse than no line.
-
-**The two schemas, exactly.** These are checked in code before the run is
-accepted, and a missing field fails the whole pipeline however good the rest is.
-
-`extracted/door_schedule.json` - each opening needs: door_number, description,
-size (or width and height), quantity, confidence, source_file, source_page, and
-**bbox plus page_size**. The bbox is what lets the estimator be shown the spot on
-the drawing (NFR-3); `parse_schedule.py --openings --json` and the pdf-tools
-table calls already return bbox, row_bbox and page_size, so take them from there
-rather than leaving them null. An opening without one fails.
-
-`priced/line_items.json` - each line needs: line_id, group, group_type
-(door | accessories | frp | other), part_number, description, quantity, cost,
-margin, sale_ea, ext_price, cost_source, cost_source_detail, source_page, flags.
-**group and group_type are not optional** - the proposal groups by door and
-cannot render without them. A hardware line takes the group of the door it hangs
-on; a restroom accessory is group_type "accessories".
-
-Write either file as `{{"openings": [...]}}` / `{{"lines": [...]}}` or as a bare
-array - both are read - but the fields above are required either way.
 
 Halt at the end and report exactly: "Draft ready for estimator review"
 
