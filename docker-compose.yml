@@ -139,6 +139,10 @@ services:
     volumes:
       - ./projects:/app/projects
       - ./pricebooks:/app/pricebooks:ro
+      # Kernel-enforced read-only for everything a pipeline run must never rewrite.
+      # Mode 555 in the image alone is liftable by the container user; :ro is not.
+      - ./.claude:/app/.claude:ro
+      - ./reference-library:/app/reference-library:ro
       - claude_home:/home/cbc/.claude
       # The worker is the only writer to the index.
     depends_on:

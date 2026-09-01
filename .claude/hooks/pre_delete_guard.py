@@ -20,6 +20,7 @@ PROTECTED_DIRS = ("pricebooks", "reference-library", ".claude")
 
 RM_RF = re.compile(r"\brm\b[^|;&]*-[a-zA-Z]*[rR][a-zA-Z]*f|\brm\b[^|;&]*-[a-zA-Z]*f[a-zA-Z]*[rR]")
 GIT_PUSH = re.compile(r"\bgit\s+push\b")
+_HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
 
 
 PROJECT_ROOT = Path(os.environ.get("CLAUDE_PROJECT_DIR", ".")).resolve()
@@ -110,11 +111,12 @@ def _write_targets(command: str) -> list[str]:
     shell to decide intent is not a solvable problem. This catches accidents and
     the obvious cases, which is what a PreToolUse hook can honestly offer.
 
-    The enforceable boundary is the filesystem: docker-compose already mounts the
-    vendor sheets into the worker read-only (`:ro`), so in the container the kernel
-    refuses the write regardless of how it is spelled. Treat this function as the
-    local-development and defence-in-depth layer, not the guarantee.
+    The enforceable boundary is the filesystem: docker-compose mounts all three
+    protected directories into the worker read-only (`:ro`), so in the container
+    the kernel refuses the write regardless of how it is spelled. Treat this
+    function as the local-development and defence-in-depth layer, not the guarantee.
     """
+    command = _strip_heredoc_bodies(command)
     # Each stage of a pipeline or chain is its own command: in `echo x | tee sheet`
     # the writer is `tee`, and looking only at the first word would miss it.
     return [
@@ -176,8 +178,51 @@ def _segment_write_targets(command: str) -> list[str]:
     return targets
 
 
-def block(reason: str) -> int:
-    print(f"BLOCKED: {reason} (file-safety rule).", file=sys.stderr)
+def _strip_heredoc_bodies(command: str) -> str:
+    """Remove heredoc bodies before scanning command text.
+
+    Heredoc content is stdin for the preceding command, not shell to execute.
+    Without this, documentation that merely names a forbidden operation — a table
+    row reading ``git push``, a setup note mentioning ``chown … pricebooks`` —
+    is indistinguishable from the operation itself.
+    """
+    lines = command.split("\n")
+    kept: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        match = _HEREDOC_START.search(line)
+        if not match:
+            kept.append(line)
+            index += 1
+            continue
+
+        prefix = line[: match.start()].rstrip()
+        if prefix:
+            kept.append(prefix)
+
+        delimiter = match.group(2)
+        strip_tabs = match.group(0).startswith("<<-")
+        index += 1
+        while index < len(lines):
+            body = lines[index]
+            closed = body.strip() == delimiter or (
+                strip_tabs and body.strip().lstrip("\t") == delimiter
+            )
+            index += 1
+            if closed:
+                break
+    return "\n".join(kept)
+
+
+def block(reason: str, *, rule: str | None = None, matched: str | None = None) -> int:
+    detail = reason
+    if rule or matched:
+        tags = [part for part in (f"rule={rule}" if rule else None,
+                                  f"matched={matched!r}" if matched else None)
+                if part]
+        detail = f"{reason} ({', '.join(tags)})"
+    print(f"BLOCKED: {detail} (file-safety rule).", file=sys.stderr)
     return 2
 
 
@@ -200,12 +245,16 @@ def main() -> int:
     if _WRITES_A_FILE.match(tool_name) or _is_mcp_write(tool_name):
         target = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
         if target and _in_protected_dir(target):
-            return block(f"{target} is read-only during a run")
+            return block(
+                f"{target} is read-only during a run",
+                rule="protected-write-tool",
+                matched=target,
+            )
 
     if tool_name.startswith("mcp__p21-connector__"):
         lower = tool_name.lower()
         if any(word in lower for word in _P21_FORBIDDEN):
-            return block("P21 write tools are forbidden (NFR-5)")
+            return block("P21 write tools are forbidden (NFR-5)", rule="nfr-5", matched=tool_name)
 
     # A writing MCP tool aimed at read-only reference data. Resolved against the
     # project root like every other path here, never substring-matched - the
@@ -214,17 +263,32 @@ def main() -> int:
     if _is_mcp_write(tool_name):
         for value in _strings(tool_input):
             if _in_protected_dir(value):
-                return block(f"{value} is read-only during a run")
+                return block(
+                    f"{value} is read-only during a run",
+                    rule="protected-mcp-write",
+                    matched=value,
+                )
 
     command = str(tool_input.get("command") or "")
     if not command:
         return 0
 
-    if GIT_PUSH.search(command):
-        return block("git push is not permitted from the pipeline")
+    scan = _strip_heredoc_bodies(command)
 
-    if RM_RF.search(command) and "projects/" not in command and "projects\\" not in command:
-        return block("File deletion outside project scope is prohibited")
+    if match := GIT_PUSH.search(scan):
+        return block(
+            "git push is not permitted from the pipeline",
+            rule="git-push",
+            matched=match.group(0),
+        )
+
+    if rm_match := RM_RF.search(scan):
+        if "projects/" not in scan and "projects\\" not in scan:
+            return block(
+                "File deletion outside project scope is prohibited",
+                rule="rm-rf-outside-projects",
+                matched=rm_match.group(0),
+            )
 
     # Writing into reference data by any other means. The rule says a run never
     # writes to these directories, but the check only ever ran inside an `rm`, so
@@ -232,7 +296,11 @@ def main() -> int:
     # command that merely reads from those directories is untouched.
     for target in _write_targets(command):
         if _in_protected_dir(target):
-            return block(f"{target} is read-only during a run")
+            return block(
+                f"{target} is read-only during a run",
+                rule="protected-bash-write",
+                matched=target,
+            )
 
     return 0
 
