@@ -72,7 +72,8 @@ is read by every session.
 - **Proposed fix:** Correct line 17 to five servers; replace 41–52 with a `cbc/pageindex/` description.
 - **Risk:** high — shared content.
 - **Verification:** `grep -cE "document-index|cbc\.catalog\.rebuild|SQLite FTS5" CLAUDE.md` → 0; `grep -c "cbc/pageindex" CLAUDE.md` → ≥1; stated server count equals `len(json.load(open('.mcp.json'))['mcpServers'])`.
-- **Status:** pending
+- **Status:** done — 0 stale references; 5 == 5; every configured server named; every path resolves
+- **Notes:** The one surviving "SQLite FTS5" mention is deliberate — a sentence explaining what PageIndex replaced and why, which is the context that stops someone rebuilding it.
 
 ## Task 7: `CLAUDE.md` duplicates content the rules already own
 - **File(s):** `CLAUDE.md` — `## Scope`, `## Manual cut-off`

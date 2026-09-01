@@ -14,7 +14,8 @@ manual workflow a CBC estimator follows (Phase 0–6). It drafts, sources, and c
 3. **Rules** (`.claude/rules/`) — 8 project-scoped constraint files
 4. **Guardrails** (`.claude/hooks/`) — 5 executable hooks (PreToolUse / PostToolUse)
 5. **Memory** (`.claude/memory/`) — 13 persistent reference-data files
-6. **MCP Servers** (`mcp-servers/`) — 6 tool providers (pdf, catalog, calc, storage, P21, document-index),
+6. **MCP Servers** (`mcp-servers/`) — 5 tool providers (pdf-tools, catalog,
+   calc-engine, artifact-storage, p21-connector),
    registered in **`.mcp.json`** at the repo root. `.claude/settings.json` has no
    `mcpServers` key — a block there is ignored, and the run silently gets no tools.
 7. **Workflows** (`workflows/`) — headless orchestration scripts for autopilot
@@ -38,18 +39,21 @@ The estimator drives the pipeline through a web app; Claude Code works behind it
     nothing above it. The `calc-engine` and `pdf-tools` MCP servers are adapters
     over these same modules, so a price a run computes and a price the API
     computes cannot drift.
-  - `cbc/catalog/` — the product search index. The vendor sheets under the
-    `pricebooks` directory are the source of truth; this keeps a **rebuildable**
-    SQLite FTS5 index of what is in them, so a search costs a fraction of a
-    millisecond instead of re-reading 1 391 pages. Uploading a sheet queues
-    `index_catalog`; deleting one queues `delete_catalog` and the cascade removes
-    its search records. There is no product table to maintain by hand —
-    `python -m cbc.catalog.rebuild` reconstructs the lot. The index lives on a
-    **named volume**, never a bind mount: SQLite needs dependable locking and WAL
-    needs shared memory, and `/app/projects` is 9p.
-  - `cbc/documents/` — LLM deep indexing for large, messy PDFs, with versioning
-    and diffing. `cbc/core/pdfrows` is shared with `cbc/catalog` so a price book
-    and a bid set cannot disagree about what a page says.
+  - `cbc/pageindex/` — how a run finds a price. The vendor sheets under
+    `pricebooks/` are the source of truth, and nothing pre-extracts them: the
+    index describes **each page** — what it sells, which part families are on it,
+    whether it carries prices — and a pricing pass opens that page and reads the
+    number off it. It routes; the PDF answers. So no stored value can be stale or
+    wrong about a price, because no price is stored. One JSON document per
+    catalog in MongoDB's `pageIndex` collection. Uploading a sheet queues
+    `index_catalog`; deleting one queues `delete_catalog` and the cascade drops
+    its document. `python -m cbc.pageindex.build --all` rebuilds the lot, and is
+    idempotent on the file hash.
+
+    This replaced a SQLite FTS5 index that pre-extracted every product row.
+    Vendor catalogs are too irregular for that: 37.8% of the codes it produced
+    contained no letter at all, dates were recorded as part numbers, and one
+    vendor's sheet yielded nothing while reporting success.
 
 **The dependency rule, in one line:** `apps/*` imports `cbc`; `cbc` imports neither
 application. `tests/api/test_layering.py` asserts it, and walks function-level
