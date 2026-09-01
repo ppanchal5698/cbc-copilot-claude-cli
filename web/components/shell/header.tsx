@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { MagnifyingGlass, Sun, Moon, PhoneCall } from "@phosphor-icons/react/dist/ssr";

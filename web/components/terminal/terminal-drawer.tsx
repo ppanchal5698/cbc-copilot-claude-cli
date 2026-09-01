@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import useSWR from "swr";
 import { X, Prohibit, CaretDown, CaretUp } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
@@ -57,10 +57,14 @@ export function TerminalDrawer({ code }: { code: string | null }) {
   const [selected, setSelected] = useState<string | null>(null);
   const [raw, setRaw] = useState(false);
   const [showTechnicalLog, setShowTechnicalLog] = useState(isAdminRole(userRole));
-
-  useEffect(() => {
-    if (terminalOpen) setShowTechnicalLog(isAdminRole(userRole));
-  }, [terminalOpen, userRole]);
+  const [resetKey, setResetKey] = useState<string | null>(null);
+  const openKey = terminalOpen ? `${code}:${userRole}` : null;
+  if (openKey !== null && openKey !== resetKey) {
+    setResetKey(openKey);
+    setShowTechnicalLog(isAdminRole(userRole));
+  } else if (openKey === null && resetKey !== null) {
+    setResetKey(null);
+  }
 
   const close = useCallback(() => setTerminalOpen(false), [setTerminalOpen]);
   const dialogRef = useDialog<HTMLDivElement>(terminalOpen, close);
