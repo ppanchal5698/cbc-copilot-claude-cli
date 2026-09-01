@@ -64,7 +64,7 @@ is read by every session.
 - **Proposed fix:** `HOW_SOLO` instructs reading `.claude/agents/<name>.md` immediately before each phase — one file at a time. In the same change, remove the duplicate schema block added to `RUN_FULL_PIPELINE` earlier today. Grouped: applying either half alone leaves the contract missing or duplicated.
 - **Risk:** medium — changes core run behaviour.
 - **Verification:** the rendered solo `run_full_pipeline` prompt names `.claude/agents/` and no longer contains "group and group_type are not optional"; then re-run the pipeline on CBC-260002 with `force` and confirm the 12 bbox/`page_size` and 20 `group`/`group_type` problems clear.
-- **Status:** **verified** — forced run on CBC-260002 took validation problems from 32 to 6
+- **Status:** **verified** — forced run on CBC-260002 completed clean: 32 validation problems to 0
 - **Notes:** Blocked on the provider, not the change. Re-run when the limit clears: `docker compose exec worker python -c "import asyncio; from cbc.db import db; from cbc.services import jobs; ..."` enqueuing `run_full_pipeline` for CBC-260002 with `payload={"force": True}`, then confirm the 12 `bbox`/`page_size` and 20 `group`/`group_type` problems are gone. Static checks all pass: the rendered solo prompt reads the agent files, the duplicate block is gone, and `force` is honoured. Solo prompt now names `.claude/agents/<name>.md` and cites the concrete failure so the instruction reads as load-bearing rather than housekeeping. 1211 chars of duplicated schema removed from `RUN_FULL_PIPELINE` in the same change. Delegated path deliberately unchanged - "not files to read" is still correct there.
 
 ## Task 6: `CLAUDE.md` describes deleted subsystems
@@ -150,15 +150,36 @@ One artifact-shape bug surfaced and was fixed in the same pass: the run wrote a
 complete schedule under `lines` rather than `openings`, and both the importer and
 the stricter-still validator discarded it. See commit `b7985b8`.
 
-### The remaining 6
+### Final run — job 6a968b7a, attempt 4, status `done`, 100%
 
-All `bbox`. The requirement is fair and satisfiable — `pdfrows.rows_from_words`
-returns 255 rows on PDF page 19 of this bid set, every one carrying a `bbox` —
-and `takeoff-engineer.md:25` says the parse script returns it. The run took a
-route that discarded the coordinates and flagged `bbox_missing` rather than
-inventing them, which is the correct NFR-2 behaviour but still fails the gate.
+After the door-schedule shape fix and the `tools:` allowlists landed:
 
-Worth noting: `.claude/rules/auditability.md` lists `source_file`, `source_page`
-and `extracted_at` as the required provenance — **not** `bbox`. The validator
-enforces `bbox` as NFR-3 while the rule that defines NFR-3 does not require it.
-Either the rule or the validator should move; that is a decision, not a bug fix.
+| Check | Baseline | Final |
+|---|---|---|
+| extraction | 12 | **0** |
+| pricing | 20 | **0** |
+| proposal | 0 | **0** |
+| **total** | **32** | **0** |
+
+6 openings, every one carrying `bbox`, `page_size` and `source_page`. 8 priced
+lines, every one carrying `group` and `group_type`. **0 invented costs, 0 false
+approvals** — the honesty properties held across every run in this sequence.
+
+`bbox` resolved on its own once the agent file was being read: the earlier run
+flagged `bbox_missing` rather than inventing coordinates, and this one supplied
+real ones. `pdfrows.rows_from_words` returns 255 rows with boxes on PDF page 19,
+so the requirement was always satisfiable — the run simply had not been told.
+
+Deliverables written: `quotation.html`, `review/review_flags.json`,
+`review/estimator_notes.md`, `review/quotation_email_draft.md`, and
+`uploads/final/quotation.html`. Nothing sent (NFR-1).
+
+**Open observation, not fixed:** the run wrote `projects/test_rerun_ollama/extract_rows.py`,
+a throwaway parser, while `PREAMBLE` says to use the MCP tools and not to write
+one. It is inside `projects/`, so no rule was broken, but the instruction did not
+fully hold. Worth watching rather than acting on from a single run.
+
+**Still worth a decision:** `.claude/rules/auditability.md` lists `source_file`,
+`source_page` and `extracted_at` as required provenance — **not** `bbox`. The
+validator enforces `bbox` as NFR-3 while the rule defining NFR-3 does not require
+it. They agree in practice now; they still disagree on paper.
