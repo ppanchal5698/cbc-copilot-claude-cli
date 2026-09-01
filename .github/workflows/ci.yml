@@ -145,6 +145,31 @@ jobs:
           docker compose logs --tail 100
           exit 1
 
+      # The loop above probes the two services the specs talk to over HTTP. The
+      # worker serves no port, so a crash-looping worker satisfied every check
+      # and the suite went green against a stack that could not run a job - which
+      # is exactly what happened when an over-broad entrypoint assertion made the
+      # worker's deliberate read-only pricebooks mount fatal.
+      #
+      # Nothing here has a "started and stayed started" signal otherwise, so this
+      # asserts it directly.
+      - name: Every service is still running
+        run: |
+          sleep 15
+          docker compose ps
+          for service in api worker web mongo; do
+            state=$(docker compose ps --format '{{.Service}} {{.State}}' \
+                    | awk -v s="$service" '$1 == s {print $2}')
+            echo "$service: ${state:-missing}"
+            case "$state" in
+              running) ;;
+              *)
+                echo "::error::$service is '${state:-missing}', not running" >&2
+                docker compose logs "$service" --tail 40
+                exit 1 ;;
+            esac
+          done
+
       - name: Install Playwright
         working-directory: web
         run: |
