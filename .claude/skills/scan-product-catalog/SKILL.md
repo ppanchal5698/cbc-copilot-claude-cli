@@ -1,11 +1,11 @@
 ---
 name: scan-product-catalog
 description: >
-  Searches the vendor price-book PDFs (Hager, National Guard, PEMKO/Markar,
-  Rockwood, ASI, Bobrick, Bradley, Gamco, World Dryer, NUDO) for a product by
-  part number, series or description, and returns list price with page-level
-  traceability. Use when a matched item needs a list price before the multiplier
-  is applied.
+  Finds which page of which vendor price book carries a part - Hager,
+  National Guard, PEMKO/Markar, Rockwood, ASI, Bobrick, Bradley, Gamco, World
+  Dryer, NUDO - searching by part number, series or description. Returns the
+  page to open and why it matched, not a price: the price is read off the sheet.
+  Use when a matched item needs a list price before the multiplier is applied.
 ---
 
 # Scan Product Catalog
@@ -73,18 +73,31 @@ and premium finishes are added deliberately from
 - @.claude/memory/vendor_tiers.md
 - @.claude/memory/cost_sourcing_rules.md
 
-## Script
+## Worked example
 
-```bash
-python .claude/skills/scan-product-catalog/scripts/search_pricebook.py --list
+There is no script. `search_pricebook.py` was deleted with the extraction index
+it queried; the catalog MCP server replaced it, and the price now comes off the
+page rather than out of a table nobody checked.
+
+```
+mcp__catalog__find_pages(query="3510 lock", vendor="hager")
+  -> file_path "pricebooks/hager_price_book_18.pdf", pdf_page 297,
+     locator "PDF p297 (printed p23)", has_prices true
+
+mcp__pdf-tools__extract_tables(file_path=..., pages="297")
+  -> the row, and the list price on it
+
+mcp__catalog__get_multiplier(vendor="hager", tier="locks")
+  -> 0.290, effective 2026-03-02
 ```
 
-```bash
-python .claude/skills/scan-product-catalog/scripts/search_pricebook.py hager 3510 --category locks
-```
+Pass `file_path` and `pdf_page` exactly as `find_pages` returned them. The books
+are not under the project's uploads, and a run that guessed that directory found
+the right page and could not open it.
 
 ## Output
 
-Every result carries `source_file`, `source_page`, `effective_date`, the
-`multiplier_tier` used and its `multiplier_effective_date` - the full provenance
-chain NFR-3 requires.
+Quote the `locator` verbatim - it carries the PDF page and the number printed on
+the page, and they differ on most pages because section numbering restarts. With
+the file name, the multiplier tier and its effective date, that is the full
+provenance chain NFR-3 requires.

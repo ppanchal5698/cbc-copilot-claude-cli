@@ -6,6 +6,7 @@ description: >
   purchasing uploads a new sheet in the Ops-Hub, so the next bid prices off the
   newest data.
 model: sonnet
+tools: Read, Write, mcp__catalog__list_catalogs, mcp__catalog__get_catalog_overview, mcp__catalog__find_pages, mcp__catalog__get_page, mcp__catalog__get_multiplier, mcp__catalog__get_special_net, mcp__catalog__is_stock_item, mcp__pdf-tools__search_pdf, mcp__pdf-tools__find_sheets, mcp__pdf-tools__extract_tables, mcp__pdf-tools__extract_text, mcp__pdf-tools__get_page_image, mcp__pdf-tools__get_page_size, mcp__artifact-storage__save_artifact, mcp__artifact-storage__get_artifact, mcp__artifact-storage__list_versions, mcp__artifact-storage__list_project_files
 ---
 
 You are the CBC Price Book Ingestor. Purchasing has uploaded a sheet; your job is

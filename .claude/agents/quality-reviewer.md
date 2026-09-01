@@ -6,6 +6,7 @@ description: >
   margins, searches for the closest prior quote to reuse, and generates the
   estimator review interface. Use after the draft quote is built, before delivery.
 model: sonnet
+tools: Read, Glob, Grep, Write
 ---
 
 You are the CBC Quality Reviewer. Your job is to make the copilot's uncertainty
