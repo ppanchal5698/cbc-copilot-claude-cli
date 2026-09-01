@@ -459,3 +459,93 @@ def depth_for_wall_type(wall_type: str | None) -> dict[str, Any] | None:
             if entry:
                 return {**entry, "matched_on": canonical}
     return None
+
+
+_FINISH_TOKEN = re.compile(r"^(?:US)?\s*(\d{1,3}[A-Z]?)$", re.IGNORECASE)
+
+
+def resolve_finish(text: str | None) -> dict[str, Any] | None:
+    """Read a finish written in either nomenclature, or say it is ambiguous.
+
+    Both systems are in live use and a schedule mixes them: "US26D", "626" and a
+    bare "26D" are the same satin chrome, and an estimator has to read all three.
+    What must never happen is treating US19 as US26D - they are different satins,
+    and a lockset ordered in the wrong one is a return (NR-3).
+
+    Returns the crosswalk entry, with `matched_on` saying which spelling was
+    recognised. A numeric that two US codes share comes back marked `ambiguous`
+    with both candidates rather than resolved to whichever is listed first: 619
+    is US19 *and* US15 in CBC's own sheet, and guessing between them is exactly
+    the confusion this exists to prevent.
+    """
+    if not text or not str(text).strip():
+        return None
+    raw = " ".join(str(text).upper().split())
+
+    finishes = load_finishes().get("finishes", [])
+    by_us = {str(f.get("us_code", "")).upper(): f for f in finishes}
+
+    if raw in by_us:
+        return {**by_us[raw], "matched_on": "us_code"}
+
+    token = _FINISH_TOKEN.match(raw)
+    if not token:
+        return None
+    body = token.group(1).upper()
+
+    # "26D" without the prefix - what a schedule column usually holds.
+    if f"US{body}" in by_us:
+        return {**by_us[f"US{body}"], "matched_on": "us_code"}
+
+    numeric = [f for f in finishes if str(f.get("numeric_code") or "") == body]
+    if len(numeric) == 1:
+        return {**numeric[0], "matched_on": "numeric_code"}
+    if len(numeric) > 1:
+        return {
+            "ambiguous": True,
+            "numeric_code": body,
+            "candidates": [f.get("us_code") for f in numeric],
+            "matched_on": "numeric_code",
+            "note": (
+                f"{body} is shared by {' and '.join(str(f.get('us_code')) for f in numeric)}"
+                " in the CBC crosswalk. They are different finishes - confirm which"
+                " one the schedule means before matching a part."
+            ),
+        }
+    return None
+
+
+def find_adders(names: list[str], vendor: str = "hager") -> dict[str, Any]:
+    """The list adders CBC has values for, matched by name.
+
+    Only Hager's are harvested so far, from the 3500-series description block on
+    page 297 of price book 18. The other vendors' values are still outstanding
+    (NR-7), so an adder that is real but unpriced comes back in `unpriced` rather
+    than as zero - a missing adder must not read as "no adder".
+    """
+    table = load_adders()
+    catalogue = table.get(f"{vendor.lower()}_list_adders", {}) or {}
+    items = catalogue.get("items", [])
+    by_name = {str(i.get("name", "")).lower(): i for i in items}
+
+    matched, unpriced = [], []
+    for name in names:
+        needle = str(name or "").strip().lower()
+        if not needle:
+            continue
+        hit = by_name.get(needle) or next(
+            (i for key, i in by_name.items() if needle in key or key in needle), None
+        )
+        (matched.append(hit) if hit else unpriced.append(name))
+    return {
+        "vendor": vendor,
+        "matched": matched,
+        "unpriced": unpriced,
+        "source": catalogue.get("source"),
+        "application": catalogue.get("application"),
+        "note": (
+            "Adders are LIST values - add to the list price, then apply the "
+            "vendor multiplier to the sum."
+        ),
+        "pending": table.get("pending", []) if unpriced else [],
+    }

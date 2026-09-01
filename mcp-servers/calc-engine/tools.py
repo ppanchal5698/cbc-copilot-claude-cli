@@ -18,6 +18,36 @@ PRODUCT_TYPES = [
 
 TOOLS: list[dict[str, Any]] = [
     {
+        "name": "cost_from_list",
+        "description": (
+            "Cost on the list x multiplier path, with any adders applied in the "
+            "right order. Adders go on the LIST price and the multiplier applies "
+            "to the sum - the price book states this outright. Adding one to the "
+            "cost instead overcharges by the whole discount: a 57.13 adder at a "
+            "0.29 tier is 16.57 of cost, not 57.13. Every adder is itemised in "
+            "the result, because carrying one is a recorded act."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "list_price": {"type": "number", "description": "The list figure read off the page"},
+                "multiplier": {"type": "number", "description": "The vendor tier, e.g. 0.29"},
+                "adders": {
+                    "type": "array",
+                    "description": "Optional. Each {name, list_adder} from reference-library.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "list_adder": {"type": "number"},
+                        },
+                    },
+                },
+            },
+            "required": ["list_price", "multiplier"],
+        },
+    },
+    {
         "name": "calculate_line",
         "description": (
             "Compute one quote line from cost, margin and quantity. "

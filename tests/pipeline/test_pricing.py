@@ -146,3 +146,70 @@ def test_unit_weight_is_gone(calc):
     line = calc.calculate_line(cost=100.0, margin=0.27, quantity=2)
     assert "unit_weight" not in line
     assert "total_weight" not in line
+
+
+def test_an_adder_goes_on_the_list_price_not_the_cost():
+    """The price book states the order outright, and the order is the money.
+
+    "These are LIST adders. Multiply by the same category multiplier as the base
+    item to get cost." A Hager 3500 storeroom lock lists at 256.31; the
+    anti-microbial option adds 57.13 of *list*, which at the 0.29 lock tier is
+    16.57 of cost. Adding it to the cost instead charges the full 57.13 and
+    inflates the line by 40.56 before margin.
+    """
+    from cbc.core.calc import cost_from_list
+
+    result = cost_from_list(256.31, 0.29, [{"name": "Anti-microbial", "list_adder": 57.13}])
+
+    assert result["list_with_adders"] == 313.44
+    assert result["cost"] == 90.90
+    assert result["cost"] != round(256.31 * 0.29 + 57.13, 2)
+    # An adder is a recorded act, so the line has to be able to show it.
+    assert result["adders"][0]["cost_effect"] == 16.57
+
+
+def test_a_line_with_no_adders_is_just_list_times_multiplier():
+    from cbc.core.calc import cost_from_list
+
+    assert cost_from_list(256.31, 0.29)["cost"] == round(256.31 * 0.29, 2)
+
+
+def test_an_unpriced_adder_is_reported_not_treated_as_zero():
+    """Only Hager's values are harvested; the rest are outstanding (NR-7).
+
+    A missing adder must not read as "no adder" - that silently underprices.
+    """
+    from cbc.services.reference_library import find_adders
+
+    result = find_adders(["Anti-microbial (26D finish only)", "electrification"])
+    assert [m["list_adder"] for m in result["matched"]] == [57.13]
+    assert result["unpriced"] == ["electrification"]
+
+
+def test_both_finish_nomenclatures_read_the_same_finish():
+    """A schedule mixes them: US26D, 626 and a bare 26D are one satin (NR-3)."""
+    from cbc.services.reference_library import resolve_finish
+
+    for spelling in ("US26D", "626", "26D", "us26d"):
+        assert resolve_finish(spelling)["us_code"] == "US26D"
+
+
+def test_us19_is_never_read_as_us26d():
+    """They are different satins. A lockset in the wrong one is a return."""
+    from cbc.services.reference_library import resolve_finish
+
+    assert resolve_finish("US19")["us_code"] == "US19"
+    assert resolve_finish("US19")["description"] != resolve_finish("US26D")["description"]
+
+
+def test_a_numeric_two_finishes_share_is_flagged_not_guessed():
+    """619 is US19 and US15 in CBC's own crosswalk.
+
+    Picking whichever is listed first is exactly the confusion the crosswalk
+    exists to prevent, so it comes back ambiguous with both candidates.
+    """
+    from cbc.services.reference_library import resolve_finish
+
+    result = resolve_finish("619")
+    assert result["ambiguous"] is True
+    assert set(result["candidates"]) == {"US19", "US15"}

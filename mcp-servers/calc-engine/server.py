@@ -22,11 +22,13 @@ from cbc.core.calc import (  # noqa: E402
     apply_margin,
     calculate_line,
     compute_totals,
+    cost_from_list,
     validate_margin,
 )
 
 HANDLERS = {
     "calculate_line": calculate_line,
+    "cost_from_list": cost_from_list,
     "apply_margin": apply_margin,
     "compute_totals": compute_totals,
     "validate_margin": validate_margin,

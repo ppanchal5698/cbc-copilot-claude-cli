@@ -217,3 +217,51 @@ def compute_totals(
         ),
         "grand_total": _money(subtotal + tax),
     }
+
+
+def cost_from_list(
+    list_price: float,
+    multiplier: float,
+    adders: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Cost on the list x multiplier path, with adders applied where they belong.
+
+    Adders go on the **list** price and the multiplier is applied to the sum -
+    reference-library/adders/manual_adders.json says so outright: "These are LIST
+    adders. Multiply by the same category multiplier as the base item to get
+    cost." Adding one to the cost instead overcharges by the whole discount: a
+    57.13 anti-microbial adder at Hager's 0.29 lock tier is 16.57 of cost, not
+    57.13, so the wrong order inflates that line by roughly 40 dollars.
+
+    Every adder is itemised in the result. An adder is a deliberate, recorded act
+    - the price book never includes one in a lookup - so a line that carries one
+    has to be able to show which, and for how much.
+    """
+    if list_price < 0:
+        raise ValueError(f"list price must not be negative, got {list_price}")
+    if not 0 < multiplier <= 1:
+        raise ValueError(f"multiplier must be a fraction in (0, 1], got {multiplier}")
+
+    applied = []
+    total_adders = Decimal("0")
+    for adder in adders or []:
+        value = Decimal(str(adder.get("list_adder", 0) or 0))
+        total_adders += value
+        applied.append(
+            {
+                "name": adder.get("name", "unnamed adder"),
+                "list_adder": _money(value),
+                "cost_effect": _money(value * Decimal(str(multiplier))),
+            }
+        )
+
+    list_total = Decimal(str(list_price)) + total_adders
+    return {
+        "list_price": _money(list_price),
+        "adders": applied,
+        "adders_list_total": _money(total_adders),
+        "list_with_adders": _money(list_total),
+        "multiplier": multiplier,
+        "cost": _money(list_total * Decimal(str(multiplier))),
+        "formula": "cost = (list + adders) x multiplier",
+    }
