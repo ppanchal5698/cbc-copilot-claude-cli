@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-import { credentials, signIn } from "./helpers";
+import { credentials, openNewBid, signIn } from "./helpers";
 
 test.describe("Bid board", () => {
   test.beforeEach(async ({ page }) => {
@@ -24,7 +24,7 @@ test.describe("Bid lifecycle", () => {
 
   test("creates a bid and navigates to intake", async ({ page }) => {
     await page.goto("/bids");
-    await page.getByRole("button", { name: /new bid/i }).click();
+    await openNewBid(page);
     await page.getByLabel(/job name|name/i).fill("E2E Test Bid");
     await page.getByRole("button", { name: /create/i }).click();
     await page.waitForURL(/\/bids\/[^/]+\/intake/);
@@ -35,7 +35,7 @@ test.describe("Bid lifecycle", () => {
 
   test("shows inline validation when job name is empty", async ({ page }) => {
     await page.goto("/bids");
-    await page.getByRole("button", { name: /new bid/i }).click();
+    await openNewBid(page);
     await page.getByRole("button", { name: /create bid/i }).click();
     await expect(page.getByText("Job name is required.")).toBeVisible();
     await expect(page.getByRole("dialog", { name: /new bid/i })).toBeVisible();

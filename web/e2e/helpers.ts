@@ -24,3 +24,21 @@ export async function signIn(
   await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL(/\/dashboard/);
 }
+
+/**
+ * Open the "New bid" dialog from the bid board.
+ *
+ * The board mounts NewBidDialog twice: once in the header, always, and once in
+ * the empty state when there are no bids and no search. Both are legitimate
+ * affordances and either opens the same dialog - but an unscoped role query
+ * matches both and is a strict-mode violation.
+ *
+ * It only bites on an empty board, which is why it passed on every developer
+ * machine with data in it and failed the first time CI ran against a freshly
+ * bootstrapped database. `.first()` is the header's, in DOM order, and resolves
+ * whether the board has one button or two.
+ */
+export async function openNewBid(page: import("@playwright/test").Page) {
+  await page.getByRole("button", { name: /new bid/i }).first().click();
+  await page.getByRole("dialog", { name: /new bid/i }).waitFor();
+}
