@@ -276,6 +276,11 @@ async def sync_results(job: dict, project: dict | None) -> str:
         "rerun_extraction",
         "match_and_price",
         "build_proposal",
+        # Autopilot was absent from this list while ARTIFACT_CHECKS defined all
+        # three checks for it, so the one path that runs unattended end to end
+        # was the one path nothing verified. Every pricing rule was live and
+        # none of them applied here.
+        "run_full_pipeline",
     ):
         validate_job_artifacts(job["type"], slug)
 

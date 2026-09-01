@@ -287,6 +287,26 @@ cost_source "MANUAL", a plain-language reason, and - just as important - the
 specified item in `part_number`/`description`, copied from hardware_sets.json. A
 manual line an estimator cannot read is worse than no line.
 
+**The two schemas, exactly.** These are checked in code before the run is
+accepted, and a missing field fails the whole pipeline however good the rest is.
+
+`extracted/door_schedule.json` - each opening needs: door_number, description,
+size (or width and height), quantity, confidence, source_file, source_page, and
+**bbox plus page_size**. The bbox is what lets the estimator be shown the spot on
+the drawing (NFR-3); `parse_schedule.py --openings --json` and the pdf-tools
+table calls already return bbox, row_bbox and page_size, so take them from there
+rather than leaving them null. An opening without one fails.
+
+`priced/line_items.json` - each line needs: line_id, group, group_type
+(door | accessories | frp | other), part_number, description, quantity, cost,
+margin, sale_ea, ext_price, cost_source, cost_source_detail, source_page, flags.
+**group and group_type are not optional** - the proposal groups by door and
+cannot render without them. A hardware line takes the group of the door it hangs
+on; a restroom accessory is group_type "accessories".
+
+Write either file as `{{"openings": [...]}}` / `{{"lines": [...]}}` or as a bare
+array - both are read - but the fields above are required either way.
+
 Halt at the end and report exactly: "Draft ready for estimator review"
 
 {preamble}"""
@@ -365,7 +385,20 @@ def build(
         raise ValueError(f"job {job['type']} needs a project")
 
     project_dir = f"projects/{project['slug']}"
-    return template.format(
+    # "Ignore this only if told to force a clean run" - and until now there was no
+    # way to tell it. A rerun after a failed validation resumed off the very files
+    # that failed, read them as finished work, and reproduced the same failure on
+    # all three attempts.
+    body = template
+    if payload.get("force"):
+        body = template.replace(
+            "Ignore this only if told to force a clean run.",
+            "**This IS a forced clean run.** Ignore the resume rule above: an "
+            "earlier attempt failed validation, so treat every existing output as "
+            "suspect and rebuild each phase from the bid set. Existing files are "
+            "there to be overwritten, not read.",
+        )
+    return body.format(
         code=project.get("code", project["slug"]),
         project_dir=project_dir,
         how=HOW_DELEGATED if delegates else HOW_SOLO,

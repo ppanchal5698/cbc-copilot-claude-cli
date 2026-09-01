@@ -39,6 +39,24 @@ def _read_json(path: Path) -> dict[str, Any] | list[Any] | None:
         return None
 
 
+def _lines_in(payload: dict[str, Any] | list[Any], filename: str, key: str) -> list[Any]:
+    """The records in a priced artifact, whether or not they came wrapped.
+
+    A run is asked for `{"lines": [...]}` and writes a bare array about as often.
+    The door-schedule path has accepted both since early on; the priced path did
+    not, so a full pipeline that had completed all six phases and written a whole
+    quote failed on `'list' object has no attribute 'get'` at the very last step.
+
+    The wrapper carries nothing the records do not - taking either shape loses no
+    information and no check: every line still goes through validation.
+    """
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        return payload.get(key, [])
+    raise ValueError(f"{filename} must be a JSON object or an array")
+
+
 def _normalize_schedule_payload(payload: dict[str, Any] | list[Any]) -> dict[str, Any]:
     """Accept legacy shapes and field aliases before import."""
     if isinstance(payload, list):
@@ -332,7 +350,7 @@ async def import_quote_lines(project: dict[str, Any]) -> dict[str, int]:
     # `line_id` when Claude supplied one, otherwise derived from the line's own
     # content. The previous fallback keyed on list position, so re-ordering a
     # re-priced quote gave every line a new key and duplicated the lot.
-    priced_lines = payload.get("lines", [])
+    priced_lines = _lines_in(payload, "priced/line_items.json", "lines")
     inserted = updated = skipped = 0
     for key, line in zip(_distinct_keys(priced_lines, _content_key), priced_lines):
         cost, flags = _sane_cost(line)

@@ -66,6 +66,13 @@ PRICING_GROUP_TYPES = frozenset({"door", "accessories", "frp", "other"})
 # PDF p67" is - and it is exactly what find_pages hands back.
 _CATALOG_FILE = re.compile(r"[\w.-]+\.(?:pdf|xlsx|xls)", re.IGNORECASE)
 
+# The only two cost paths a run can walk on its own: P21 answered, or the figure
+# was read off a catalog page. Everything else in the CBC cost-source vocabulary
+# describes a human doing something.
+_COST_SOURCES_A_RUN_CAN_READ = frozenset({"P21_LAST_PO", "LIST_X_MULTIPLIER"})
+
+_CLAIMS_APPROVAL = re.compile(r"(?:estimator|purchasing)[- ]?approved", re.IGNORECASE)
+
 
 def _added_by_hand(row: dict) -> bool:
     """Did the estimator enter this line themselves, rather than a drawing produce it?
@@ -289,11 +296,12 @@ def check_pricing(project: str, *, require_hardware_sets: bool = False) -> tuple
         problems.append(f"{project}: priced/line_items.json is not valid JSON: {exc}")
         return problems, warnings
 
-    if not isinstance(payload, dict):
-        problems.append(f"{project}: priced/line_items.json must be a JSON object")
-        return problems, warnings
-
-    lines = payload.get("lines")
+    # Either shape. A run writes a bare array about as often as the wrapped
+    # object it is asked for, and rejecting the array here returned before a
+    # single pricing rule ran - so the shape decided whether the checks happened.
+    lines = payload if isinstance(payload, list) else (
+        payload.get("lines") if isinstance(payload, dict) else None
+    )
     if not isinstance(lines, list) or not lines:
         problems.append(f"{project}: priced/line_items.json must contain a non-empty lines array")
         return problems, warnings
@@ -346,17 +354,56 @@ def check_pricing(project: str, *, require_hardware_sets: bool = False) -> tuple
                 "cannot be priced automatically"
             )
 
-        # A MANUAL line carries no cost. MANUAL *means* nobody could price it, so
-        # a number there is one the pass made up - and a run did exactly that:
-        # 27 of 34 lines came back MANUAL with round costs and details reading
-        # "Estimated standard cost for 36x84 HM door". A quote that looks complete
-        # and is invented is far worse than one that says what it does not know,
-        # and no prompt reliably prevents it. This does (NFR-2).
-        if line.get("cost_source") == "MANUAL" and line.get("cost") is not None:
+        # A line has to say what it is. An autopilot run wrote ten lines whose
+        # part_number was null and whose whole identity was "Manual entry
+        # required - wood door" - technically honest, and useless: an estimator
+        # cannot price an item the quote does not name. Carrying the specified
+        # part across from hardware_sets.json is the pass's job even, and
+        # especially, when nothing matched (NFR-2).
+        if not (line.get("part_number") or "").strip() and not (
+            line.get("description") or ""
+        ).strip():
             problems.append(
-                f"{project}: MANUAL line {label} carries a cost of {line['cost']} - "
-                "MANUAL means the estimator prices it. Leave cost null and say why "
-                "in cost_source_detail; do not estimate one"
+                f"{project}: line {label} names neither a part_number nor a "
+                "description - nothing on it tells an estimator what to price. "
+                "Copy the specified item across even when no match was found"
+            )
+
+        # A cost a run writes must come from somewhere a run can actually read.
+        #
+        # Only two sources qualify: P21 returned a last-PO price, or a figure was
+        # read off a catalog page. DISTRIBUTOR_MANUAL, VENDOR_RFQ and MANUAL all
+        # mean *a person supplied this number* - there is no distributor on the
+        # phone during a pipeline run and no RFQ has been answered - so from a run
+        # they carry no cost.
+        #
+        # This started as a narrower rule that named MANUAL alone. The next run
+        # relabelled 34 invented costs as DISTRIBUTOR_MANUAL and passed. Naming
+        # one label taught the pass which label to avoid, so the rule now names
+        # what a run may legitimately obtain instead (NFR-2).
+        if (
+            line.get("cost") is not None
+            and line.get("cost_source") not in _COST_SOURCES_A_RUN_CAN_READ
+            and not _added_by_hand(line)
+        ):
+            problems.append(
+                f"{project}: line {label} is {line.get('cost_source')} and carries a "
+                f"cost of {line['cost']}. That source means a person supplied the "
+                "number, and no person did. Leave cost null and say what the "
+                "estimator needs to look up"
+            )
+
+        # And it may not claim someone signed off on it.
+        #
+        # Every one of those 34 lines read "Estimator approved cost: ...". No
+        # estimator had seen the quote. An invented number is a gap; an invented
+        # number wearing a human's approval is a gap nobody will look for (NFR-1).
+        detail_text = str(line.get("cost_source_detail") or "")
+        if not _added_by_hand(line) and _CLAIMS_APPROVAL.search(detail_text):
+            problems.append(
+                f"{project}: line {label} says {detail_text[:52]!r}. A run cannot "
+                "record an approval on the estimator's behalf - that is the one "
+                "thing it is not allowed to do"
             )
 
         # A computed cost has to name the sheet it was read from.
