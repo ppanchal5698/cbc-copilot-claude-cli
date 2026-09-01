@@ -13,9 +13,12 @@ Covers fix_plan.md tasks 1, 2 and 4. Idempotent: safe to run twice.
 """
 from __future__ import annotations
 
+import os
 import pathlib
 import shutil
+import stat
 import sys
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CFG = ROOT / ("." + "claude")
@@ -35,6 +38,35 @@ LEFTOVERS = [
     ROOT / "mcp-servers" / "pricebook",
 ]
 
+def _force_writable(func, path, _exc):
+    """Windows refuses to unlink a read-only file; clear the bit and retry once."""
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+
+def _remove_tree(directory: pathlib.Path) -> str | None:
+    """Delete a directory on Windows, where "empty" and "removable" differ.
+
+    The first run of this script unlinked every .pyc in src/cbc/catalog and then
+    failed with PermissionError removing the emptied __pycache__ itself. On this
+    machine the repo lives under OneDrive, and the sync client (or a virus
+    scanner, or an interpreter that just imported from it) can hold a directory
+    handle for a moment after its contents are gone. Retrying briefly clears it.
+    """
+    kwargs = {"onexc": _force_writable} if sys.version_info >= (3, 12) else {"onerror": lambda f, p, e: _force_writable(f, p, e)}
+    for attempt in range(5):
+        try:
+            shutil.rmtree(directory, **kwargs)
+            return None
+        except (PermissionError, OSError) as exc:
+            if not directory.exists():
+                return None
+            if attempt == 4:
+                return f"{directory.relative_to(ROOT)}: {type(exc).__name__} - {exc}"
+            time.sleep(0.4 * (attempt + 1))
+    return None
+
+
 for directory in LEFTOVERS:
     if not directory.exists():
         continue
@@ -44,8 +76,13 @@ for directory in LEFTOVERS:
         # empty; if that changed, a person should look.
         problems.append(f"{directory.relative_to(ROOT)} holds {len(live)} non-.pyc file(s) - left alone")
         continue
-    shutil.rmtree(directory)
-    changed.append(f"deleted {directory.relative_to(ROOT)}")
+    failure = _remove_tree(directory)
+    if failure:
+        # Cosmetic either way, and never a reason to skip the other two tasks -
+        # which is exactly what an uncaught exception here did on the first run.
+        problems.append(f"could not remove {failure} (retry after closing editors/Python)")
+    else:
+        changed.append(f"deleted {directory.relative_to(ROOT)}")
 
 
 # ── Task 2: the catalog skill still promises prices ─────────────────────────
@@ -53,8 +90,13 @@ for directory in LEFTOVERS:
 # tools.py says so in its first paragraph. The frontmatter still advertised the
 # old contract, and the Script block invoked a helper deleted with the FTS index.
 skill = CFG / "skills" / "scan-product-catalog" / "SKILL.md"
-if skill.exists():
-    body = skill.read_text(encoding="utf-8")
+try:
+    body = skill.read_text(encoding="utf-8") if skill.exists() else None
+except OSError as exc:
+    body = None
+    problems.append(f"skills/scan-product-catalog/SKILL.md unreadable: {exc}")
+
+if body is not None:
     before = body
 
     body = body.replace(
@@ -117,9 +159,12 @@ provenance chain NFR-3 requires.""",
     )
 
     if body != before:
-        skill.write_text(body, encoding="utf-8", newline="\n")
-        changed.append("skills/scan-product-catalog/SKILL.md")
-else:
+        try:
+            skill.write_text(body, encoding="utf-8", newline="\n")
+            changed.append("skills/scan-product-catalog/SKILL.md")
+        except OSError as exc:
+            problems.append(f"skills/scan-product-catalog/SKILL.md not written: {exc}")
+elif not skill.exists():
     problems.append("skills/scan-product-catalog/SKILL.md not found")
 
 
@@ -190,8 +235,11 @@ for name, tools in AGENT_TOOLS.items():
         problems.append(f"agents/{name}.md has no frontmatter close marker")
         continue
     lines.insert(close, "tools: " + ", ".join(tools))
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-    changed.append(f"agents/{name}.md (+{len(tools)} tools)")
+    try:
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+        changed.append(f"agents/{name}.md (+{len(tools)} tools)")
+    except OSError as exc:
+        problems.append(f"agents/{name}.md not written: {exc}")
 
 
 print("changed:" if changed else "nothing to change (already applied)")
