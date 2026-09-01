@@ -40,7 +40,12 @@ PY
 # minutes later as "POST /api/projects 500" with a PermissionError buried in a
 # traceback. Checking it here turns that into one line at start-up, naming the
 # fix. See the ownership note in docs/opshub_setup.md.
-for mounted in /app/projects /app/pricebooks; do
+# Only /app/projects. `pricebooks` is deliberately asymmetric - writable on the
+# api, because uploading a sheet is the human-initiated act the file-safety rule
+# permits, and `:ro` on the worker, because a pipeline run must never write
+# there. Asserting it here made that correct read-only mount fatal and put the
+# worker in a restart loop.
+for mounted in /app/projects; do
   if [ -d "${mounted}" ] && [ ! -w "${mounted}" ]; then
     echo "[entrypoint] FATAL: ${mounted} is not writable by $(id -un) (uid $(id -u))." >&2
     echo "[entrypoint] It is owned by uid $(stat -c %u "${mounted}"). On the host, run:" >&2

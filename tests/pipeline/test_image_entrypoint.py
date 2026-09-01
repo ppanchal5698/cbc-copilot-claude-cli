@@ -69,3 +69,26 @@ def test_the_entrypoint_is_the_only_script_the_image_execs_directly() -> None:
         if line.startswith(("ENTRYPOINT", "CMD")) and ".sh" in line
     ]
     assert execd == ['ENTRYPOINT ["/app/docker/entrypoint.sh"]'], execd
+
+
+def test_the_entrypoint_does_not_require_pricebooks_to_be_writable() -> None:
+    """`pricebooks` is writable on the api and `:ro` on the worker, by design.
+
+    Uploading a sheet is the human-initiated act the file-safety rule permits and
+    it goes through the api; a pipeline run must never write there, so the worker
+    gets it read-only. A shared entrypoint asserting writability turns that
+    correct mount into a fatal error and puts the worker in a restart loop - and
+    because the worker serves no port, the e2e readiness probe did not notice.
+    """
+    entrypoint = (ROOT / "docker" / "entrypoint.sh").read_text(encoding="utf-8")
+    check = [line for line in entrypoint.splitlines() if line.startswith("for mounted in")]
+    assert check, "the writability check is gone"
+    assert "pricebooks" not in check[0], check[0]
+    assert "/app/projects" in check[0], check[0]
+
+
+def test_ci_asserts_every_service_stayed_up() -> None:
+    """The gap that let the restart loop through a green run."""
+    ci = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "Every service is still running" in ci
+    assert "worker" in ci.split("Every service is still running")[1][:600]
