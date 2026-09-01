@@ -77,7 +77,10 @@ def test_pricing_gets_the_tools_it_needs():
 
     for needed in ("catalog", "calc-engine", "p21-connector"):
         assert needed in servers
-    assert "pdf-tools" not in servers  # the schedule is already extracted
+    # pdf-tools used to be excluded here because the schedule was already
+    # extracted and pricing read a product table. The catalog now returns a page
+    # to open, so a pass without pdf-tools can find the price and not read it.
+    assert "pdf-tools" in servers
 
 
 def test_an_unknown_job_type_still_gets_every_server():

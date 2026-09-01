@@ -28,3 +28,31 @@ def test_server_scripts_match_the_mcp_json_args() -> None:
     registry = _mcp_json_servers()
     for name, script in toolsets.SERVERS.items():
         assert registry[name]["args"] == [script], name
+
+
+def test_pricing_can_read_the_page_it_is_sent_to():
+    """The catalog tools return a page; reading it needs pdf-tools.
+
+    Pricing used to read an extracted product table and genuinely needed no PDF,
+    so the profile withheld pdf-tools. After the catalog became a page index that
+    left a pass able to find the page and unable to open it - a real run called
+    find_pages, got its page, called extract_tables, was told no such tool exists,
+    and wrote all 32 lines MANUAL.
+    """
+    import json
+
+    from cbc.core import toolsets
+
+    servers = json.loads(toolsets.config_for("match_and_price"))["mcpServers"]
+    assert "catalog" in servers, "pricing needs the page index"
+    assert "pdf-tools" in servers, "and the means to read the page it names"
+
+
+def test_a_take_off_still_cannot_see_the_pricing_tools():
+    """Adding pdf-tools to pricing must not widen extraction the other way."""
+    import json
+
+    from cbc.core import toolsets
+
+    servers = json.loads(toolsets.config_for("extract_bid_set"))["mcpServers"]
+    assert set(servers) == {"pdf-tools", "artifact-storage"}

@@ -51,6 +51,9 @@ def _in_protected_dir(path: str) -> bool:
     return False
 
 
+# The built-in tools whose whole purpose is to write a named file.
+_WRITES_A_FILE = re.compile(r"^(Write|Edit|MultiEdit|NotebookEdit)$")
+
 _P21_FORBIDDEN = ("write", "update", "insert", "create", "delete", "post")
 
 # MCP tools that write. Their arguments name a destination, so a destination
@@ -188,11 +191,16 @@ def main() -> int:
     tool_name = str(payload.get("tool_name") or "")
 
     # Write / Edit / NotebookEdit name their target instead of carrying a command.
-    target = str(
-        tool_input.get("file_path") or tool_input.get("notebook_path") or ""
-    )
-    if target and _in_protected_dir(target):
-        return block(f"{target} is read-only during a run")
+    #
+    # Only for tools that WRITE. This matcher also covers every mcp__ tool, and
+    # `file_path` is the ordinary name for a read tool's input too - so applying
+    # it to all of them blocked `pdf-tools` from opening a price book. That is the
+    # one read the pricing pass exists to make: a run found the right page, was
+    # refused the file, and wrote all 27 lines MANUAL rather than priced.
+    if _WRITES_A_FILE.match(tool_name) or _is_mcp_write(tool_name):
+        target = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
+        if target and _in_protected_dir(target):
+            return block(f"{target} is read-only during a run")
 
     if tool_name.startswith("mcp__p21-connector__"):
         lower = tool_name.lower()

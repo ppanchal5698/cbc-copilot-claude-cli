@@ -1,134 +1,160 @@
 {
   "flags": [
     {
-      "line_id": 2,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for IVES 700"
-    },
-    {
-      "line_id": 3,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for LCN 4040XP"
-    },
-    {
-      "line_id": 4,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for ALARM CLOCK ETDL27R1G/26DV"
-    },
-    {
-      "line_id": 5,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for VON DURPIN 99EO"
-    },
-    {
-      "line_id": 6,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for IVES 8400"
-    },
-    {
-      "line_id": 7,
-      "severity": "high",
-      "description": "Manual cost required for PEMKO 275A"
-    },
-    {
-      "line_id": 8,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for ZERO 39A"
-    },
-    {
-      "line_id": 9,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for ZERO 188S BK"
-    },
-    {
-      "line_id": 10,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for IVES FS43"
-    },
-    {
-      "line_id": 11,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for IVES 700"
-    },
-    {
-      "line_id": 12,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for LCN 4040XP"
-    },
-    {
-      "line_id": 13,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for ALARM CLOCK ETDL27R1G/26DV"
-    },
-    {
-      "line_id": 14,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for VON DURPIN 99EO"
-    },
-    {
-      "line_id": 15,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for IVES 8400"
-    },
-    {
-      "line_id": 16,
-      "severity": "high",
-      "description": "Manual cost required for PEMKO 275A"
-    },
-    {
-      "line_id": 17,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for ZERO 39A"
-    },
-    {
-      "line_id": 18,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for ZERO 188S BK"
-    },
-    {
-      "line_id": 19,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for IVES FS43"
-    },
-    {
-      "line_id": 20,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for IVES 5BB1"
-    },
-    {
-      "line_id": 21,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for LCN 4040XP"
-    },
-    {
-      "line_id": 22,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for SCHLAGE B57"
-    },
-    {
-      "line_id": 23,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for IVES 8200"
-    },
-    {
-      "line_id": 24,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for IVES 8303"
-    },
-    {
-      "line_id": 25,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for IVES 8400"
-    },
-    {
-      "line_id": 26,
-      "severity": "high",
-      "description": "Low confidence match and missing cost for IVES FS43"
-    },
-    {
-      "line_id": 27,
+      "line_id": "D01-D",
       "severity": "medium",
-      "description": "Out of scope: JL Industries Access Panel"
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Price is an estimate and needs verification against actual vendor quotes."
+    },
+    {
+      "line_id": "D01-F",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Price is an estimate and needs verification against actual vendor quotes."
+    },
+    {
+      "line_id": "D01-HW-A",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D01-HW-B",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D01-HW-C",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D01-HW-D",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D01-HW-H",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Price is an estimate and needs verification."
+    },
+    {
+      "line_id": "D01-HW-I",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D02-D",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Price is an estimate and needs verification."
+    },
+    {
+      "line_id": "D02-F",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Price is an estimate and needs verification."
+    },
+    {
+      "line_id": "D02-HW-A",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D02-HW-B",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D02-HW-C",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D02-HW-D",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D02-HW-H",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Price is an estimate and needs verification."
+    },
+    {
+      "line_id": "D02-HW-I",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D03-D",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Price is an estimate and needs verification."
+    },
+    {
+      "line_id": "D03-F",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Price is an estimate and needs verification."
+    },
+    {
+      "line_id": "D03-HW-A",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D03-HW-B",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D03-HW-C",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D03-HW-D",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D03-HW-G",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Allegion brand pricing is manual per NR-13."
+    },
+    {
+      "line_id": "D04-D",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Custom size door - manual pricing applied."
+    },
+    {
+      "line_id": "D04-F",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Custom size frame - manual pricing applied."
+    },
+    {
+      "line_id": "SPEC-HD",
+      "severity": "medium",
+      "summary": "Manual pricing applied",
+      "failure_scenario": "Specialty item - manual pricing applied."
     }
   ],
   "blocked_on": [],

@@ -42,7 +42,15 @@ _READING = ["pdf-tools", "artifact-storage"]
 # over it, so a pricing pass carried search_product, list_vendors, lookup_pricing
 # and get_multiplier twice under two names - the exact duplication this module
 # exists to prevent.
-_PRICING = ["catalog", "calc-engine", "p21-connector", "artifact-storage"]
+#
+# `pdf-tools` belongs here now, and did not before. Pricing used to read an
+# extracted product table, so it genuinely needed no PDF - the profile said as
+# much. The catalog tools return a *page* to open, and the price is read off that
+# page, so withholding pdf-tools leaves a pass able to find the page and unable
+# to read it. That is exactly what happened: a run called find_pages, got its
+# page, called extract_tables, was told no such tool exists, and wrote all 32
+# lines MANUAL.
+_PRICING = ["catalog", "pdf-tools", "calc-engine", "p21-connector", "artifact-storage"]
 
 # One run that spans every phase needs every server. Per-phase scoping is a real
 # cost and quality lever when a job does one thing; here the same pass reads

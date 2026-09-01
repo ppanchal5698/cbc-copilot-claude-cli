@@ -23,8 +23,12 @@ structured "manual entry required" response - **continue to Path 2 and Path 3**
 rather than stopping at Path 1.
 
 **Path 2 - list price x multiplier.** For top-10 vendors with a price book.
-`mcp__pricebook__lookup_pricing` for the list price and page, then
-`mcp__pricebook__get_multiplier` for the tier and its effective date.
+`mcp__catalog__find_pages` for the page that carries the part, then
+`mcp__pdf-tools__extract_tables` on that page to read the list price off the
+sheet, then `mcp__catalog__get_multiplier` for the tier and its effective date.
+The catalog tools never return a price; the number you quote is one you read.
+Record the page `locator` verbatim - it names both the PDF page and the printed
+one, and they differ in most books.
 Hager prices **by category** - locks 0.290, door controls 0.300, exit devices
 0.300, electrified 0.410, architectural hinges 0.210 - so pass the right one.
 

@@ -18,7 +18,7 @@ Run in order. Stop at the first tier that produces a match.
 | 1 | Exact part number in the reference library, all attributes agree | 0.95 - 1.00 |
 | 2 | Exact part number, one soft attribute differs (finish, size) | 0.75 - 0.94 |
 | 3 | Series match (e.g. `3500` for `3547`), function inferable | 0.55 - 0.74 |
-| 4 | Fuzzy description match via `mcp__pricebook__search_product` | 0.40 - 0.54 |
+| 4 | Fuzzy description match via `mcp__catalog__find_pages` | 0.40 - 0.54 |
 | 5 | No usable match, or a MANUAL cut-off trigger | 0.00 |
 
 Fuzzy matching uses stdlib `difflib` inside the pricebook server - it is

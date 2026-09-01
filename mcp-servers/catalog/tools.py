@@ -49,10 +49,14 @@ TOOLS: list[dict[str, Any]] = [
             "Which pages to open for a part number, series or description. "
             "Returns ranked pages with a two-line description of each, the part "
             "families on it, whether it carries prices, and why it matched.\n\n"
-            "This does NOT return a price. Take the pdf_page from a hit and read "
-            "it with mcp__pdf-tools__extract_tables, then quote what the sheet "
-            "says. Cite the locator exactly as given - it carries both the PDF "
-            "page and the number printed on it, which differ in most price books."
+            "This does NOT return a price. Each hit carries `file_path` and "
+            "`pdf_page` - pass BOTH to mcp__pdf-tools__extract_tables exactly as "
+            "given, then quote what the sheet says. Do not build the path "
+            "yourself: the books are not under the project's uploads, and a run "
+            "that guessed there could not open the page it had correctly found.\n\n"
+            "Cite the `locator` verbatim - it carries both the PDF page and the "
+            "number printed on it, and they differ on most pages because section "
+            "numbering restarts."
         ),
         "inputSchema": {
             "type": "object",

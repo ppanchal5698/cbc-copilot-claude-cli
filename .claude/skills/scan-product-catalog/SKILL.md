@@ -14,18 +14,32 @@ description: >
 
 Work down this ladder and stop at the first step that answers:
 
-1. **Exact part number** - `mcp__pricebook__lookup_pricing` with `part_number`,
-   `vendor` and the multiplier `category`. Returns every candidate price on the
-   page with its `source_page`; it deliberately refuses to pick one when the page
-   is ambiguous.
-2. **Series or keyword** - `mcp__pricebook__search_product` with a `vendor`
-   filter. Always pass the vendor; a library-wide search across 26 books is slow
-   and noisy.
-3. **Multiplier** - `mcp__pricebook__get_multiplier`. Hager prices **by product
+The catalog tools tell you **which page to open**. They do not return prices,
+and nothing stored knows one - the price is on the sheet, and you read it there.
+That is deliberate: pre-extracting every row is what produced an index where 37.8%
+of the part codes carried no letter and effective dates were recorded as parts.
+
+1. **Learn the book** - `mcp__catalog__get_catalog_overview` when the vendor is
+   unfamiliar. A few hundred tokens on how that publisher organises things, and it
+   saves opening the wrong pages.
+2. **Find the page** - `mcp__catalog__find_pages` with the part number, series or
+   description, and a `vendor` filter. Always pass the vendor; a library-wide
+   search is noisier. Each hit carries a two-line description, the part families
+   on the page, whether it carries prices, and why it matched.
+3. **Read the page** - `mcp__pdf-tools__extract_tables` on the `pdf_page` from the
+   hit. This is where the price comes from. If the page does not hold the part,
+   try the next hit rather than settling for the nearest row on the wrong page.
+4. **Multiplier** - `mcp__catalog__get_multiplier`. Hager prices **by product
    category**, so pass the category (`locks`, `door_controls`, `exit_devices`,
    `architectural_hinges`, `electrified_products`, ...). Other vendors carry a
    single tier.
-4. **Give up cleanly.** No hit means MANUAL, not "close enough".
+5. **Give up cleanly.** No page, or a page that turns out not to hold the part,
+   means MANUAL - not "close enough".
+
+**Cite the `locator` exactly as given.** It carries both the PDF page and the
+number printed on the page, and they differ on 775 of the 1,216 indexed pages
+because section numbering restarts. An estimator sent to "page 23" of a 744-page
+book cannot find the line without both.
 
 ## Applying the multiplier
 

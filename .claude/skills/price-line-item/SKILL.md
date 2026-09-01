@@ -25,8 +25,8 @@ Is the item on special pricing, or regularly bought?
 │
 ├── Is it a top-10 vendor with a price book?
 │   └── YES -> PATH 2: list x multiplier
-│              mcp__pricebook__lookup_pricing (list price + source_page)
-│              mcp__pricebook__get_multiplier (tier + effective date)
+│              mcp__catalog__find_pages -> mcp__pdf-tools__extract_tables (price + page)
+│              mcp__catalog__get_multiplier (tier + effective date)
 │              cost = list x multiplier
 │              Then add any applicable ADDERS - they are never in the lookup.
 │

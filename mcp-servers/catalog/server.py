@@ -173,6 +173,7 @@ def get_page(catalog_id: str, pdf_page: int) -> dict[str, Any]:
                 "found": True,
                 "catalog_id": document.catalog_id,
                 "file": document.file_name,
+                "file_path": f"{page_query.PRICEBOOK_DIR}/{document.file_name}",
                 "pdf_page": page.pdf_page,
                 "printed_page": page.printed_page,
                 "locator": page.locator(),

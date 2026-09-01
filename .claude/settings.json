@@ -61,7 +61,6 @@
       "Glob",
       "Grep",
       "mcp__pdf-tools__*",
-      "mcp__pricebook__*",
       "mcp__calc-engine__*",
       "mcp__artifact-storage__*",
       "mcp__p21-connector__lookup_last_po",
