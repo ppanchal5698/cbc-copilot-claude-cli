@@ -64,7 +64,7 @@ is read by every session.
 - **Proposed fix:** `HOW_SOLO` instructs reading `.claude/agents/<name>.md` immediately before each phase — one file at a time. In the same change, remove the duplicate schema block added to `RUN_FULL_PIPELINE` earlier today. Grouped: applying either half alone leaves the contract missing or duplicated.
 - **Risk:** medium — changes core run behaviour.
 - **Verification:** the rendered solo `run_full_pipeline` prompt names `.claude/agents/` and no longer contains "group and group_type are not optional"; then re-run the pipeline on CBC-260002 with `force` and confirm the 12 bbox/`page_size` and 20 `group`/`group_type` problems clear.
-- **Status:** code done, **end-to-end verification blocked** — Ollama returns HTTP 429 (account session usage limit), so the pipeline cannot run
+- **Status:** **verified** — forced run on CBC-260002 took validation problems from 32 to 6
 - **Notes:** Blocked on the provider, not the change. Re-run when the limit clears: `docker compose exec worker python -c "import asyncio; from cbc.db import db; from cbc.services import jobs; ..."` enqueuing `run_full_pipeline` for CBC-260002 with `payload={"force": True}`, then confirm the 12 `bbox`/`page_size` and 20 `group`/`group_type` problems are gone. Static checks all pass: the rendered solo prompt reads the agent files, the duplicate block is gone, and `force` is honoured. Solo prompt now names `.claude/agents/<name>.md` and cites the concrete failure so the instruction reads as load-bearing rather than housekeeping. 1211 chars of duplicated schema removed from `RUN_FULL_PIPELINE` in the same change. Delegated path deliberately unchanged - "not files to read" is still correct there.
 
 ## Task 6: `CLAUDE.md` describes deleted subsystems
@@ -124,3 +124,41 @@ validates Task 4 without needing the script to have run.
 **Not verified:** every subagent routing and every skill activation, and the
 end-to-end pipeline run. All three need model calls, and the provider is
 returning HTTP 429. Nothing in the audit's static checks depends on them.
+
+---
+
+## Task 5 verification — the forced run on CBC-260002
+
+Job `6a968b7a`, `force: True`, provider `gemma4:31b-cloud` (solo).
+
+| Check | Before | After |
+|---|---|---|
+| extraction | 12 — 6 × missing `bbox`, 6 × missing `page_size` | **6** — `bbox` only; `page_size` now populated |
+| pricing | 20 — 10 × missing `group`, 10 × missing `group_type` | **0** — all 8 lines carry both |
+| proposal | 0 | 0 |
+| **total** | **32** | **6** |
+
+The root-cause diagnosis holds. Every field that appeared was one specified in
+an agent file the run could not previously see: `page_size`, `confidence` and
+`flags` on openings (`takeoff-engineer.md:72`), `group` and `group_type` on every
+priced line (`pricing-engineer.md:63`).
+
+Honesty properties held through the change: 8 lines, **0 invented costs, 0 false
+approvals**, everything `MANUAL` with a stated reason.
+
+One artifact-shape bug surfaced and was fixed in the same pass: the run wrote a
+complete schedule under `lines` rather than `openings`, and both the importer and
+the stricter-still validator discarded it. See commit `b7985b8`.
+
+### The remaining 6
+
+All `bbox`. The requirement is fair and satisfiable — `pdfrows.rows_from_words`
+returns 255 rows on PDF page 19 of this bid set, every one carrying a `bbox` —
+and `takeoff-engineer.md:25` says the parse script returns it. The run took a
+route that discarded the coordinates and flagged `bbox_missing` rather than
+inventing them, which is the correct NFR-2 behaviour but still fails the gate.
+
+Worth noting: `.claude/rules/auditability.md` lists `source_file`, `source_page`
+and `extracted_at` as the required provenance — **not** `bbox`. The validator
+enforces `bbox` as NFR-3 while the rule that defines NFR-3 does not require it.
+Either the rule or the validator should move; that is a decision, not a bug fix.
