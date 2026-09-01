@@ -24,7 +24,7 @@ is read by every session.
 - **Proposed fix:** Delete the four directories.
 - **Risk:** low
 - **Verification:** `python -m pytest tests -q` unchanged; `python mcp-servers/main.py --selftest` passes; the four paths no longer exist.
-- **Status:** deferred to the external script
+- **Status:** ready — in `scripts/apply_config_audit.py`, verified on a copy, awaiting the user's run
 - **Notes:** `rm -rf` from inside a run is blocked by `pre_delete_guard.py` — the guard working as designed (`file-safety.md`: "rm -rf is blocked outside projects/"). Not bypassed. Moved into `scripts/apply_config_audit.py`, the same human-run mechanism the plan already requires for the `.claude/**` tasks. All four confirmed untracked with zero non-`.pyc` files before deferring.
 
 ## Task 2: `scan-product-catalog` skill contradicts the system it documents
@@ -34,7 +34,8 @@ is read by every session.
 - **Proposed fix:** Reword the description to say it returns the page to open; replace the `## Script` block with the `find_pages` → `extract_tables` sequence the body already teaches.
 - **Risk:** low
 - **Verification:** every `scripts/…` path in `.claude/skills/*/SKILL.md` resolves on disk; `grep -c search_pricebook` on the file → 0; frontmatter no longer contains "list price".
-- **Status:** pending
+- **Status:** ready — in `scripts/apply_config_audit.py`, verified on a copy, awaiting the user's run
+- **Notes:** Dry run confirms the frontmatter now says it returns the page, not a price, and the dead `## Script` block is replaced by the `find_pages` → `extract_tables` → `get_multiplier` sequence. One `search_pricebook` mention survives on purpose — a sentence saying it was deleted and why, so nobody goes looking for it.
 
 ## Task 3: Bootstrap gates the PageIndex build on a path that can never exist
 - **File(s):** `scripts/bootstrap.py:51-69`, `scripts/fresh_reset.py:121,168`
@@ -53,7 +54,8 @@ is read by every session.
 - **Proposed fix:** Add a `tools:` line per agent, derived from the tools that agent's own body names, mirroring the `_READING` / `_PRICING` split at `toolsets.py:36,53`.
 - **Risk:** medium — too narrow a list breaks a delegated run.
 - **Verification:** every name in every `tools:` resolves to a server in `.mcp.json`; each agent's list is a superset of the `mcp__*` tools its body references.
-- **Status:** pending
+- **Status:** ready — in `scripts/apply_config_audit.py`, verified on a copy, awaiting the user's run
+- **Notes:** Dry run: all 10 frontmatters still parse as YAML, every `mcp__*` name resolves to a configured server, second run is a no-op. Written as explicit tool names, not `mcp__server__*` — wildcards work in `settings.json` permissions, but nothing in this repo demonstrates that agent frontmatter expands them, and a pattern that silently matched nothing would leave a subagent with no MCP tools at all. `quality-reviewer` gets no MCP tools because its own body line 14 says "You do not use external tools." Lists are deliberately generous where an agent's body named nothing: too wide only preserves today's behaviour, too narrow breaks a delegated run.
 
 ## Task 5: Solo runs never see the agent contracts — *root cause*
 - **File(s):** `apps/worker/prompts.py` — `HOW_SOLO` **and** the `RUN_FULL_PIPELINE` schema block, in one change
