@@ -32,6 +32,9 @@ jobs:
     env:
       MONGODB_URI: mongodb://cbc:cbc_local_dev@localhost:27017/cbc_opshub?authSource=admin
       REQUIRE_MONGO: "1"
+      # pytest.ini adds src/ for the test run; the standalone steps below
+      # (compileall, the API import, the prompt preamble) need it too.
+      PYTHONPATH: ".:src"
 
     steps:
       - uses: actions/checkout@v4
@@ -50,10 +53,10 @@ jobs:
       # test suite covers this too, but a compile error should not need pytest
       # to collect a hundred modules before it is reported.
       - name: Compile every Python file
-        run: python -m compileall -q api worker cbc_core mcp-servers scripts
+        run: python -m compileall -q apps src mcp-servers scripts
 
       - name: Import the API
-        run: python -c "from api.main import app; print(len(app.openapi()['paths']), 'paths')"
+        run: python -c "from apps.api.main import app; print(len(app.openapi()['paths']), 'paths')"
 
       - name: MCP selftest
         run: python mcp-servers/main.py --selftest
@@ -69,7 +72,7 @@ jobs:
       - name: Check the workflow preamble resolves
         run: |
           bash -n workflows/_phase.sh
-          python -m worker.prompts projects/example | grep -q "NFR-1"
+          python -m apps.worker.prompts projects/example | grep -q "NFR-1"
 
   web:
     runs-on: ubuntu-latest

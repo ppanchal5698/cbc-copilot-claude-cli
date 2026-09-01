@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from pymongo import MongoClient
 
-from api.config import settings
+from cbc.config import settings
 from tests.shared import TEST_ACTOR, opshub_client
 
 TEST_DB = "cbc_opshub_test_authz"
@@ -20,7 +20,7 @@ TEST_DB = "cbc_opshub_test_authz"
 def client():
     # One client, one event loop: the motor client is a module global, so two
     # live TestClients in one file would bind it to whichever loop started last.
-    with opshub_client(TEST_DB, role="purchasing") as test_client:
+    with opshub_client(TEST_DB, role="admin") as test_client:
         yield test_client
 
 
@@ -35,7 +35,7 @@ def as_role():
     try:
         yield set_role
     finally:
-        set_role("purchasing")
+        set_role("admin")
         raw.close()
 
 
@@ -58,8 +58,8 @@ def test_an_estimator_cannot_reach_provider_settings(
     assert "not permitted" in response.json()["detail"]
 
 
-def test_purchasing_can_read_provider_settings(client, as_role) -> None:
-    as_role("purchasing")
+def test_admin_can_read_provider_settings(client, as_role) -> None:
+    as_role("admin")
     assert client.get("/api/settings/claude").status_code == 200
 
 
@@ -79,7 +79,7 @@ def test_an_estimator_cannot_delete_a_price_book(client, as_role) -> None:
     as_role("estimator")
     assert client.delete(f"/api/price-books/{book['id']}").status_code == 403
 
-    as_role("purchasing")
+    as_role("admin")
     assert client.delete(f"/api/price-books/{book['id']}").status_code == 204
 
 
@@ -107,7 +107,7 @@ def test_an_estimator_still_does_their_own_job(client, as_role) -> None:
 
 
 def test_a_base_url_off_the_allowlist_is_refused(client, as_role) -> None:
-    as_role("purchasing")
+    as_role("admin")
     response = client.put(
         "/api/settings/claude",
         json={
@@ -125,20 +125,20 @@ def test_a_base_url_off_the_allowlist_is_refused(client, as_role) -> None:
     ["https://api.anthropic.com", "http://localhost:4000", "http://host.docker.internal:4000"],
 )
 def test_the_documented_providers_are_allowed(url: str) -> None:
-    from api.services import provider
+    from cbc.services import provider
 
     provider.check_base_url(url)  # must not raise
 
 
 def test_a_non_http_scheme_is_refused() -> None:
-    from api.services import provider
+    from cbc.services import provider
 
     with pytest.raises(ValueError, match="http or https"):
         provider.check_base_url("file:///etc/passwd")
 
 
 def test_an_operator_can_widen_the_allowlist(monkeypatch) -> None:
-    from api.services import provider
+    from cbc.services import provider
 
     with pytest.raises(ValueError):
         provider.check_base_url("https://gateway.internal.corp")
@@ -151,7 +151,7 @@ def test_an_operator_can_widen_the_allowlist(monkeypatch) -> None:
 
 
 def test_repeated_sign_in_attempts_are_throttled(client) -> None:
-    from api.routers import auth
+    from apps.api.routers import auth
 
     auth._attempts.clear()
     body = {"email": "someone@example.com", "password": "wrong"}

@@ -16,8 +16,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from pymongo import MongoClient
 
-from api import db as db_module
-from api.config import settings
+from cbc import db as db_module
+from cbc.config import settings
 
 TEST_DB = "cbc_opshub_test_recovery"
 
@@ -84,7 +84,7 @@ def test_a_stale_running_job_is_reaped_and_requeued(database) -> None:
         }
     )
 
-    from worker.main import reap_abandoned
+    from apps.worker.main import reap_abandoned
 
     assert run(reap_abandoned()) == 1
 
@@ -109,7 +109,7 @@ def test_a_job_with_a_fresh_heartbeat_is_left_alone(database) -> None:
         }
     )
 
-    from worker.main import reap_abandoned
+    from apps.worker.main import reap_abandoned
 
     assert run(reap_abandoned()) == 0
     assert database["jobs"].find_one({})["status"] == "running"
@@ -118,7 +118,7 @@ def test_a_job_with_a_fresh_heartbeat_is_left_alone(database) -> None:
 def test_a_reaped_job_that_is_out_of_attempts_fails(database) -> None:
     from bson import ObjectId
 
-    from worker.main import MAX_ATTEMPTS, reap_abandoned
+    from apps.worker.main import MAX_ATTEMPTS, reap_abandoned
 
     database["jobs"].insert_one(
         {
@@ -137,7 +137,7 @@ def test_a_reaped_job_that_is_out_of_attempts_fails(database) -> None:
 
 def test_a_requeued_job_waits_for_its_backoff(database) -> None:
     """Without a delay a job that fails in two seconds burns three attempts in six."""
-    from worker.main import claim
+    from apps.worker.main import claim
 
     database["jobs"].insert_one(
         {
@@ -164,7 +164,7 @@ def test_two_price_book_ingests_can_queue_together(database) -> None:
     The second upload was handed back the first one's job and its sheet was never
     read - while the API reported success.
     """
-    from api.services.jobs import enqueue
+    from cbc.services.jobs import enqueue
 
     async def both():
         return (
@@ -182,7 +182,7 @@ def test_a_second_extraction_on_one_bid_is_still_the_same_job(database) -> None:
     """The double-click guard this index exists for still has to work."""
     from bson import ObjectId
 
-    from api.services.jobs import enqueue
+    from cbc.services.jobs import enqueue
 
     project_id = ObjectId()
 
@@ -203,7 +203,7 @@ def test_the_same_part_from_two_manufacturers_coexists(database) -> None:
     """Keyed on `part` alone, the ingest upserted one vendor's row over another's."""
     from bson import ObjectId
 
-    from worker.handlers.ingest import ingest_pricebook
+    from apps.worker.handlers.ingest import ingest_pricebook
 
     cache = settings.repo_root / ".cache"
     cache.mkdir(parents=True, exist_ok=True)
@@ -237,7 +237,7 @@ def test_an_ingest_without_a_date_keeps_the_one_purchasing_entered(database) -> 
     """Writing null over it made a lapsed sheet report `stale: false`."""
     from bson import ObjectId
 
-    from worker.handlers.ingest import ingest_pricebook
+    from apps.worker.handlers.ingest import ingest_pricebook
 
     book_id = ObjectId()
     database["priceBooks"].insert_one({"_id": book_id, "effective": "2020-01-01"})
@@ -265,7 +265,7 @@ def test_an_ingest_without_a_date_keeps_the_one_purchasing_entered(database) -> 
 
 def test_concurrent_bids_get_distinct_codes(database) -> None:
     """Both used to compute max+1 from a scan; the second got a duplicate-key 500."""
-    from api.routers.projects import next_code
+    from apps.api.routers.projects import next_code
 
     async def ten_at_once():
         return await asyncio.gather(*(next_code() for _ in range(10)))
@@ -276,8 +276,8 @@ def test_concurrent_bids_get_distinct_codes(database) -> None:
 
 def test_the_code_counter_continues_an_existing_series(database) -> None:
     """A database issued codes before the counter existed; do not restart on them."""
-    from api.services import storage
-    from api.routers.projects import next_code
+    from cbc.services import storage
+    from apps.api.routers.projects import next_code
 
     prefix = storage.code_prefix()
     database["projects"].insert_one({"code": f"{prefix}0007", "slug": "old"})
@@ -289,7 +289,7 @@ def test_two_versions_cannot_share_a_number(database) -> None:
     """Two addenda both became version n+1 and the diff attached to either one."""
     from bson import ObjectId
 
-    from api.routers.versions import snapshot
+    from apps.api.routers.versions import snapshot
 
     project = {"_id": ObjectId(), "slug": "concurrent-addenda"}
 

@@ -17,6 +17,7 @@ export interface Job {
   status: JobStatus;
   attempts: number;
   error: string | null;
+  errorCode?: string | null;
   log: string | null;
   note?: string | null;
   createdAt: string;
@@ -177,6 +178,13 @@ export interface Product {
   division?: string | null;
   cost: number | null;
   listPrice: number | null;
+  /** The raw figure off the sheet, whatever its basis. */
+  price?: number | null;
+  /** Only set when priceBasis is "net" - a cost, not a list figure. */
+  netPrice?: number | null;
+  /** "list" | "net" | "unknown". Says what listPrice/netPrice mean. */
+  priceBasis?: string | null;
+  priceBasisNote?: string | null;
   multiplier: number | null;
   sellAt: number | null;
   availability?: string | null;
@@ -203,14 +211,46 @@ export interface Product {
   effective?: string | null;
 }
 
+/** A page of a vendor price book worth opening - not a priced line.
+ *
+ * The price books are PDFs. They used to be pre-extracted into product rows so
+ * they could be listed beside the estimator's own parts, and that produced an
+ * index where 37.8% of the codes carried no letter and dates were recorded as
+ * part numbers. The vendor half now says where to look instead of guessing what
+ * is there. */
+export interface CatalogPage {
+  catalog_id: string;
+  vendor: string;
+  file: string;
+  pdf_page: number;
+  printed_page: string | null;
+  /** How the book itself names this page, e.g. "PDF p297 (printed p23)". */
+  locator: string;
+  title: string;
+  description: string;
+  code_prefixes: string[];
+  keywords: string[];
+  has_prices: boolean;
+  kind: string;
+  price_basis: string;
+  effective_date: string | null;
+  score: number;
+  /** Why this page matched, so a wrong hit is legible rather than mysterious. */
+  why: string[];
+}
+
 export interface ProductSearchResponse {
+  /** The estimator's own parts. Editable. */
   products: Product[];
+  /** Pages of the vendor price books. Read-only, and not priced lines. */
+  pages?: CatalogPage[];
   total: number;
-  counts?: { manual: number; catalog: number };
+  counts?: { manual: number; pages: number };
   divisions: { division: string; count: number }[];
-  /** False until `python -m catalog_index.rebuild` has been run. */
+  /** False until `python -m cbc.pageindex.build --all` has been run. */
   indexAvailable?: boolean;
   note?: string | null;
+  pagesNote?: string | null;
 }
 
 export interface PriceBook {
@@ -435,6 +475,116 @@ export interface PriceBookDetail {
   partCount: number;
 }
 
+export interface MarginBand {
+  key: string;
+  name: string;
+  margin: number;
+  divisor: number;
+  examples?: string[];
+}
+
+export interface MarginFramework {
+  bands: MarginBand[];
+  accessoriesDerived: number | null;
+  formula: string | null;
+  overridable: boolean | null;
+  governance: string | null;
+  source: string | null;
+  effective: Record<string, number>;
+}
+
+export interface TaxRates {
+  rates: Record<string, number>;
+  description: string | null;
+  source: string | null;
+  note: string | null;
+}
+
+export interface AdderItem {
+  name: string;
+  list_adder: number;
+}
+
+export interface AdderType {
+  type: string;
+  note: string;
+}
+
+export interface ManualAdders {
+  adderTypes: AdderType[];
+  hagerListAdders: {
+    source: string | null;
+    status: string | null;
+    application: string | null;
+    items: AdderItem[];
+  };
+  pending: string[];
+  rule: string | null;
+}
+
+export interface SpecialCustomer {
+  name: string;
+  margin: number | null;
+  note?: string | null;
+  source?: string | null;
+}
+
+export interface SpecialMargins {
+  customers: SpecialCustomer[];
+  rule: string | null;
+  status: string | null;
+  description: string | null;
+}
+
+export interface FinishEntry {
+  us_code: string;
+  numeric_code: string | null;
+  description: string | null;
+  premium: boolean | null;
+  note: string | null;
+}
+
+export interface FinishCrosswalk {
+  finishes: FinishEntry[];
+  warning?: string | null;
+  hager_rules?: string[];
+  premium_finish_rule?: string | null;
+}
+
+export interface WallTypeEntry {
+  type: string;
+  depth: string;
+  depth_inches: number;
+  note: string | null;
+}
+
+export interface FrameDepths {
+  wall_types: WallTypeEntry[];
+  custom_option?: boolean;
+  custom_max?: number;
+  adjustable_frames?: boolean;
+  adjustable_note?: string | null;
+  unknown_wall_type_rule?: string | null;
+}
+
+export interface FrpConstants {
+  status: string;
+  blocking?: string | null;
+  description?: string | null;
+  panel_size: string | null;
+  panel_size_note?: string;
+  waste_pct: number | null;
+  waste_pct_note?: string;
+  trim_stick_length: number | null;
+  trim_stick_length_note?: string;
+  adhesive_coverage_sqft_per_unit: number | null;
+  adhesive_coverage_note?: string;
+  opening_handling: string | null;
+  opening_handling_note?: string;
+  trim_types?: string[];
+  vendors?: string[];
+}
+
 export interface AuditEntry {
   id: string;
   at: string;
@@ -456,4 +606,19 @@ export interface PipelineSettings {
   note?: string;
   updatedAt?: string | null;
   updatedBy?: string | null;
+}
+
+export interface IntegrationStatus {
+  connected: boolean;
+  path?: number;
+  requirement?: string;
+  status: string;
+  title: string;
+  summary: string;
+  note: string;
+  fallbacks?: string[];
+}
+
+export interface IntegrationsResponse {
+  p21: IntegrationStatus;
 }

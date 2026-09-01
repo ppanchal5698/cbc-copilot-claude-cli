@@ -19,14 +19,14 @@ export interface DevAccount {
 const DEV_ACCOUNTS: DevAccount[] = [
   {
     label: "Estimator",
-    name: "Rick Gilbert",
-    email: "rgilbert@hamiltonparker.com",
+    name: "Estimator",
+    email: "estimator@cbc.com",
     password: "opshub",
   },
   {
     label: "Admin",
-    name: "Kevin Baker",
-    email: "kbaker@hamiltonparker.com",
+    name: "Admin",
+    email: "admin@cbc.com",
     password: "opshub",
   },
 ];

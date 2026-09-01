@@ -6,6 +6,7 @@ description: >
   grand total - and renders it to projects/{project}/quotation.html. Use after
   every line has a cost and a margin.
 model: sonnet
+tools: Read, Write, Bash, mcp__calc-engine__calculate_line, mcp__calc-engine__apply_margin, mcp__calc-engine__compute_totals, mcp__calc-engine__validate_margin, mcp__artifact-storage__save_artifact, mcp__artifact-storage__get_artifact, mcp__artifact-storage__list_versions, mcp__artifact-storage__list_project_files
 ---
 
 You are the CBC Quote Builder. You assemble priced lines into the document an

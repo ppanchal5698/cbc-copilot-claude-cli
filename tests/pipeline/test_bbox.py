@@ -85,3 +85,167 @@ def test_page_size_rejects_a_page_out_of_range(fixture_pdf):
 
     with pytest.raises(ValueError):
         load_server("pdf-tools").get_page_size(str(fixture_pdf), 999)
+
+
+def _rotated_page(tmp_path, rotation: int):
+    """A landscape sheet with two words on one visual line, as drawings are drawn."""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    # Same baseline, different x - one row to any human looking at the page.
+    page.insert_text((72, 300), "DOOR", fontsize=11)
+    page.insert_text((300, 300), "101", fontsize=11)
+    # Low on the tall mediabox: past the short edge of the rotated frame, so an
+    # untransformed bbox is provably outside the page rather than merely wrong.
+    page.insert_text((72, 700), "SILL", fontsize=11)
+    page.set_rotation(rotation)
+    path = tmp_path / f"rot{rotation}.pdf"
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_bboxes_are_in_the_frame_the_page_is_drawn_in(tmp_path):
+    """A bbox has to land on the row it came from, on a rotated sheet too.
+
+    `get_text("words")` reports against the unrotated mediabox while `page.rect`,
+    the rendered image and the viewer all use the rotated frame. On a 270-rotated
+    sheet those are transposed, so a highlight drawn from a raw bbox lands
+    somewhere else entirely - which is what the estimator saw.
+
+    72 of the 87 pages in the first real bid set are rotated 270.
+    """
+    import fitz
+
+    from cbc.core.pdfrows import rows_from_words
+
+    for rotation in (0, 90, 180, 270):
+        path = _rotated_page(tmp_path, rotation)
+        doc = fitz.open(path)
+        page = doc[0]
+        rows = rows_from_words(page)
+        assert rows, f"rotation {rotation}: no rows"
+        for row in rows:
+            assert fitz.Rect(row["bbox"]) in page.rect, (
+                f"rotation {rotation}: bbox {row['bbox']} outside page {tuple(page.rect)}"
+            )
+        doc.close()
+
+
+def _drawing_page(tmp_path):
+    """A landscape sheet the way a CAD tool writes one.
+
+    Text is drawn rotated 90 in mediabox space so that it reads horizontally once
+    the page's own 270 rotation is applied - which is exactly how the 72 rotated
+    pages of the first real bid set are built.
+    """
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((300, 200), "DOOR", fontsize=11, rotate=90)
+    page.insert_text((300, 400), "101", fontsize=11, rotate=90)
+    page.set_rotation(270)
+    path = tmp_path / "drawing.pdf"
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_row_is_grouped_as_it_appears_on_screen(tmp_path):
+    """Clustering is by y, and on a 270-rotated page raw y runs along screen x.
+
+    Before the display-space transform these two words fell in different buckets:
+    the buckets were columns wearing the word "row", and a schedule read off such
+    a page came out scrambled. They are one line to anyone looking at the sheet.
+    """
+    import fitz
+
+    from cbc.core.pdfrows import rows_from_words
+
+    doc = fitz.open(_drawing_page(tmp_path))
+    rows = [r["text"] for r in rows_from_words(doc[0])]
+    doc.close()
+    assert any("DOOR" in t and "101" in t for t in rows), (
+        f"one on-screen row split across rows -> {rows}"
+    )
+
+
+def _schedule_sheet(tmp_path):
+    """Two schedule rows and one row that runs several doors together."""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    # Columns are placed apart, as a schedule draws them - words closer than
+    # COLUMN_GAP cluster into one cell and the door number stops being cell 0.
+    for y, fields in (
+        (200, ["1", "DINING", "3'-0\"", "7'-0\"", "A"]),
+        (220, ["2", "LOBBY", "6'-0\"", "7'-0\"", "B"]),
+        (240, ["5", "6'-0\"", "4", "3", "WASHING", "3'-6\""]),
+    ):
+        for column, text in enumerate(fields):
+            page.insert_text((72 + column * 60, y), text, fontsize=9)
+    path = tmp_path / "schedule.pdf"
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_bbox_is_measured_from_the_row_the_opening_came_from(tmp_path):
+    """The extracting pass cannot carry coordinates, so they are recovered here.
+
+    It reads schedules through `extract_text`, which has none. Told the field was
+    required it produced six boxes of identical width marching down the page in
+    exact 20-point steps; once those were rejected it produced six nulls. The
+    rows are still on the page and the values are still in the opening.
+    """
+    import fitz
+
+    from cbc.core.pdfrows import attach_measured_bboxes
+
+    doc = fitz.open(_schedule_sheet(tmp_path))
+    page = doc[0]
+    openings = [
+        {"door_number": "1", "room_name": "DINING", "width": "3'-0\"", "height": "7'-0\""},
+        {"door_number": "2", "room_name": "LOBBY", "width": "6'-0\"", "height": "7'-0\""},
+    ]
+    attached, unmatched = attach_measured_bboxes(openings, page)
+
+    assert (attached, unmatched) == (2, 0)
+    for opening in openings:
+        assert fitz.Rect(opening["bbox"]) in page.rect
+        assert opening["page_size"] == {
+            "width": round(page.rect.width, 2),
+            "height": round(page.rect.height, 2),
+        }
+    # Different rows, so different boxes - not one shape repeated down the page.
+    assert openings[0]["bbox"] != openings[1]["bbox"]
+    doc.close()
+
+
+def test_a_row_holding_several_doors_is_refused(tmp_path):
+    """A wrong highlight is worse than none, because it looks checked.
+
+    Door 5's row on the real sheet reads "5 | 6'-0" | 4 | 3 | WASHING | ..." -
+    three openings the clustering could not separate. Its box spans nearly the
+    full sheet, so highlighting it would point the estimator at three doors and
+    claim to have verified one.
+    """
+    import fitz
+
+    from cbc.core.pdfrows import attach_measured_bboxes
+
+    doc = fitz.open(_schedule_sheet(tmp_path))
+    openings = [
+        {"door_number": "3"},
+        {"door_number": "4"},
+        {"door_number": "5", "width": "6'-0\"", "room_name": "WASHING"},
+    ]
+    attached, unmatched = attach_measured_bboxes(openings, doc[0])
+
+    assert attached == 0, "a row carrying three door numbers must not be claimed by one"
+    assert all(o.get("bbox") is None for o in openings)
+    assert any("bbox_row_not_found" in o.get("flags", []) for o in openings)
+    doc.close()

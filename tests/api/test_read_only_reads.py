@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from api.config import settings
+from cbc.config import settings
 from tests.shared import ROOT, opshub_client
 
 TEST_DB = "cbc_opshub_test_reads"

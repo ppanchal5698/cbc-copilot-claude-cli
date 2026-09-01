@@ -15,7 +15,7 @@ crating $50.00; itemization/tagging $175.00.
 |---|---|---|
 | Locks | 50/42% | **0.290** |
 | Door controls | 50/40% | **0.300** |
-| Exit devices | 50/40% | **0.3005** |
+| Exit devices | 50/40% | **0.300** |
 | L, DC and E accessories | 50/40% | 0.300 |
 | Electrified products (excl. HS4) | 50/18% | **0.410** |
 | Auto operators | 50/20% | 0.400 |

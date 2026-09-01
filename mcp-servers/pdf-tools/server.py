@@ -23,8 +23,9 @@ from _runtime import serve  # noqa: E402
 from tools import TOOLS  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from cbc_core import pdfpages, pdfrows  # noqa: E402
+from cbc.core import pdfpages, pdfrows  # noqa: E402
 
 MAX_HITS = 200
 

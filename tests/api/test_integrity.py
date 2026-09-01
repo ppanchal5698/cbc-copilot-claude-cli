@@ -23,7 +23,7 @@ def test_repeated_marks_get_their_own_stable_keys() -> None:
     Keying both on `mark:05` made each run insert two fresh rows and orphan the
     previous pair, because the lookup built before the loop only held one of them.
     """
-    from api.services.sync import _distinct_keys, _identity
+    from cbc.services.sync import _distinct_keys, _identity
 
     openings = [{"mark": "01"}, {"mark": "05"}, {"mark": "05"}, {"mark": "07"}]
     keys = _distinct_keys(openings, _identity)
@@ -36,7 +36,7 @@ def test_repeated_marks_get_their_own_stable_keys() -> None:
 
 def test_priced_lines_key_on_content_not_position() -> None:
     """Re-ordering a re-priced quote must not duplicate every line."""
-    from api.services.sync import _content_key, _distinct_keys
+    from cbc.services.sync import _content_key, _distinct_keys
 
     first = [
         {"part_number": "150CX18", "description": "Hinge", "division": "08 71 00"},
@@ -50,7 +50,7 @@ def test_priced_lines_key_on_content_not_position() -> None:
 
 
 def test_an_explicit_line_id_wins() -> None:
-    from api.services.sync import _content_key
+    from cbc.services.sync import _content_key
 
     assert _content_key({"line_id": "L-7", "part_number": "X"}) == "L-7"
 
@@ -64,7 +64,7 @@ def test_a_negative_cost_reports_unpriced_instead_of_raising() -> None:
     A single stored -45 used to raise out of the loop and 400 the quote and
     proposal screens, leaving no UI to correct it from.
     """
-    from api.services import pricing
+    from cbc.services import pricing
 
     priced = pricing.price_line(cost=-45.0, margin=0.27, qty=1, division="08 71 00")
 
@@ -74,7 +74,7 @@ def test_a_negative_cost_reports_unpriced_instead_of_raising() -> None:
 
 
 def test_an_ordinary_line_still_prices() -> None:
-    from api.services import pricing
+    from cbc.services import pricing
 
     priced = pricing.price_line(cost=74.33, margin=0.27, qty=3, division="08 71 00")
     assert priced["priced"] is True
@@ -85,7 +85,7 @@ def test_an_ordinary_line_still_prices() -> None:
 def test_quote_line_schema_rejects_a_negative_cost() -> None:
     from pydantic import ValidationError
 
-    from api.schemas.quote import QuoteLineUpdate
+    from cbc.schemas.quote import QuoteLineUpdate
 
     with pytest.raises(ValidationError):
         QuoteLineUpdate(cost=-45)
@@ -96,7 +96,7 @@ def test_quote_line_schema_rejects_a_negative_cost() -> None:
 
 def test_a_bad_cost_from_a_pipeline_run_is_flagged_not_stored() -> None:
     """The schema bounds what an estimator types; a run writes straight to Mongo."""
-    from api.services.sync import _sane_cost
+    from cbc.services.sync import _sane_cost
 
     cost, flags = _sane_cost({"cost": -45})
     assert cost is None and "negative cost" in flags[0]
@@ -119,8 +119,8 @@ def test_pricebook_ingest_is_not_an_exclusive_job() -> None:
     Including it made the second price-book upload of the day silently return the
     first one's job instead of being queued.
     """
-    from api.schemas.common import EXCLUSIVE_JOB_TYPES
-    from api.services.jobs import EXCLUSIVE
+    from cbc.schemas.common import EXCLUSIVE_JOB_TYPES
+    from cbc.services.jobs import EXCLUSIVE
 
     assert "ingest_pricebook" not in EXCLUSIVE_JOB_TYPES
     assert EXCLUSIVE == set(EXCLUSIVE_JOB_TYPES)
@@ -130,7 +130,7 @@ def test_pricebook_ingest_is_not_an_exclusive_job() -> None:
 
 
 def test_a_missing_cli_is_not_retried(monkeypatch) -> None:
-    from cbc_core import claude_cli as runner
+    from cbc.core import claude_cli as runner
 
     monkeypatch.setattr(runner, "resolve_binary", lambda: None)
     result = runner.run_claude("hello")
@@ -141,7 +141,7 @@ def test_a_missing_cli_is_not_retried(monkeypatch) -> None:
 
 def test_an_authentication_failure_is_not_retried() -> None:
     """The CLI exits 0 on an auth failure, so only the message identifies it."""
-    from cbc_core import claude_cli as runner
+    from cbc.core import claude_cli as runner
 
     result = runner._interpret("Invalid API key", "", 0, timeout=90, redact_values=None)
 
@@ -150,7 +150,7 @@ def test_an_authentication_failure_is_not_retried() -> None:
 
 
 def test_an_ordinary_failure_is_still_retried() -> None:
-    from cbc_core import claude_cli as runner
+    from cbc.core import claude_cli as runner
 
     result = runner._interpret("", "transient network blip", 1, timeout=90, redact_values=None)
 
@@ -237,3 +237,196 @@ def test_bash_deletion_guard_still_applies() -> None:
         {"tool_name": "Bash", "tool_input": {"command": f"rm -rf {protected}"}}
     )
     assert result.returncode == 2
+
+
+def test_plain_rm_on_claude_hooks_is_blocked() -> None:
+    result = _run_guard(
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "rm .claude/hooks/pre_delete_guard.py"},
+        }
+    )
+    assert result.returncode == 2, result.stderr
+
+
+def test_mcp_argument_targeting_pricebooks_is_blocked() -> None:
+    result = _run_guard(
+        {
+            "tool_name": "mcp__artifact-storage__save_artifact",
+            "tool_input": {
+                "project": "demo",
+                "path": "pricebooks/hager.pdf",
+                "content": "{}",
+            },
+        }
+    )
+    assert result.returncode == 2, result.stderr
+
+
+def test_mcp_p21_write_tool_name_is_blocked() -> None:
+    result = _run_guard(
+        {
+            "tool_name": "mcp__p21-connector__update_item",
+            "tool_input": {"part_number": "3500"},
+        }
+    )
+    assert result.returncode == 2, result.stderr
+    assert "NFR-5" in result.stderr
+
+
+# ── the guard blocks writes, and only writes ────────────────────────────────
+#
+# The rule these enforce is about *writing* to reference data. A pricing pass
+# exists to read price books, so a guard that blocks reads is not enforcing the
+# rule - it is breaking it. Both halves are pinned because the guard has been
+# wrong in both directions: a substring scan once blocked reads, unrelated home
+# directories, and any file whose text merely mentioned a protected path, while
+# the version before that let every write through that was not a deletion.
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo x > pricebooks/index.json",
+        "echo x >> pricebooks/index.json",
+        "cp evil.json pricebooks/index.json",
+        "cp evil.py .claude/hooks/pre_delete_guard.py",
+        "mv x.json reference-library/margins/x.json",
+        "sed -i s/a/b/ pricebooks/index.json",
+        "echo x | tee pricebooks/index.json",
+        "rm pricebooks/hager_price_book_18.pdf",
+    ],
+)
+def test_writing_into_reference_data_is_blocked(command: str) -> None:
+    """Not only deletion. Every one of these but the last was allowed before."""
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert result.returncode == 2, f"{command!r} should be blocked\n{result.stdout}"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "cat pricebooks/index.json",
+        "cp pricebooks/index.json /tmp/x.json",   # copies *out* of it
+        "sed s/a/b/ pricebooks/index.json",       # no -i, so it only reads
+        "grep -rn hager pricebooks/",
+        "ls reference-library/margins",
+        "git diff -- .claude/hooks/pre_delete_guard.py",
+        "echo x > projects/demo/notes.md",
+        "rm projects/demo/uploads/tmp.json",
+    ],
+)
+def test_reading_reference_data_is_allowed(command: str) -> None:
+    """The pipeline's actual job. Blocking these is the failure mode, not safety."""
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert result.returncode == 0, f"{command!r} should be allowed\n{result.stderr}"
+
+
+def test_prose_naming_a_protected_path_is_not_a_write() -> None:
+    """A command whose *text* mentions the rule is not an attempt to break it.
+
+    The substring branch matched the word anywhere in the command, so a heredoc
+    writing documentation about the guard was refused by the guard.
+    """
+    heredoc = (
+        "cat >> notes.md <<'EOF'\n"
+        "every write through that was not an `rm`\n"
+        'blocked: "cp evil.json pricebooks/index.json"\n'
+        "EOF"
+    )
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": heredoc}})
+    assert result.returncode == 0, result.stderr
+
+
+def test_an_mcp_read_tool_may_name_a_price_book() -> None:
+    """The counterpart to the save_artifact test above.
+
+    Scanning every argument of every MCP tool blocked `extract_text` on a vendor
+    sheet - the exact call a pricing pass exists to make.
+    """
+    result = _run_guard(
+        {
+            "tool_name": "mcp__pdf-tools__extract_text",
+            "tool_input": {"path": "pricebooks/hager_price_book_18.pdf", "page": 12},
+        }
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_an_mcp_write_tool_may_still_write_inside_a_project() -> None:
+    result = _run_guard(
+        {
+            "tool_name": "mcp__artifact-storage__save_artifact",
+            "tool_input": {
+                "project": "demo",
+                "path": "projects/demo/priced/line_items.json",
+                "content": "{}",
+            },
+        }
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "path", ["/tmp/pricebooks/scratch.pdf", "/home/cbc/.claude/settings.json"]
+)
+def test_a_protected_name_outside_the_project_is_not_protected(path: str) -> None:
+    """A directory of the same name elsewhere is not this repository's."""
+    result = _run_guard(
+        {"tool_name": "Bash", "tool_input": {"command": f"cp x.json {path}"}}, "/app"
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        # The command word hidden behind shell punctuation or a wrapper word.
+        "(cp evil.json pricebooks/index.json)",
+        "(cp evil.json pricebooks/index.json 2>&1 || true)",
+        "sudo cp evil.json pricebooks/index.json",
+        "FOO=bar cp evil.json pricebooks/index.json",
+        "true && cp evil.json pricebooks/index.json",
+        "true; cp evil.json pricebooks/index.json",
+        "echo x >pricebooks/index.json",
+        "echo x | tee -a pricebooks/index.json",
+        "sed -i.bak s/a/b/ pricebooks/index.json",
+        "truncate -s 0 pricebooks/index.json",
+        "cp evil.json ./pricebooks/index.json",
+        "cp evil.json projects/../pricebooks/index.json",
+    ],
+)
+def test_a_write_hidden_behind_shell_syntax_is_still_blocked(command: str) -> None:
+    """The command word is not always the first word.
+
+    `(cp CLAUDE.md pricebooks/index.json 2>&1 || true)` tokenises with the paren
+    attached, so the name read as "(cp" and matched nothing - and `2>&1` then made
+    itself the last argument, hiding the real destination behind it. That pair is
+    not hypothetical: together they overwrote the price-book index during this
+    work, which is why each spelling is pinned separately.
+    """
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert result.returncode == 2, f"{command!r} should be blocked\n{result.stdout}"
+
+
+def test_a_quoted_absolute_path_into_reference_data_is_blocked() -> None:
+    """Resolution, not spelling: the absolute form is the same directory."""
+    target = (ROOT / "pricebooks" / "index.json").as_posix()
+    result = _run_guard(
+        {"tool_name": "Bash", "tool_input": {"command": f'cp evil.json "{target}"'}}
+    )
+    assert result.returncode == 2, result.stdout
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "(cat pricebooks/index.json || true)",
+        "sudo cat pricebooks/index.json",
+        "true && grep hager pricebooks/index.json",
+    ],
+)
+def test_a_read_hidden_behind_shell_syntax_is_still_allowed(command: str) -> None:
+    """Unwrapping the command must not turn reads into writes."""
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert result.returncode == 0, f"{command!r} should be allowed\n{result.stderr}"

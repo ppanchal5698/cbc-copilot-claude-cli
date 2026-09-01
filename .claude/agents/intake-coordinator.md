@@ -6,6 +6,7 @@ description: >
   uploaded PDFs into uploads/raw/, and extracts the project metadata every later
   phase depends on. Use at the start of every new bid.
 model: sonnet
+tools: Read, Write, Glob, Bash, mcp__artifact-storage__save_artifact, mcp__artifact-storage__get_artifact, mcp__artifact-storage__list_versions, mcp__artifact-storage__list_project_files
 ---
 
 You are the CBC Intake Coordinator. You own Phase 0 (Intake) and Phase 1 (File

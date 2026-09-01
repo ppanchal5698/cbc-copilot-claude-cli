@@ -17,10 +17,12 @@ import {
 import { toast } from "sonner";
 
 import { AlternateBar } from "@/components/bids/alternate-bar";
+import { JobFailedBanner } from "@/components/jobs/job-failed-banner";
 import { useUiState } from "@/components/shell/ui-state";
 import { formatMoney, formatPercent } from "@/lib/format";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
-import type { AlternatesResponse, Job, QuoteLine, QuoteResponse } from "@/lib/types";
+import { endpoints } from "@/lib/endpoints";
+import type { AlternatesResponse, IntegrationsResponse, Job, QuoteLine, QuoteResponse } from "@/lib/types";
 
 const TAX_OPTIONS = [
   { key: "OH", label: "Ohio 8.0%" },
@@ -117,7 +119,7 @@ function Cell({
 
 export function QuoteClient({ code, initialJob }: { code: string; initialJob: Job | null }) {
   const router = useRouter();
-  const { openNotes } = useUiState();
+  const { openNotes, userRole } = useUiState();
   const [busy, setBusy] = useState(false);
   const [alternate, setAlternate] = useState<string | null | undefined>(undefined);
 
@@ -144,6 +146,11 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
   // Same SWR key as AlternateBar, so this is the same request, not a second one.
   const { data: alternateData } = useSWR<AlternatesResponse>(
     `/api/proxy/projects/${code}/alternates`,
+    proxyFetcher,
+  );
+
+  const { data: integrations } = useSWR<IntegrationsResponse>(
+    endpoints.integrations(),
     proxyFetcher,
   );
 
@@ -254,10 +261,64 @@ export function QuoteClient({ code, initialJob }: { code: string; initialJob: Jo
     }
   }
 
+  async function rerunPricing() {
+    setBusy(true);
+    try {
+      await proxyMutate(`/api/proxy/projects/${code}/line-items/continue-to-quote`);
+      toast.success("Pricing queued");
+      refresh();
+    } catch (problem) {
+      toast.error("Could not queue pricing", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <>
       <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4">
         <AlternateBar code={code} active={alternate} onChange={setAlternate} showTotals />
+
+        {job?.status === "failed" && job && (
+          <JobFailedBanner
+            job={job}
+            role={userRole}
+            stage="quote"
+            onAction={(action) => {
+              if (action.label === "Re-run pricing") rerunPricing();
+              else if (action.label === "Notify your admin") {
+                toast.message("Ask your administrator to configure the AI provider in Settings.");
+              }
+            }}
+          />
+        )}
+
+        {running && (
+          <div
+            className="anim-fadein rounded-xl px-4 py-3 text-[12.5px]"
+            style={{
+              background: "var(--app-warn-soft)",
+              border: "1px solid var(--app-warn-line)",
+              color: "var(--app-warn)",
+            }}
+          >
+            Claude is pricing the lines. Totals refresh as matches land.
+          </div>
+        )}
+
+        {integrations?.p21 && !integrations.p21.connected && (
+          <p
+            className="rounded-xl px-4 py-3 text-[12px] leading-relaxed"
+            style={{
+              background: "var(--app-panel-2)",
+              border: "1px solid var(--app-line)",
+              color: "var(--app-tx-2)",
+            }}
+          >
+            P21 last-PO cost (Path 1) is not connected — pricing uses list × multiplier or
+            manual entry until NR-10 is resolved. See Settings for details.
+          </p>
+        )}
 
         <div
           className="flex flex-col rounded-xl"

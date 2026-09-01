@@ -2,18 +2,22 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
 
+import { DeleteBidButton } from "@/components/bids/delete-bid-button";
 import { UploadPanel } from "@/components/intake/upload-panel";
 import { VersionsPanel } from "@/components/intake/versions-panel";
 import { PageHeader } from "@/components/shell/page-header";
 import { runPillFor } from "@/lib/run-pill";
 import { StageBar } from "@/components/shell/stage-bar";
 import { ApiError, api } from "@/lib/api";
+import { auth } from "@/auth";
 import type { BidDocument, Job, Project } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function IntakePage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
+  const session = await auth();
+  const role = session?.user?.role ?? "estimator";
 
   let project: Project;
   try {
@@ -104,6 +108,11 @@ export default async function IntakePage({ params }: { params: Promise<{ code: s
                 to Ohio and Kentucky only.
               </p>
             )}
+            <DeleteBidButton
+              code={project.code}
+              name={project.jobName ?? project.name}
+              role={role}
+            />
           </aside>
         </div>
       </main>

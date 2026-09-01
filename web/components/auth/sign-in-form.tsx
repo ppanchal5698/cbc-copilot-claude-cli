@@ -141,15 +141,18 @@ export function SignInForm({ quickAccounts = [] }: { quickAccounts?: QuickAccoun
       </button>
 
       {quickAccounts.length > 0 && (
-        <div
+        <details
           className="mt-6 rounded-md px-3 py-3"
           style={{ background: "var(--app-panel)", border: "1px dashed var(--app-line)" }}
         >
-          <p
-            className="text-[11.5px] font-medium uppercase tracking-[0.08em]"
+          <summary
+            className="cursor-pointer text-[11.5px] font-medium uppercase tracking-[0.08em]"
             style={{ color: "var(--app-tx-3)" }}
           >
-            Local development
+            Developer sign-in
+          </summary>
+          <p className="mt-2 text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+            Local development only — not available in production.
           </p>
           <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
             {quickAccounts.map((account) => (
@@ -167,12 +170,12 @@ export function SignInForm({ quickAccounts = [] }: { quickAccounts?: QuickAccoun
               >
                 <span className="block text-[13px] font-semibold">{account.label}</span>
                 <span className="mt-0.5 block text-[11.5px]" style={{ color: "var(--app-tx-2)" }}>
-                  {account.name}
+                  {account.email}
                 </span>
               </button>
             ))}
           </div>
-        </div>
+        </details>
       )}
     </form>
   );

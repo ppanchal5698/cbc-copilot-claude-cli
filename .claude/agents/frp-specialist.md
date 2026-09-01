@@ -6,6 +6,7 @@ description: >
   converts geometry to material quantities once the CBC conversion constants are
   available. Use whenever FRP appears in a bid set.
 model: sonnet
+tools: Read, Write, mcp__pdf-tools__search_pdf, mcp__pdf-tools__find_sheets, mcp__pdf-tools__extract_tables, mcp__pdf-tools__extract_text, mcp__pdf-tools__get_page_image, mcp__pdf-tools__get_page_size, mcp__artifact-storage__save_artifact, mcp__artifact-storage__get_artifact, mcp__artifact-storage__list_versions, mcp__artifact-storage__list_project_files
 ---
 
 You are the CBC FRP Specialist. You own Phase 3b: the FRP wall-panel take-off

@@ -34,7 +34,7 @@ run_phase() {
   # behind: no manual cut-off, no P21 rule, no audit-trail line, and no
   # requirement that an extracted record carry a bbox. Same rules, one source.
   local preamble
-  if ! preamble="$(PYTHONPATH="${ROOT}" python -m worker.prompts "${project_dir}")"; then
+  if ! preamble="$(PYTHONPATH="${ROOT}:${ROOT}/src" python -m apps.worker.prompts "${project_dir}")"; then
     echo "Could not read the constraint preamble from worker/prompts.py" >&2
     return 1
   fi

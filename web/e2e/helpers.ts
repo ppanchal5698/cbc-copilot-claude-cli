@@ -4,11 +4,11 @@ export { test, expect };
 
 export const credentials = {
   estimator: {
-    email: process.env.E2E_ESTIMATOR_EMAIL ?? "rgilbert@hamiltonparker.com",
+    email: process.env.E2E_ESTIMATOR_EMAIL ?? "estimator@cbc.com",
     password: process.env.E2E_ESTIMATOR_PASSWORD ?? "opshub",
   },
   admin: {
-    email: process.env.E2E_ADMIN_EMAIL ?? "kbaker@hamiltonparker.com",
+    email: process.env.E2E_ADMIN_EMAIL ?? "admin@cbc.com",
     password: process.env.E2E_ADMIN_PASSWORD ?? "opshub",
   },
 };

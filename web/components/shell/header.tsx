@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { MagnifyingGlass, Sun, Moon, Bell, PhoneCall } from "@phosphor-icons/react/dist/ssr";
+import { MagnifyingGlass, Sun, Moon, PhoneCall } from "@phosphor-icons/react/dist/ssr";
 
+import { ReviewQueuePopover } from "@/components/shell/review-queue-popover";
 import { useUiState } from "@/components/shell/ui-state";
 import { proxyFetcher } from "@/lib/proxy-fetcher";
 import type { CallsResponse } from "@/lib/types";
@@ -12,6 +13,11 @@ import type { CallsResponse } from "@/lib/types";
 export interface Crumb {
   label: string;
   href?: string;
+}
+
+function roleLabel(role: string): string {
+  if (role === "admin") return "Admin";
+  return "Estimator";
 }
 
 export function Header({
@@ -22,7 +28,7 @@ export function Header({
   code,
 }: {
   crumbs: Crumb[];
-  user: { name: string; initials: string };
+  user: { name: string; initials: string; role: string };
   runPill?: { label: string; tone: "running" | "done" | "failed" } | null;
   reviewCount?: number;
   code?: string | null;
@@ -88,22 +94,14 @@ export function Header({
       </button>
 
       {runPill && !focusMode && (
-        // The pill is what you look at to ask "what is it doing?", so it is what
-        // opens the real session rather than a separate control somewhere else.
         <button
           onClick={() => setTerminalOpen(true)}
-          aria-label="Watch the Claude Code session"
+          aria-label="View run status"
           className="anim-fadein flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] transition"
           style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
         >
-          <span
-            className="h-1.5 w-1.5 rounded-full"
-            style={{ background: toneColour }}
-          />
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: toneColour }} />
           <span style={{ color: "var(--app-tx-2)" }}>{runPill.label}</span>
-          <span className="text-[10.5px]" style={{ color: "var(--app-tx-3)" }}>
-            terminal
-          </span>
         </button>
       )}
 
@@ -133,29 +131,7 @@ export function Header({
         {theme === "dark" ? <Sun size={16} weight="duotone" /> : <Moon size={16} weight="duotone" />}
       </button>
 
-      {/* The badge counts flagged lines, so the bell goes to them. It used to be
-          a button with no handler: the one control on the page that did nothing. */}
-      <Link
-        href={code ? `/bids/${code}/extraction` : "/bids?stage=extraction"}
-        aria-label={
-          reviewCount
-            ? `${reviewCount} line${reviewCount === 1 ? "" : "s"} need a look`
-            : "Nothing flagged for review"
-        }
-        title={reviewCount ? "Go to the flagged lines" : "Nothing flagged"}
-        className="relative grid h-8 w-8 place-items-center rounded-md no-underline"
-        style={{ color: "var(--app-tx-2)" }}
-      >
-        <Bell size={16} weight="duotone" />
-        {!!reviewCount && !focusMode && (
-          <span
-            className="tnum absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-semibold"
-            style={{ background: "var(--app-neg)", color: "#fff" }}
-          >
-            {reviewCount}
-          </span>
-        )}
-      </Link>
+      <ReviewQueuePopover reviewCount={reviewCount} code={code} />
 
       <div className="flex items-center gap-2.5">
         <span
@@ -166,8 +142,8 @@ export function Header({
         </span>
         <span className="flex flex-col leading-tight">
           <span className="text-[12.5px] font-semibold">{user.name}</span>
-          <span className="text-[11px]" style={{ color: "var(--app-pos)" }}>
-            Online
+          <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+            {roleLabel(user.role)}
           </span>
         </span>
         <button

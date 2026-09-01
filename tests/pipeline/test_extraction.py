@@ -6,6 +6,7 @@ than 4-digit shorthand, and a door schedule with no fire-rating column at all.
 """
 from __future__ import annotations
 
+import pytest
 import parse_schedule
 from tests.shared import SCHEDULE_PAGE
 
@@ -74,3 +75,37 @@ def test_clustering_beats_ruled_table_detection(fixture_pdf):
     joined = " ".join(row["text"] for row in rows)
     assert "HARDWARE GROUPS" in joined
     assert "DOOR SCHEDULE" in joined
+
+
+def test_frame_depth_follows_from_the_wall_it_sits_in():
+    """The throat is not on the drawing - it follows from the wall construction.
+
+    `wall_type` is described in the process flow as the field "which derives the
+    frame depth", the five standard throats have been in reference-library all
+    along, and nothing ever read them: neither real bid set produced a single
+    frame_depth. A frame ordered to the wrong throat does not fit, and that is
+    discovered on site.
+    """
+    from cbc.services.reference_library import depth_for_wall_type
+
+    # What a schedule actually writes, not the table's own labels.
+    assert depth_for_wall_type("CMU")["depth"] == "5-3/4"
+    assert depth_for_wall_type('8" MASONRY')["depth"] == "5-3/4"
+    assert depth_for_wall_type("MTL STUD W/ GYP")["depth"] == "5-7/8"
+    assert depth_for_wall_type("wood-frame")["depth"] == "7-3/4"
+    assert depth_for_wall_type('1/2" DRYWALL')["depth"] == "5-5/8"
+
+
+def test_a_more_specific_wall_wins_over_a_general_one():
+    """A 6-inch stud wall is 8-1/4, not the 5-7/8 that bare "stud" would give."""
+    from cbc.services.reference_library import depth_for_wall_type
+
+    assert depth_for_wall_type('6" METAL STUD W/ 5/8" GYP')["depth"] == "8-1/4"
+
+
+@pytest.mark.parametrize("wall", [None, "", "   ", "unknown wall", "see structural"])
+def test_an_unclear_wall_gets_no_depth_at_all(wall):
+    """The table's own instruction: do NOT guess a depth, flag it for review."""
+    from cbc.services.reference_library import depth_for_wall_type
+
+    assert depth_for_wall_type(wall) is None

@@ -8,9 +8,10 @@ Margin is applied **by product type, as a divisor**. The framework has been stab
 | Restroom partitions | 35% | 0.65 | Cost / 0.65 |
 | Specialty (e.g. laminated doors) | 40% | 0.60 | Cost / 0.60 |
 | Custom-built via outside fabricator | 25% | 0.75 | Cost / 0.75 |
+| Accessories | ~56% | 0.44 | Cost / 0.44 |
 
 **Accessories** derive to **~56%** from the data (originally recorded as 35% — corrected in
-the 14 Jul estimator session).
+the 14 Jul estimator session). The row above is authoritative; the prose note is context only.
 
 ## Formula (the only money math in the system)
 

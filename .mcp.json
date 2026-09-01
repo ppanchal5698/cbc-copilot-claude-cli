@@ -6,12 +6,6 @@
         "./mcp-servers/pdf-tools/server.py"
       ]
     },
-    "pricebook": {
-      "command": "python",
-      "args": [
-        "./mcp-servers/pricebook/server.py"
-      ]
-    },
     "calc-engine": {
       "command": "python",
       "args": [

@@ -19,8 +19,8 @@ from tests.shared import ROOT
 
 def test_the_pipeline_job_is_exclusive_per_bid() -> None:
     """A second drawing on a running bid is more files, not a second run."""
-    from api.schemas.common import EXCLUSIVE_JOB_TYPES
-    from api.services.jobs import EXCLUSIVE
+    from cbc.schemas.common import EXCLUSIVE_JOB_TYPES
+    from cbc.services.jobs import EXCLUSIVE
 
     assert "run_full_pipeline" in EXCLUSIVE_JOB_TYPES
     assert "run_full_pipeline" in EXCLUSIVE
@@ -29,7 +29,7 @@ def test_the_pipeline_job_is_exclusive_per_bid() -> None:
 def test_the_pipeline_job_type_is_a_known_job_type() -> None:
     from typing import get_args
 
-    from api.schemas.common import JobType
+    from cbc.schemas.common import JobType
 
     assert "run_full_pipeline" in get_args(JobType)
 
@@ -39,7 +39,7 @@ def test_the_pipeline_job_type_is_a_known_job_type() -> None:
 
 def test_a_full_run_gets_a_bigger_budget_than_one_phase() -> None:
     """60 turns and an hour are sized for one phase; this is nine subagents."""
-    from worker.main import JOB_TIMEOUT, MAX_TURNS, limits_for
+    from apps.worker.main import JOB_TIMEOUT, MAX_TURNS, limits_for
 
     timeout, turns = limits_for("run_full_pipeline")
     assert timeout > JOB_TIMEOUT and turns > MAX_TURNS
@@ -48,7 +48,7 @@ def test_a_full_run_gets_a_bigger_budget_than_one_phase() -> None:
 
 def test_a_full_run_gets_every_mcp_server() -> None:
     """It reads drawings, prices lines and writes artifacts in one pass."""
-    from cbc_core import toolsets
+    from cbc.core import toolsets
 
     servers = set(json.loads(toolsets.config_for("run_full_pipeline"))["mcpServers"])
     assert servers == set(toolsets.SERVERS)
@@ -63,7 +63,7 @@ def test_a_full_run_gets_every_mcp_server() -> None:
 
 def test_the_prompt_delegates_to_every_phase_subagent() -> None:
     """A phase with no subagent named is a phase that will not run."""
-    from worker import prompts
+    from apps.worker import prompts
 
     prompt = prompts.pipeline_for("projects/demo", code="CBC-260001")
     for subagent in (
@@ -77,7 +77,7 @@ def test_the_prompt_delegates_to_every_phase_subagent() -> None:
 
 def test_the_prompt_halts_without_sending(the_prompt=None) -> None:
     """NFR-1 does not soften because nobody is watching."""
-    from worker import prompts
+    from apps.worker import prompts
 
     prompt = prompts.pipeline_for("projects/demo")
     assert "Draft ready for estimator review" in prompt
@@ -86,14 +86,14 @@ def test_the_prompt_halts_without_sending(the_prompt=None) -> None:
 
 def test_the_prompt_carries_the_shared_constraints() -> None:
     """One source for the rules, whichever entry point starts the run."""
-    from worker import prompts
+    from apps.worker import prompts
 
     assert prompts.preamble_for("projects/demo") in prompts.pipeline_for("projects/demo")
 
 
 def test_the_prompt_says_to_resume_rather_than_reread() -> None:
     """Three attempts on a 744-page set must not read it three times."""
-    from worker import prompts
+    from apps.worker import prompts
 
     prompt = prompts.pipeline_for("projects/demo").lower()
     assert "resume" in prompt and "already exists" in prompt
@@ -101,7 +101,7 @@ def test_the_prompt_says_to_resume_rather_than_reread() -> None:
 
 def test_the_prompt_refuses_to_guess_a_flagged_line() -> None:
     """NFR-2, and on this path the review at the end is the only review."""
-    from worker import prompts
+    from apps.worker import prompts
 
     prompt = prompts.pipeline_for("projects/demo")
     assert "do not guess" in prompt.lower()
@@ -120,7 +120,7 @@ def test_the_shell_entry_point_uses_the_same_prompt() -> None:
 
 def test_the_board_advances_as_each_phase_lands(tmp_path: Path) -> None:
     """`stage` is only written when a job ends, and this job can run for an hour."""
-    from worker.main import phase_reached
+    from apps.worker.main import phase_reached
 
     assert phase_reached(tmp_path) is None, "nothing written yet"
 
@@ -144,7 +144,7 @@ def test_the_board_advances_as_each_phase_lands(tmp_path: Path) -> None:
 
 def test_progress_only_ever_moves_forward(tmp_path: Path) -> None:
     """Phases are reported furthest-first, so an early file cannot pull it back."""
-    from worker.main import phase_reached
+    from apps.worker.main import phase_reached
 
     for relative in ("quotation.html", "extracted/scope_metadata.json"):
         target = tmp_path / relative
@@ -231,7 +231,7 @@ def test_several_drawings_become_one_run(client) -> None:
 def test_the_installation_default_applies_when_the_bid_says_nothing(client) -> None:
     from pymongo import MongoClient
 
-    from api.config import settings
+    from cbc.config import settings
 
     raw = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
     try:

@@ -18,7 +18,7 @@ import pytest
 
 from tests.shared import ROOT  # noqa: E402
 
-from cbc_core import streaming  # noqa: E402
+from cbc.core import streaming  # noqa: E402
 
 posix_only = pytest.mark.skipif(os.name != "posix", reason="pty is POSIX-only")
 

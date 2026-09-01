@@ -14,6 +14,7 @@ import {
 import { auth } from "@/auth";
 import { PageHeader } from "@/components/shell/page-header";
 import { NewBidDialog } from "@/components/bids/new-bid-dialog";
+import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/status-badge";
 import { api } from "@/lib/api";
 import { formatMoneyShort } from "@/lib/format";
 import type { Project } from "@/lib/types";
@@ -34,20 +35,21 @@ function greeting(name: string): string {
 }
 
 /** What this bid is actually waiting on, in the estimator's words. */
-function waitingOn(project: Project): { tag: string; colour: string; soft: string } {
+function waitingOn(project: Project): { tag: string; colour: string; soft: string; variant: StatusBadgeVariant } {
   if (project.activeJob)
-    return { tag: "Claude is reading", colour: "var(--app-warn)", soft: "var(--app-warn-soft)" };
+    return { tag: "Claude is reading", colour: "var(--app-warn)", soft: "var(--app-warn-soft)", variant: "progress" };
   if (project.counts.needsLook > 0)
     return {
       tag: `${project.counts.needsLook} to check`,
       colour: "var(--app-neg)",
       soft: "var(--app-neg-soft)",
+      variant: "review",
     };
   if (project.documentCount === 0)
-    return { tag: "Needs documents", colour: "var(--app-tx-3)", soft: "var(--app-panel-2)" };
+    return { tag: "Needs documents", colour: "var(--app-tx-3)", soft: "var(--app-panel-2)", variant: "neutral" };
   if (project.stage === "proposal")
-    return { tag: "Ready to hand off", colour: "var(--app-pos)", soft: "var(--app-pos-soft)" };
-  return { tag: "Ready to price", colour: "var(--app-accent)", soft: "var(--app-accent-soft)" };
+    return { tag: "Ready to hand off", colour: "var(--app-pos)", soft: "var(--app-pos-soft)", variant: "ok" };
+  return { tag: "Ready to price", colour: "var(--app-accent)", soft: "var(--app-accent-soft)", variant: "action" };
 }
 
 export default async function DashboardPage() {
@@ -161,12 +163,7 @@ export default async function DashboardPage() {
                         {project.location ? ` · ${project.location}` : ""}
                       </span>
                     </span>
-                    <span
-                      className="shrink-0 rounded-full px-2.5 py-1 text-[11px]"
-                      style={{ background: state.soft, color: state.colour }}
-                    >
-                      {state.tag}
-                    </span>
+                    <StatusBadge variant={state.variant}>{state.tag}</StatusBadge>
                     <span
                       className="tnum hidden w-[92px] shrink-0 text-right text-[11.5px] sm:block"
                       style={{ color: "var(--app-tx-3)" }}

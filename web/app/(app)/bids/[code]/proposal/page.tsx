@@ -33,7 +33,7 @@ export default async function ProposalPage({ params }: { params: Promise<{ code:
         code={project.code}
       />
       <StageBar project={project} current="proposal" />
-      <ProposalClient code={project.code} />
+      <ProposalClient code={project.code} initialJob={jobs[0] ?? null} />
     </>
   );
 }

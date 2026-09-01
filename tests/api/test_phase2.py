@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from api.config import settings
+from cbc.config import settings
 from tests.shared import ROOT, opshub_client  # noqa: E402
 
 TEST_DB = "cbc_opshub_test_phase2"
@@ -103,10 +103,10 @@ def test_calls_lifecycle(client, project):
     call = client.post(
         f"/api/projects/{code}/calls",
         json={"kind": "call", "text": "Spoke to the GC about the alternates.", "org": "Cortlandt"},
-        headers={"X-Actor": "rgilbert@hamiltonparker.com"},
+        headers={"X-Actor": "estimator@cbc.com"},
     )
     assert call.status_code == 201
-    assert call.json()["who"] == "rgilbert@hamiltonparker.com"
+    assert call.json()["who"] == "estimator@cbc.com"
 
     rfi = client.post(
         f"/api/projects/{code}/calls",

@@ -1,11 +1,11 @@
 ---
 name: scan-product-catalog
 description: >
-  Searches the vendor price-book PDFs (Hager, National Guard, PEMKO/Markar,
-  Rockwood, ASI, Bobrick, Bradley, Gamco, World Dryer, NUDO) for a product by
-  part number, series or description, and returns list price with page-level
-  traceability. Use when a matched item needs a list price before the multiplier
-  is applied.
+  Finds which page of which vendor price book carries a part - Hager,
+  National Guard, PEMKO/Markar, Rockwood, ASI, Bobrick, Bradley, Gamco, World
+  Dryer, NUDO - searching by part number, series or description. Returns the
+  page to open and why it matched, not a price: the price is read off the sheet.
+  Use when a matched item needs a list price before the multiplier is applied.
 ---
 
 # Scan Product Catalog
@@ -14,18 +14,32 @@ description: >
 
 Work down this ladder and stop at the first step that answers:
 
-1. **Exact part number** - `mcp__pricebook__lookup_pricing` with `part_number`,
-   `vendor` and the multiplier `category`. Returns every candidate price on the
-   page with its `source_page`; it deliberately refuses to pick one when the page
-   is ambiguous.
-2. **Series or keyword** - `mcp__pricebook__search_product` with a `vendor`
-   filter. Always pass the vendor; a library-wide search across 26 books is slow
-   and noisy.
-3. **Multiplier** - `mcp__pricebook__get_multiplier`. Hager prices **by product
+The catalog tools tell you **which page to open**. They do not return prices,
+and nothing stored knows one - the price is on the sheet, and you read it there.
+That is deliberate: pre-extracting every row is what produced an index where 37.8%
+of the part codes carried no letter and effective dates were recorded as parts.
+
+1. **Learn the book** - `mcp__catalog__get_catalog_overview` when the vendor is
+   unfamiliar. A few hundred tokens on how that publisher organises things, and it
+   saves opening the wrong pages.
+2. **Find the page** - `mcp__catalog__find_pages` with the part number, series or
+   description, and a `vendor` filter. Always pass the vendor; a library-wide
+   search is noisier. Each hit carries a two-line description, the part families
+   on the page, whether it carries prices, and why it matched.
+3. **Read the page** - `mcp__pdf-tools__extract_tables` on the `pdf_page` from the
+   hit. This is where the price comes from. If the page does not hold the part,
+   try the next hit rather than settling for the nearest row on the wrong page.
+4. **Multiplier** - `mcp__catalog__get_multiplier`. Hager prices **by product
    category**, so pass the category (`locks`, `door_controls`, `exit_devices`,
    `architectural_hinges`, `electrified_products`, ...). Other vendors carry a
    single tier.
-4. **Give up cleanly.** No hit means MANUAL, not "close enough".
+5. **Give up cleanly.** No page, or a page that turns out not to hold the part,
+   means MANUAL - not "close enough".
+
+**Cite the `locator` exactly as given.** It carries both the PDF page and the
+number printed on the page, and they differ on 775 of the 1,216 indexed pages
+because section numbering restarts. An estimator sent to "page 23" of a 744-page
+book cannot find the line without both.
 
 ## Applying the multiplier
 
@@ -59,18 +73,31 @@ and premium finishes are added deliberately from
 - @.claude/memory/vendor_tiers.md
 - @.claude/memory/cost_sourcing_rules.md
 
-## Script
+## Worked example
 
-```bash
-python .claude/skills/scan-product-catalog/scripts/search_pricebook.py --list
+There is no script. `search_pricebook.py` was deleted with the extraction index
+it queried; the catalog MCP server replaced it, and the price now comes off the
+page rather than out of a table nobody checked.
+
+```
+mcp__catalog__find_pages(query="3510 lock", vendor="hager")
+  -> file_path "pricebooks/hager_price_book_18.pdf", pdf_page 297,
+     locator "PDF p297 (printed p23)", has_prices true
+
+mcp__pdf-tools__extract_tables(file_path=..., pages="297")
+  -> the row, and the list price on it
+
+mcp__catalog__get_multiplier(vendor="hager", tier="locks")
+  -> 0.290, effective 2026-03-02
 ```
 
-```bash
-python .claude/skills/scan-product-catalog/scripts/search_pricebook.py hager 3510 --category locks
-```
+Pass `file_path` and `pdf_page` exactly as `find_pages` returned them. The books
+are not under the project's uploads, and a run that guessed that directory found
+the right page and could not open it.
 
 ## Output
 
-Every result carries `source_file`, `source_page`, `effective_date`, the
-`multiplier_tier` used and its `multiplier_effective_date` - the full provenance
-chain NFR-3 requires.
+Quote the `locator` verbatim - it carries the PDF page and the number printed on
+the page, and they differ on most pages because section numbering restarts. With
+the file name, the multiplier tier and its effective date, that is the full
+provenance chain NFR-3 requires.

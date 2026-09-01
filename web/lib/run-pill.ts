@@ -1,6 +1,21 @@
 import type { Job } from "@/lib/types";
+import { jobTypeLabel } from "@/lib/job-error";
 
 export type RunPill = { label: string; tone: "running" | "done" | "failed" } | null;
+
+function runningLabel(job: Job, phase?: string | null): string {
+  if (job.type === "run_full_pipeline") {
+    return phase ? `Autopilot · ${phase}…` : "Autopilot · starting…";
+  }
+  const byType: Record<string, string> = {
+    extract_bid_set: "Reading the bid set…",
+    rerun_extraction: "Re-reading the bid set…",
+    match_and_price: "Pricing lines…",
+    build_proposal: "Building proposal…",
+    ingest_addendum: "Reading addendum…",
+  };
+  return byType[job.type] ?? `${jobTypeLabel(job.type)}…`;
+}
 
 /**
  * The status pill in the header.
@@ -17,17 +32,9 @@ export function runPillFor(
     return itemCount ? { label: `Pass complete · ${itemCount} items`, tone: "done" } : null;
   }
   if (job.status === "running") {
-    // An autopilot run is one job that can last an hour. Naming the phase it has
-    // reached is the difference between watching it work and watching a spinner.
-    const label =
-      job.type === "run_full_pipeline"
-        ? phase
-          ? `Autopilot · ${phase}…`
-          : "Autopilot · starting…"
-        : "Reading the bid set…";
-    return { label, tone: "running" };
+    return { label: runningLabel(job, phase), tone: "running" };
   }
-  if (job.status === "queued") return { label: "Queued for Claude…", tone: "running" };
-  if (job.status === "failed") return { label: "Run failed", tone: "failed" };
+  if (job.status === "queued") return { label: "Queued…", tone: "running" };
+  if (job.status === "failed") return { label: "Needs attention", tone: "failed" };
   return { label: `Pass complete · ${itemCount ?? 0} items`, tone: "done" };
 }

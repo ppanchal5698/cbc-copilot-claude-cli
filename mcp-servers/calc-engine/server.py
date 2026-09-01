@@ -12,20 +12,23 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "mcp-servers"))
 
 from _runtime import serve  # noqa: E402
 from tools import TOOLS  # noqa: E402
 
-from cbc_core.calc import (  # noqa: E402
+from cbc.core.calc import (  # noqa: E402
     apply_margin,
     calculate_line,
     compute_totals,
+    cost_from_list,
     validate_margin,
 )
 
 HANDLERS = {
     "calculate_line": calculate_line,
+    "cost_from_list": cost_from_list,
     "apply_margin": apply_margin,
     "compute_totals": compute_totals,
     "validate_margin": validate_margin,

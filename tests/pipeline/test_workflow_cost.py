@@ -18,7 +18,7 @@ import pytest
 from tests.shared import ROOT  # noqa: E402
 
 from _runtime import load_server  # noqa: E402
-from cbc_core import toolsets  # noqa: E402
+from cbc.core import toolsets  # noqa: E402
 
 pdf = load_server("pdf-tools")
 MIS_ENCODED = ROOT / "tests" / "fixtures" / "pdfs" / "Bid Set .pdf"
@@ -68,16 +68,19 @@ def test_a_take_off_cannot_see_the_pricing_tools():
     servers = json.loads(toolsets.config_for("extract_bid_set"))["mcpServers"]
 
     assert set(servers) == {"pdf-tools", "artifact-storage"}
-    for absent in ("pricebook", "catalog", "calc-engine", "p21-connector"):
+    for absent in ("catalog", "calc-engine", "p21-connector"):
         assert absent not in servers
 
 
 def test_pricing_gets_the_tools_it_needs():
     servers = json.loads(toolsets.config_for("match_and_price"))["mcpServers"]
 
-    for needed in ("catalog", "pricebook", "calc-engine", "p21-connector"):
+    for needed in ("catalog", "calc-engine", "p21-connector"):
         assert needed in servers
-    assert "pdf-tools" not in servers  # the schedule is already extracted
+    # pdf-tools used to be excluded here because the schedule was already
+    # extracted and pricing read a product table. The catalog now returns a page
+    # to open, so a pass without pdf-tools can find the price and not read it.
+    assert "pdf-tools" in servers
 
 
 def test_an_unknown_job_type_still_gets_every_server():
@@ -148,7 +151,7 @@ def test_the_prompt_names_subagents_rather_than_files():
 
     The first run read five of its own instruction files that way, ~22 KB.
     """
-    from worker import prompts
+    from apps.worker import prompts
 
     extract = prompts.EXTRACT
     assert ".claude/agents/" not in extract, "a path here gets cat'd"
@@ -157,7 +160,7 @@ def test_the_prompt_names_subagents_rather_than_files():
 
 
 def test_the_preamble_forbids_reimplementing_the_tools():
-    from worker import prompts
+    from apps.worker import prompts
 
     assert "reimplement" in prompts.PREAMBLE.lower()
     assert "cat" in prompts.PREAMBLE.lower()

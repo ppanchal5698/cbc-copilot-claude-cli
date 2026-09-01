@@ -25,7 +25,7 @@ export function Rail({
   user,
 }: {
   staleBooks?: number;
-  user: { name: string; email: string; initials: string };
+  user: { name: string; initials: string };
 }) {
   const pathname = usePathname();
 

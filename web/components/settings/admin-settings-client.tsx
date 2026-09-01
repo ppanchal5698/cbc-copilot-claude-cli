@@ -2,18 +2,40 @@
 
 import {
   AuditLogPanel,
+  IntegrationsPanel,
   PipelineSettingsPanel,
   UsersAdminPanel,
 } from "@/components/settings/admin-panels";
+import { MarginFrameworkPanel } from "@/components/settings/margin-framework-panel";
+import { TaxRatesPanel } from "@/components/settings/tax-rates-panel";
+import { AddersPanel } from "@/components/settings/adders-panel";
+import { SpecialMarginsPanel } from "@/components/settings/special-margins-panel";
+import { FinishesPanel } from "@/components/settings/finishes-panel";
+import { FrameDepthsPanel } from "@/components/settings/frame-depths-panel";
+import { FrpConstantsPanel } from "@/components/settings/frp-constants-panel";
 
 export function AdminSettingsClient() {
   return (
     <div className="flex flex-col gap-4">
+      <IntegrationsPanel />
       <PipelineSettingsPanel />
       <div className="grid gap-4 xl:grid-cols-2">
-        <UsersAdminPanel />
-        <AuditLogPanel />
+        <MarginFrameworkPanel />
+        <TaxRatesPanel />
       </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <AddersPanel />
+        <SpecialMarginsPanel />
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <FinishesPanel />
+        <FrameDepthsPanel />
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <FrpConstantsPanel />
+        <UsersAdminPanel />
+      </div>
+      <AuditLogPanel />
     </div>
   );
 }

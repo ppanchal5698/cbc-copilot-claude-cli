@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from api.config import settings
+from cbc.config import settings
 from tests.shared import ROOT, opshub_client  # noqa: E402
 
 TEST_DB = "cbc_opshub_test"
@@ -407,3 +407,58 @@ def test_audit_trail_records_both_actors(client, project):
     actions = raw.auditLog.distinct("action")
     assert "project.create" in actions
     assert "quote.line_edit" in actions
+
+
+def test_a_net_program_is_not_repriced_by_a_multiplier(client):
+    """Multiplying a net discounts a cost CBC already pays a second time.
+
+    Bobrick is bought on a flat net program - vendor_tiers records no multiplier
+    and says so - so its sheet quotes costs, not list figures. Setting a
+    multiplier on that book must leave the parts alone.
+    """
+    book = client.post(
+        "/api/price-books",
+        json={"vendor": "bobrick", "program": "HP 2017 program NET"},
+    ).json()
+    client.patch(f"/api/price-books/{book['id']}", json={"filename": "bobrick_hp_program_net.xlsx"})
+
+    client.post(
+        "/api/catalog/products",
+        json={
+            "part": "TEST-NET-1",
+            "description": "Priced off a net program sheet",
+            "manufacturer": "bobrick",
+            "listPrice": 40.0,
+            "cost": 40.0,
+            "priceBookId": book["id"],
+        },
+    )
+
+    client.patch(f"/api/price-books/{book['id']}", json={"multiplier": 0.25})
+
+    part = client.get("/api/catalog/products?q=TEST-NET-1").json()["products"][0]
+    assert part["cost"] == pytest.approx(40.0), "a net must survive a multiplier change"
+
+
+def test_a_part_marked_net_is_skipped_even_on_a_list_book(client):
+    """The per-row guard, for a book whose sheet is not itself classified."""
+    book = client.post(
+        "/api/price-books",
+        json={"vendor": "mixedvendor", "program": "Mixed", "multiplier": 0.5},
+    ).json()
+    made = client.post(
+        "/api/catalog/products",
+        json={
+            "part": "TEST-NET-2",
+            "description": "A net row on an otherwise list book",
+            "listPrice": 40.0,
+            "cost": 40.0,
+            "priceBookId": book["id"],
+        },
+    ).json()
+    client.patch(f"/api/catalog/products/{made['id']}", json={"priceBasis": "net"})
+
+    client.patch(f"/api/price-books/{book['id']}", json={"multiplier": 0.25})
+
+    part = client.get("/api/catalog/products?q=TEST-NET-2").json()["products"][0]
+    assert part["cost"] == pytest.approx(40.0)

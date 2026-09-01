@@ -14,6 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 for extra in (
+    # The shared package lives under src/, so `cbc.*` resolves for anything that
+    # imports the domain without going through pytest's own pythonpath.
+    ROOT / "src",
     ROOT / "mcp-servers",
     ROOT / ".claude" / "skills" / "extract-door-schedule" / "scripts",
     ROOT / ".claude" / "skills" / "generate-quotation" / "scripts",
@@ -29,14 +32,14 @@ TEST_ACTOR = "test@example.com"
 
 @contextmanager
 def opshub_client(
-    db_name: str, *, isolated_storage: bool = False, role: str = "purchasing"
+    db_name: str, *, isolated_storage: bool = False, role: str = "admin"
 ) -> Iterator["object"]:
     from fastapi.testclient import TestClient
     from pymongo import MongoClient
 
-    from api import db as db_module
-    from api.config import settings
-    from api.main import app
+    from cbc import db as db_module
+    from cbc.config import settings
+    from apps.api.main import app
 
     settings.mongodb_db = db_name
     db_module._client = None

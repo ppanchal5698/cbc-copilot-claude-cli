@@ -10,13 +10,13 @@ TEST_DB = "cbc_opshub_test_admin"
 
 @pytest.fixture(scope="module")
 def client():
-    with opshub_client(TEST_DB, role="purchasing") as test_client:
+    with opshub_client(TEST_DB, role="admin") as test_client:
         yield test_client
 
 
 @pytest.fixture()
 def as_role():
-    from api.config import settings
+    from cbc.config import settings
     from pymongo import MongoClient
 
     raw = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
@@ -27,7 +27,7 @@ def as_role():
     try:
         yield set_role
     finally:
-        set_role("purchasing")
+        set_role("admin")
         raw.close()
 
 
@@ -36,14 +36,14 @@ def test_estimator_cannot_read_audit_log(client, as_role) -> None:
     assert client.get("/api/audit").status_code == 403
 
 
-def test_purchasing_can_read_audit_log(client, as_role) -> None:
-    as_role("purchasing")
+def test_admin_can_read_audit_log(client, as_role) -> None:
+    as_role("admin")
     response = client.get("/api/audit")
     assert response.status_code == 200
     assert "entries" in response.json()
 
 
-def test_purchasing_can_list_users(client) -> None:
+def test_admin_can_list_users(client) -> None:
     response = client.get("/api/users")
     assert response.status_code == 200
     assert isinstance(response.json()["users"], list)

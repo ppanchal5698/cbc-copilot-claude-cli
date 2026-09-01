@@ -25,6 +25,7 @@ import bcrypt
 from pymongo import MongoClient
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 URI = "mongodb://cbc:cbc_local_dev@localhost:27017/cbc_opshub?authSource=admin"
@@ -44,17 +45,17 @@ APP_COLLECTIONS = (
 
 USERS = [
     {
-        "email": "rgilbert@hamiltonparker.com",
-        "name": "Rick Gilbert",
-        "initials": "RG",
+        "email": "estimator@cbc.com",
+        "name": "Estimator",
+        "initials": "ES",
         "role": "estimator",
         "password": "opshub",
     },
     {
-        "email": "kbaker@hamiltonparker.com",
-        "name": "Kevin Baker",
-        "initials": "KB",
-        "role": "purchasing",
+        "email": "admin@cbc.com",
+        "name": "Admin",
+        "initials": "AD",
+        "role": "admin",
         "password": "opshub",
     },
 ]
@@ -216,7 +217,7 @@ def seed_products(db) -> int:
 
 def seed_demo_project(db) -> str | None:
     """Create the Dutch Bros bid from the fixture already in the repo."""
-    from api.services import storage
+    from cbc.services import storage
 
     fixture = ROOT / "tests" / "fixtures" / "pdfs" / "1_Architectural.pdf"
     if not fixture.exists():
@@ -303,7 +304,7 @@ def main() -> int:
         code = seed_demo_project(db)
         print(f"demo project {code or 'skipped':>4}")
 
-    print("\nSign in with rgilbert@hamiltonparker.com / opshub")
+    print("\nSign in with estimator@cbc.com or admin@cbc.com / opshub")
     print(
         "Catalog rows tagged seedSource='prototype sample' carry illustrative "
         "figures - replace them by ingesting a real price book."

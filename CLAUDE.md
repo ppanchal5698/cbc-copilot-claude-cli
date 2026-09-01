@@ -14,7 +14,8 @@ manual workflow a CBC estimator follows (Phase 0–6). It drafts, sources, and c
 3. **Rules** (`.claude/rules/`) — 8 project-scoped constraint files
 4. **Guardrails** (`.claude/hooks/`) — 5 executable hooks (PreToolUse / PostToolUse)
 5. **Memory** (`.claude/memory/`) — 13 persistent reference-data files
-6. **MCP Servers** (`mcp-servers/`) — 6 tool providers (pdf, pricebook, catalog, calc, storage, P21),
+6. **MCP Servers** (`mcp-servers/`) — 5 tool providers (pdf-tools, catalog,
+   calc-engine, artifact-storage, p21-connector),
    registered in **`.mcp.json`** at the repo root. `.claude/settings.json` has no
    `mcpServers` key — a block there is ignored, and the run silently gets no tools.
 7. **Workflows** (`workflows/`) — headless orchestration scripts for autopilot
@@ -23,26 +24,40 @@ manual workflow a CBC estimator follows (Phase 0–6). It drafts, sources, and c
 The estimator drives the pipeline through a web app; Claude Code works behind it.
 
 - **`web/`** — Next.js 15 UI (dashboard, bid board, the four bid stages, catalog, price books)
-- **`api/`** — FastAPI. Owns MongoDB and every business rule. Quote arithmetic is
-  delegated to `cbc_core/calc.py`, so the numbers have one implementation.
-- **`worker/`** — claims queued jobs and runs `claude --print`, then syncs what
+- **`apps/api/`** — FastAPI: routing, request/response, auth. The web layer, and only that.
+- **`apps/worker/`** — claims queued jobs and runs `claude --print`, then syncs what
   Claude wrote on disk into MongoDB.
-- **`catalog_index/`** — the product search index. Vendor PDFs in `pricebooks/`
-  are the source of truth; this keeps a **rebuildable** SQLite FTS5 index of what
-  is in them, so a search costs a fraction of a millisecond instead of re-reading
-  1 391 pages. Uploading a sheet queues `index_catalog`; deleting one queues
-  `delete_catalog` and the cascade removes its search records. There is no product
-  table to maintain by hand — `python -m catalog_index.rebuild` reconstructs the
-  lot. The index lives on a **named volume**, never a bind mount: SQLite needs
-  dependable locking and WAL needs shared memory, and `/app/projects` is 9p.
-- **`cbc_core/`** — what `api` and `worker` both need and neither should own:
-  the money math, the PDF page operations, credential redaction, and the one
-  place that spawns the CLI. It imports from neither of them, which is what keeps
-  the dependency direction one-way — `tests/api/test_layering.py` asserts it.
-  The `calc-engine` and `pdf-tools` MCP servers are adapters over the same
-  modules, so a price a run computes and a price the API computes cannot drift.
-  `pdfrows` is shared with `catalog_index` for the same reason: a price book and a
-  bid set must not disagree about what a page says.
+- **`src/cbc/`** — the domain, and the one thing both applications import.
+  Configuration, the Mongo handle, the schemas and every business rule live here,
+  so neither application depends on the other. That edge used to exist: `api`
+  owned the rules, so `worker` had to import the web application to reach them.
+  - `cbc/config.py`, `cbc/db.py`, `cbc/schemas/`, `cbc/services/` — the rules.
+    Quote arithmetic is delegated to `cbc/core/calc.py`, so the numbers have one
+    implementation.
+  - `cbc/core/` — the pure kernel: the money math, the PDF page operations,
+    credential redaction, and the one place that spawns the CLI. It imports
+    nothing above it. The `calc-engine` and `pdf-tools` MCP servers are adapters
+    over these same modules, so a price a run computes and a price the API
+    computes cannot drift.
+  - `cbc/pageindex/` — how a run finds a price. The vendor sheets under
+    `pricebooks/` are the source of truth, and nothing pre-extracts them: the
+    index describes **each page** — what it sells, which part families are on it,
+    whether it carries prices — and a pricing pass opens that page and reads the
+    number off it. It routes; the PDF answers. So no stored value can be stale or
+    wrong about a price, because no price is stored. One JSON document per
+    catalog in MongoDB's `pageIndex` collection. Uploading a sheet queues
+    `index_catalog`; deleting one queues `delete_catalog` and the cascade drops
+    its document. `python -m cbc.pageindex.build --all` rebuilds the lot, and is
+    idempotent on the file hash.
+
+    This replaced a SQLite FTS5 index that pre-extracted every product row.
+    Vendor catalogs are too irregular for that: 37.8% of the codes it produced
+    contained no letter at all, dates were recorded as part numbers, and one
+    vendor's sheet yielded nothing while reporting success.
+
+**The dependency rule, in one line:** `apps/*` imports `cbc`; `cbc` imports neither
+application. `tests/api/test_layering.py` asserts it, and walks function-level
+imports too — that is the shape a cycle takes when nobody wants to admit to one.
 - **MongoDB** — the system of record between the two actors. PDFs stay on the
   filesystem under `projects/{slug}/uploads/raw/`, which is what the skills expect.
 
@@ -51,7 +66,7 @@ The estimator drives the pipeline through a web app; Claude Code works behind it
   refuses `--dangerously-skip-permissions` under root, and its entrypoint marks
   `/app` trusted because an untrusted workspace silently denies every MCP call.
 - **Provider** — which Claude Code runs the passes is configured on the settings
-  screen and resolved in one place, `api/services/provider.py`. The environment
+  screen and resolved in one place, `src/cbc/services/provider.py`. The environment
   wins over the database, so Secrets Manager stays authoritative in production.
 
 Setup and the job flow: `docs/opshub_setup.md`
@@ -89,14 +104,10 @@ troubleshooting, was inlined twice.
 - Ops-Hub setup: `docs/opshub_setup.md`
 
 ## Scope
-**In-scope**: metal & wood doors; HM frames (welded/loaded & knock-down); HP-Fabrication
-doors; door hardware; Division 10 specialties; restroom partitions & accessories; washroom
-equipment / hand dryers; FRP wall panels.
-
-**Out-of-scope**: ceiling tile & grid, tile, thin brick, masonry (other HP departments);
-aluminum/glass storefront; coiling/overhead/oversized doors; engineered wood; metal siding /
-extruded aluminum; JL Industries access doors; **Scranton** (access lost); American Dryer
-(no longer used).
+Both lists, with the reason each item is out, live in
+`.claude/rules/scope-boundaries.md` — a project rule, so it is already in context.
+Restating them here put the same vendors in front of you twice every turn and gave
+two places for them to disagree.
 
 ## Vendor priority (Phase 1: top-10 only, ~90%+ of quotes)
 Hager (~75% of volume) · Allegion (Von Duprin / LCN / Schlage / Ives — bought via Banner
@@ -105,10 +116,7 @@ Rockwood · Bobrick · Bradley · ASI · World Dryer + Excel XLERATOR · Gamco.
 FRP: Marlite / NUDO / Midwest–East Coast.
 
 ## Manual cut-off (NR-13)
-Automate the stock / top-N items only. Beyond that there is a hard **MANUAL** cut-off:
-custom sizes (e.g. 9-ft doors), unusual preps, options not sold in years, distributor-bought
-lines. Do **not** attempt to price every option permutation — the estimator handles the long
-tail. See @.claude/memory/manual_cutoff.md.
+@.claude/memory/manual_cutoff.md
 
 ## Alternates and addenda (FR-14) — interim only
 The base bid and each alternate are **distinct, comparable line groups**, and an

@@ -30,6 +30,23 @@ const EDIT_FIELDS = [
 
 const COLUMNS = "190px minmax(220px,1fr) 130px 90px 100px 110px";
 
+/**
+ * A price means nothing without its basis. Every indexed price used to be shown as
+ * "list $X"; on a vendor bought at a flat net that is the cost already, and reading
+ * it as list invites multiplying it down a second time. Say which one it is, and
+ * say so plainly when the sheet does not tell us.
+ */
+function priceLabel(product: Product): string {
+  if (product.priceBasis === "net" && product.netPrice !== null && product.netPrice !== undefined) {
+    return `net $${formatMoney(product.netPrice)}`;
+  }
+  if (product.listPrice !== null) return `list $${formatMoney(product.listPrice)}`;
+  if (product.priceBasis === "unknown" && product.price !== null && product.price !== undefined) {
+    return `$${formatMoney(product.price)} ?`;
+  }
+  return "—";
+}
+
 function draftFor(product: Product): Record<string, string> {
   return {
     description: product.description ?? "",
@@ -64,6 +81,10 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
   );
 
   const products = data?.products ?? [];
+  // Pages of the vendor price books. Deliberately not merged into the product
+  // list: a page is somewhere to look, not a priced line, and showing the two as
+  // one list is what let page furniture pass for a product.
+  const pages = data?.pages ?? [];
   const selected = products.find((product) => product.id === selectedId) ?? null;
   // Indexed rows are rebuilt from the vendor PDF on every reindex and carry an
   // `idx:` id the API cannot resolve, so they are shown read-only rather than
@@ -165,7 +186,8 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
           <div>
             <h1 className="text-[20px] font-semibold">Product catalog</h1>
             <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
-              {data?.total ?? 0} parts · read from the price books, editable where they are yours
+              {data?.total ?? 0} of your own parts
+              {pages.length > 0 ? ` · ${pages.length} price-book page${pages.length === 1 ? "" : "s"} match` : ""}
             </p>
           </div>
           <button
@@ -320,9 +342,11 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
                   {/* The API says exactly why it is empty. Showing "no matches"
                       for an unbuilt index sent people looking for the wrong problem. */}
                   {data?.note ??
-                    (settledQuery || division
-                      ? "Nothing here matches that search. Clear the filters, or add the part by hand."
-                      : "Upload a price book and Claude fills the catalog in.")}
+                    (pages.length > 0
+                      ? "None of your own parts match, but the price books have pages that do — see below."
+                      : settledQuery || division
+                        ? "Nothing here matches that search. Clear the filters, or add the part by hand."
+                        : "Search for a part number or description to find the page it is on.")}
                 </span>
               </div>
             ) : (
@@ -360,9 +384,7 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
                   </span>
                   <span className="tnum text-right text-[12.5px]">
                     {product.cost === null
-                      ? product.listPrice === null
-                        ? "—"
-                        : `list $${formatMoney(product.listPrice)}`
+                      ? priceLabel(product)
                       : `$${formatMoney(product.cost)}`}
                   </span>
                   <span className="tnum truncate text-[12px]" style={{ color: "var(--app-tx-3)" }}>
@@ -386,6 +408,60 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
           </div>
         </div>
       </section>
+
+      {pages.length > 0 && (
+        <section className="flex min-h-0 min-w-0 flex-col gap-2 lg:max-w-[420px]">
+          <div>
+            <h2 className="text-[14px] font-semibold">In the price books</h2>
+            <p className="mt-0.5 text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+              {data?.pagesNote ?? "Pages worth opening. The price is on the page."}
+            </p>
+          </div>
+          <ul className="flex min-h-0 flex-col gap-2 overflow-auto">
+            {pages.map((page) => (
+              <li
+                key={`${page.catalog_id}-${page.pdf_page}`}
+                className="flex flex-col gap-1 rounded-lg p-3"
+                style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="truncate text-[12.5px] font-semibold">{page.title}</span>
+                  <span
+                    className="tnum shrink-0 text-[11px]"
+                    style={{ color: "var(--app-tx-3)" }}
+                  >
+                    {page.locator}
+                  </span>
+                </div>
+                <span className="text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                  {page.description}
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                  <span style={{ color: "var(--app-tx-3)" }}>{page.vendor}</span>
+                  {page.has_prices && (
+                    <span
+                      className="rounded px-1.5 py-0.5"
+                      style={{ background: "var(--app-line)", color: "var(--app-tx-2)" }}
+                    >
+                      {page.price_basis === "net" ? "net prices" : "list prices"}
+                    </span>
+                  )}
+                  {page.code_prefixes.slice(0, 3).map((code) => (
+                    <span key={code} className="tnum" style={{ color: "var(--app-tx-3)" }}>
+                      {code}
+                    </span>
+                  ))}
+                </div>
+                {/* Why it matched, so a page that is not what you wanted is
+                    legible rather than mysterious. */}
+                <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                  {page.why.join(" · ")}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <aside
         className="flex shrink-0 flex-col overflow-auto rounded-xl lg:w-[330px]"
@@ -445,9 +521,14 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
                 <div className="mt-4 flex flex-col gap-2">
                   {[
                     [
-                      "List price",
-                      selected.listPrice === null ? "—" : `$${formatMoney(selected.listPrice)}`,
+                      selected.priceBasis === "net"
+                        ? "Net price"
+                        : selected.priceBasis === "unknown"
+                          ? "Price (basis unrecorded)"
+                          : "List price",
+                      priceLabel(selected).replace(/^(list|net) /, ""),
                     ],
+                    ["Basis", selected.priceBasisNote ?? "—"],
                     ["Unit", selected.unit ?? "—"],
                     ["Price book", selected.priceBook ?? "—"],
                     ["Page", selected.sourcePage ? String(selected.sourcePage) : "—"],

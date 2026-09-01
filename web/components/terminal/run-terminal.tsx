@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 
 import { useJobRecording, type RecordingState } from "@/hooks/use-job-recording";
+import { recordingUnavailableMessage } from "@/lib/job-error";
 
 import { LogViewer } from "./log-viewer";
 
@@ -53,7 +54,7 @@ export function RunTerminal({
         {raw ? (
           state === "unavailable" ? (
             <div className="px-3 py-4 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
-              {reason ?? "No recording available for this job."}
+              {recordingUnavailableMessage(reason)}
             </div>
           ) : (
             <RawXtermViewer
@@ -68,7 +69,7 @@ export function RunTerminal({
           )
         ) : state === "unavailable" ? (
           <div className="px-3 py-4 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
-            {reason ?? "No recording available for this job."}
+            {recordingUnavailableMessage(reason)}
           </div>
         ) : (
           <LogViewer entries={entries} state={state} />

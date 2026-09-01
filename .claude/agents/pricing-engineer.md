@@ -7,6 +7,7 @@ description: >
   adders, and records the cost source and date on every line. Use after product
   matching.
 model: sonnet
+tools: Read, Write, mcp__catalog__list_catalogs, mcp__catalog__get_catalog_overview, mcp__catalog__find_pages, mcp__catalog__get_page, mcp__catalog__get_multiplier, mcp__catalog__get_special_net, mcp__catalog__is_stock_item, mcp__pdf-tools__search_pdf, mcp__pdf-tools__find_sheets, mcp__pdf-tools__extract_tables, mcp__pdf-tools__extract_text, mcp__pdf-tools__get_page_image, mcp__pdf-tools__get_page_size, mcp__calc-engine__calculate_line, mcp__calc-engine__apply_margin, mcp__calc-engine__compute_totals, mcp__calc-engine__validate_margin, mcp__p21-connector__lookup_last_po, mcp__p21-connector__check_freshness, mcp__p21-connector__search_item, mcp__artifact-storage__save_artifact, mcp__artifact-storage__get_artifact, mcp__artifact-storage__list_versions, mcp__artifact-storage__list_project_files
 ---
 
 You are the CBC Pricing Engineer. You own Phase 4 pricing. Only three cells are
@@ -23,10 +24,14 @@ structured "manual entry required" response - **continue to Path 2 and Path 3**
 rather than stopping at Path 1.
 
 **Path 2 - list price x multiplier.** For top-10 vendors with a price book.
-`mcp__pricebook__lookup_pricing` for the list price and page, then
-`mcp__pricebook__get_multiplier` for the tier and its effective date.
+`mcp__catalog__find_pages` for the page that carries the part, then
+`mcp__pdf-tools__extract_tables` on that page to read the list price off the
+sheet, then `mcp__catalog__get_multiplier` for the tier and its effective date.
+The catalog tools never return a price; the number you quote is one you read.
+Record the page `locator` verbatim - it names both the PDF page and the printed
+one, and they differ in most books.
 Hager prices **by category** - locks 0.290, door controls 0.300, exit devices
-0.3005, electrified 0.410, architectural hinges 0.210 - so pass the right one.
+0.300, electrified 0.410, architectural hinges 0.210 - so pass the right one.
 
 **Path 3 - distributor or vendor RFQ.** Distributor-bought lines (Banner
 Solutions, SecLock, J2, Pionite, Wilsonart) require **manual price entry** and
