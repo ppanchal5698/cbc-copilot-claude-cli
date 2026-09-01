@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -565,3 +566,75 @@ async def import_proposal_artifacts(project: dict[str, Any]) -> dict[str, bool]:
         upsert=True,
     )
     return artifacts
+
+
+def measure_bboxes(project: dict[str, Any]) -> tuple[int, int]:
+    """Give every opening the bbox of the row it was actually read from.
+
+    Runs before validation, on what the extracting pass just wrote. The pass
+    reads schedules through `extract_text`, which carries no coordinates, so by
+    the time it builds an opening the geometry is gone - and asking it for the
+    field anyway produced first six invented boxes, then six nulls.
+
+    The rows are still on the page and the values are still in the opening, so
+    the row can be found again and measured. Nothing here invents: an opening
+    that does not match exactly one row keeps a null bbox and a flag.
+
+    Returns (attached, unmatched).
+    """
+    slug = project["slug"]
+    directory = storage.project_dir(slug)
+    path = directory / "extracted" / "door_schedule.json"
+    payload = _read_json(path)
+    if payload is None:
+        return 0, 0
+
+    openings = _normalize_schedule_payload(payload)["openings"]
+    if not openings:
+        return 0, 0
+
+    raw = directory / "uploads" / "raw"
+    pdfs = sorted(raw.glob("*.pdf")) if raw.is_dir() else []
+    if not pdfs:
+        return 0, 0
+
+    import fitz
+
+    from cbc.core.pdfrows import attach_measured_bboxes
+
+    by_page: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for opening in openings:
+        page_number = opening.get("source_page")
+        if isinstance(page_number, int) and not opening.get("bbox"):
+            by_page[page_number].append(opening)
+    if not by_page:
+        return 0, 0
+
+    attached = unmatched = 0
+    for page_number, group in by_page.items():
+        named = next((o.get("source_file") for o in group if o.get("source_file")), None)
+        candidates = [p for p in pdfs if named and Path(named).name == p.name] or pdfs
+        if len(candidates) != 1:
+            continue
+        try:
+            document = fitz.open(candidates[0])
+        except Exception:
+            continue
+        try:
+            if not 0 <= page_number - 1 < document.page_count:
+                continue
+            got, missed = attach_measured_bboxes(group, document[page_number - 1])
+            attached += got
+            unmatched += missed
+        finally:
+            document.close()
+
+    if attached:
+        # Written back in the shape it arrived in, so a run that wrote a bare
+        # array or a `lines` wrapper still recognises its own file.
+        if isinstance(payload, list):
+            _write_json(path, openings)
+        else:
+            key = "openings" if "openings" in payload else "lines"
+            _write_json(path, {**payload, key: openings})
+    return attached, unmatched

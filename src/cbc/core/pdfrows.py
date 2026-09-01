@@ -205,3 +205,84 @@ def ocr_page(page: fitz.Page, dpi: int = 300) -> str:
 def has_text_layer(page: fitz.Page, minimum_chars: int = 40) -> bool:
     """Is there real text here, or is this a scan that will need OCR?"""
     return len(page.get_text().strip()) >= minimum_chars
+
+
+# Fields that corroborate a door number when matching an opening back to its row.
+# The number alone is not enough - "1" appears all over a drawing - so a match
+# needs the number in the first cell plus two of these in the same row.
+CORROBORATING = ("room_name", "width", "height", "size", "hardware_set", "door_type")
+
+
+def attach_measured_bboxes(
+    openings: list[dict[str, Any]],
+    page: fitz.Page,
+    number_key: str = "door_number",
+) -> tuple[int, int]:
+    """Fill in bboxes by finding the row each opening was read from.
+
+    The estimator checks every extracted value against a highlight on the real
+    sheet, so a bbox is the verification, not decoration. Asking the extracting
+    pass to carry one through did not work: told the field was required, a run
+    produced six boxes of identical width marching down the page in exact
+    20-point steps, and once that was rejected it produced nulls. It reads the
+    schedule from `extract_text`, which has no coordinates, and by then the
+    geometry is gone.
+
+    It does not have to be. The rows are still on the page and the values are
+    still in the opening, so the row can be found again and *measured*. This
+    never invents: an opening that cannot be matched to exactly one row keeps a
+    null bbox and is flagged, which is a visible gap rather than a wrong
+    highlight - and a wrong highlight is worse than none, because it looks
+    checked.
+
+    Returns (attached, unmatched).
+    """
+    rows = rows_from_words(page)
+    size = {"width": round(page.rect.width, 2), "height": round(page.rect.height, 2)}
+    attached = unmatched = 0
+
+    for opening in openings:
+        if opening.get("bbox"):
+            continue
+        number = str(opening.get(number_key) or "").strip()
+        if not number:
+            continue
+        corroborants = [
+            str(opening.get(key) or "").strip()
+            for key in CORROBORATING
+            if str(opening.get(key) or "").strip()
+        ]
+
+        # A schedule row that carries more than one door number is a run of
+        # openings the clustering could not separate - door 6 first matched a row
+        # reading "6 | 6'-0" | 4 | 3 | WASHING | ..." whose box spanned almost the
+        # full sheet. Highlighting that would point the estimator at three doors
+        # at once, which is the wrong-highlight-that-looks-checked case again.
+        others = {
+            str(other.get(number_key) or "").strip()
+            for other in openings
+            if str(other.get(number_key) or "").strip() not in ("", number)
+        }
+
+        hits = [
+            row
+            for row in rows
+            if row["cells"]
+            and row["cells"][0].strip() == number
+            and sum(1 for value in corroborants if value in row["text"]) >= 2
+            and not others.intersection(cell.strip() for cell in row["cells"][1:])
+        ]
+        if len(hits) == 1:
+            opening["bbox"] = hits[0]["bbox"]
+            opening["cell_boxes"] = hits[0]["cell_boxes"]
+            opening["page_size"] = size
+            attached += 1
+        else:
+            unmatched += 1
+            flags = opening.setdefault("flags", [])
+            note = (
+                "bbox_row_ambiguous" if len(hits) > 1 else "bbox_row_not_found"
+            )
+            if note not in flags:
+                flags.append(note)
+    return attached, unmatched

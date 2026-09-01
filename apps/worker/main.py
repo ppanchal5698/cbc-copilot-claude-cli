@@ -271,6 +271,20 @@ async def sync_results(job: dict, project: dict | None) -> str:
         return ""
 
     slug = project["slug"]
+    # Measure bboxes before validating them. The extracting pass reads schedules
+    # through extract_text, which has no coordinates, so it cannot carry one -
+    # told the field was required it invented six, and once those were rejected
+    # it wrote six nulls. The rows are still on the page, so they are found again
+    # and measured here. Deterministic, and it never invents: an opening that
+    # does not match exactly one row keeps a null bbox and a flag.
+    if job["type"] in ("extract_bid_set", "rerun_extraction", "run_full_pipeline"):
+        attached, unmatched = sync.measure_bboxes(project)
+        if attached or unmatched:
+            log.info(
+                "%s bbox: %d measured from the sheet, %d left null and flagged",
+                project.get("code", slug), attached, unmatched,
+            )
+
     if job["type"] in (
         "extract_bid_set",
         "rerun_extraction",

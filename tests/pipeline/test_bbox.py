@@ -170,3 +170,82 @@ def test_a_row_is_grouped_as_it_appears_on_screen(tmp_path):
     assert any("DOOR" in t and "101" in t for t in rows), (
         f"one on-screen row split across rows -> {rows}"
     )
+
+
+def _schedule_sheet(tmp_path):
+    """Two schedule rows and one row that runs several doors together."""
+    import fitz
+
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    # Columns are placed apart, as a schedule draws them - words closer than
+    # COLUMN_GAP cluster into one cell and the door number stops being cell 0.
+    for y, fields in (
+        (200, ["1", "DINING", "3'-0\"", "7'-0\"", "A"]),
+        (220, ["2", "LOBBY", "6'-0\"", "7'-0\"", "B"]),
+        (240, ["5", "6'-0\"", "4", "3", "WASHING", "3'-6\""]),
+    ):
+        for column, text in enumerate(fields):
+            page.insert_text((72 + column * 60, y), text, fontsize=9)
+    path = tmp_path / "schedule.pdf"
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_a_bbox_is_measured_from_the_row_the_opening_came_from(tmp_path):
+    """The extracting pass cannot carry coordinates, so they are recovered here.
+
+    It reads schedules through `extract_text`, which has none. Told the field was
+    required it produced six boxes of identical width marching down the page in
+    exact 20-point steps; once those were rejected it produced six nulls. The
+    rows are still on the page and the values are still in the opening.
+    """
+    import fitz
+
+    from cbc.core.pdfrows import attach_measured_bboxes
+
+    doc = fitz.open(_schedule_sheet(tmp_path))
+    page = doc[0]
+    openings = [
+        {"door_number": "1", "room_name": "DINING", "width": "3'-0\"", "height": "7'-0\""},
+        {"door_number": "2", "room_name": "LOBBY", "width": "6'-0\"", "height": "7'-0\""},
+    ]
+    attached, unmatched = attach_measured_bboxes(openings, page)
+
+    assert (attached, unmatched) == (2, 0)
+    for opening in openings:
+        assert fitz.Rect(opening["bbox"]) in page.rect
+        assert opening["page_size"] == {
+            "width": round(page.rect.width, 2),
+            "height": round(page.rect.height, 2),
+        }
+    # Different rows, so different boxes - not one shape repeated down the page.
+    assert openings[0]["bbox"] != openings[1]["bbox"]
+    doc.close()
+
+
+def test_a_row_holding_several_doors_is_refused(tmp_path):
+    """A wrong highlight is worse than none, because it looks checked.
+
+    Door 5's row on the real sheet reads "5 | 6'-0" | 4 | 3 | WASHING | ..." -
+    three openings the clustering could not separate. Its box spans nearly the
+    full sheet, so highlighting it would point the estimator at three doors and
+    claim to have verified one.
+    """
+    import fitz
+
+    from cbc.core.pdfrows import attach_measured_bboxes
+
+    doc = fitz.open(_schedule_sheet(tmp_path))
+    openings = [
+        {"door_number": "3"},
+        {"door_number": "4"},
+        {"door_number": "5", "width": "6'-0\"", "room_name": "WASHING"},
+    ]
+    attached, unmatched = attach_measured_bboxes(openings, doc[0])
+
+    assert attached == 0, "a row carrying three door numbers must not be claimed by one"
+    assert all(o.get("bbox") is None for o in openings)
+    assert any("bbox_row_not_found" in o.get("flags", []) for o in openings)
+    doc.close()
