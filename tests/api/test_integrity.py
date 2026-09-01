@@ -338,6 +338,44 @@ def test_prose_naming_a_protected_path_is_not_a_write() -> None:
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.parametrize(
+    "heredoc",
+    [
+        (
+            "python - <<'PY'\n"
+            "text = '`rm -rf` outside `projects/`, and `git push`'\n"
+            "Path('docs/guardrails.md').write_text(text)\n"
+            "PY"
+        ),
+        (
+            "python - <<'PY'\n"
+            "step = 'sudo chown -R 1000:1000 projects pricebooks'\n"
+            "Path('.github/workflows/ci.yml').write_text(step)\n"
+            "PY"
+        ),
+    ],
+)
+def test_heredoc_bodies_do_not_trigger_command_text_scans(heredoc: str) -> None:
+    """Documentation inside a heredoc is not shell — only the prefix is scanned."""
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": heredoc}})
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "command,rule",
+    [
+        ("git push origin main", "git-push"),
+        ("sudo chown -R 1000:1000 pricebooks", "protected-bash-write"),
+    ],
+)
+def test_real_forbidden_commands_still_block_and_name_the_rule(
+    command: str, rule: str
+) -> None:
+    result = _run_guard({"tool_name": "Bash", "tool_input": {"command": command}})
+    assert result.returncode == 2, result.stdout
+    assert f"rule={rule}" in result.stderr
+
+
 def test_an_mcp_read_tool_may_name_a_price_book() -> None:
     """The counterpart to the save_artifact test above.
 
