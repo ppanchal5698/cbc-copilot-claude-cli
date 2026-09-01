@@ -151,6 +151,22 @@ def rank_pages(
                     "code_prefixes": page.code_prefixes,
                     "keywords": page.keywords,
                     "has_prices": page.has_prices,
+                    **(
+                        {
+                            "price_columns": page.price_columns,
+                            "caution": (
+                                "This page prints more than one money column ("
+                                + ", ".join(page.price_columns)
+                                + "). Read the LIST column. MAP is a minimum "
+                                "advertised price - an advertising floor, not a "
+                                "cost basis - and on ASI pages it runs about 55% "
+                                "of list, so taking it and applying the vendor "
+                                "multiplier underquotes the line by half."
+                            ),
+                        }
+                        if page.price_columns
+                        else {}
+                    ),
                     "kind": page.kind,
                     "price_basis": document.price_basis,
                     "effective_date": document.effective_date,

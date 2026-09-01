@@ -78,6 +78,13 @@ class PageEntry(BaseModel):
     # down - and without it a search for "hand dryer" matches nothing.
     keywords: list[str] = Field(default_factory=list)
     has_prices: bool = False
+    # The price-column headings on this page, when it shows more than one. ASI
+    # prints "LIST PRICE" beside "**MAP PRICING", and MAP is roughly 55% of list
+    # - so a pass that takes the rightmost number gets a figure that is not a
+    # price at all, multiplies it, and underquotes the line. MAP is a floor for
+    # advertising, never a cost. Recorded here so find_pages can say so at the
+    # moment a page is handed over.
+    price_columns: list[str] = Field(default_factory=list)
     kind: PageKind = "unknown"
     # How much the profile actually resolved here. A scanned page that fell back
     # to a default scores low rather than being presented as read.
@@ -158,6 +165,7 @@ class PageIndexDocument(BaseModel):
                     "keywords": p.keywords,
                     "hasPrices": p.has_prices,
                     "kind": p.kind,
+                    **({"priceColumns": p.price_columns} if p.price_columns else {}),
                     "confidence": p.confidence,
                     **({"sheet": p.sheet} if p.sheet else {}),
                     **({"rows": p.rows} if p.rows else {}),
@@ -205,6 +213,7 @@ class PageIndexDocument(BaseModel):
                     description=p.get("description", ""),
                     code_prefixes=p.get("codePrefixes", []),
                     keywords=p.get("keywords", []),
+                    price_columns=p.get("priceColumns", []),
                     has_prices=p.get("hasPrices", False),
                     kind=p.get("kind", "unknown"),
                     confidence=p.get("confidence", 0.0),

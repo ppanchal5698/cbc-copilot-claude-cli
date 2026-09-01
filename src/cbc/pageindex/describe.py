@@ -273,6 +273,41 @@ def _summarise(
     return " ".join(parts)[:400]
 
 
+# Headings that name a money column. A page showing more than one of these is
+# showing more than one kind of number, and only one of them is a cost basis.
+_PRICE_COLUMN_HEADINGS = (
+    ("MINIMUM ADVERTISED", "MAP"),
+    ("MAP", "MAP"),
+    ("LIST PRICE", "LIST"),
+    ("NET PRICE", "NET"),
+    ("DEALER", "DEALER"),
+)
+
+
+def _price_columns(body: list[str]) -> list[str]:
+    """Which money columns this page prints, when it prints more than one.
+
+    ASI heads its price tables "LIST PRICE | **MAP PRICING", and MAP runs about
+    55% of list - 145.70 against 80.10 on page 35. A pass that takes the
+    rightmost number on the row gets MAP, applies the vendor multiplier to it and
+    quotes roughly half what the part costs, which is the error that wins a bid
+    and loses money on it. MAP is an advertising floor, never a cost basis, and
+    the only place that fact arrives in time is the page itself.
+    """
+    found: dict[str, int] = {}
+    for line in body:
+        upper = line.upper()
+        for needle, label in _PRICE_COLUMN_HEADINGS:
+            at = upper.find(needle)
+            if at >= 0 and label not in found:
+                found[label] = at
+    # Left to right, as the page prints them, so the reader can see that LIST
+    # comes before MAP rather than having to know it.
+    ordered = sorted(found, key=lambda label: found[label])
+    # One money column is an ordinary price list; two is the trap.
+    return ordered if len(ordered) > 1 else []
+
+
 def describe_page(
     text: str,
     pdf_page: int,
@@ -300,6 +335,7 @@ def describe_page(
         body = body[1:]
 
     has_prices = bool(_PRICE.search("\n".join(body)))
+    price_columns = _price_columns(body) if has_prices else []
     prefixes = _code_prefixes(body, profile.code_pattern)
     keywords = _keywords(body)
     kind, confidence = _classify(body, has_prices, len(prefixes))
@@ -325,6 +361,7 @@ def describe_page(
         code_prefixes=prefixes,
         keywords=keywords,
         has_prices=has_prices,
+        price_columns=price_columns,
         kind=kind,
         confidence=round(confidence, 2),
         sheet=sheet,

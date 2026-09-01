@@ -278,3 +278,62 @@ def test_a_part_from_another_family_still_does_not_match() -> None:
         ],
     )
     assert rank_pages([document], "8400")["count"] == 0
+
+
+def test_a_page_with_two_money_columns_is_marked() -> None:
+    """MAP is an advertising floor, not a cost basis.
+
+    ASI heads its price tables "LIST PRICE | **MAP PRICING" on 33 pages, and MAP
+    runs about 55% of list - 145.70 against 80.10 on page 35. A pass that takes
+    the rightmost number on the row gets MAP, applies the vendor multiplier and
+    quotes half what the part costs: the error that wins a bid and loses money.
+    """
+    from cbc.pageindex.describe import describe_page
+    from cbc.pageindex.models import PageProfile
+
+    text = "\n".join(
+        [
+            "WASHROOM ACCESSORIES",
+            "MODEL NUMBER  DESCRIPTION  LIST PRICE  **MAP PRICING",
+            "10-0210-41  Paper Towel Dispenser  145.70  80.10",
+        ]
+    )
+    entry = describe_page(text, 35, PageProfile())
+    assert entry.price_columns == ["LIST", "MAP"]
+
+
+def test_an_ordinary_price_page_is_not_marked() -> None:
+    """One money column is a price list, not a trap - Hager prints only list."""
+    from cbc.pageindex.describe import describe_page
+    from cbc.pageindex.models import PageProfile
+
+    text = "\n".join(
+        ["Locks - 3400 Series", "3453  Storeroom Lock  US26D  $256.31"]
+    )
+    assert describe_page(text, 297, PageProfile()).price_columns == []
+
+
+def test_the_caution_reaches_the_run_that_opens_the_page() -> None:
+    """Recorded in the index is not enough; it has to arrive with the page."""
+    from cbc.pageindex.models import PageEntry, PageIndexDocument
+    from cbc.pageindex.query import rank_pages
+
+    document = PageIndexDocument(
+        catalog_id="asi_price_list",
+        vendor="asi",
+        file_name="asi_price_list.pdf",
+        file_hash="sha256:x",
+        pages=[
+            PageEntry(
+                pdf_page=35,
+                title="Washroom Accessories",
+                code_prefixes=["10-0210"],
+                has_prices=True,
+                price_columns=["LIST", "MAP"],
+                confidence=0.9,
+            )
+        ],
+    )
+    hit = rank_pages([document], "10-0210")["pages"][0]
+    assert hit["price_columns"] == ["LIST", "MAP"]
+    assert "MAP" in hit["caution"] and "not a" in hit["caution"]
