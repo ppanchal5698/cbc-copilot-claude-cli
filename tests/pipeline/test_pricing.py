@@ -213,3 +213,65 @@ def test_a_numeric_two_finishes_share_is_flagged_not_guessed():
     result = resolve_finish("619")
     assert result["ambiguous"] is True
     assert set(result["candidates"]) == {"US19", "US15"}
+
+
+def _lite_kits():
+    import json
+
+    from tests.shared import ROOT
+
+    path = ROOT / "reference-library" / "adders" / "lite_kit_prices.json"
+    if not path.exists():
+        pytest.skip("run scripts/extract_lite_kits.py to build the lite-kit table")
+    return json.load(path.open(encoding="utf-8"))
+
+
+def test_the_lite_kit_grid_matches_the_printed_page():
+    """Cells read by hand off page 30 of the National Guard list (NR-8).
+
+    The grid is read by right edge, because the numbers are right-aligned: a
+    two-digit price starts about a digit further right than a three-digit one,
+    and matching left edges silently shifts a whole column. NGP really does
+    print 95 at 10x10 and 78 at 12x12 while the neighbours run 113-143 - those
+    are the catalog's numbers and reproducing them faithfully is the job.
+    """
+    table = next(t for t in _lite_kits()["tables"] if t["pdf_page"] == 30)
+    assert table["widths"] == [6, 8, 10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36]
+
+    row10 = [table["prices"]["10"].get(str(w)) for w in table["widths"]]
+    assert row10 == [113, 113, 95, 143, 149, 149, 157, 173, 177, 181, 183, 193, 193, 193, 197, 197]
+    assert table["prices"]["12"]["12"] == 78
+
+
+def test_no_column_header_was_read_as_a_price():
+    """Three pages carry a second width header below the first.
+
+    It reads as a data row whose "prices" are the widths themselves - 8 under
+    width 8, 12 under width 12 - and contributed 38 cells that were column
+    labels wearing a price before the filter caught them.
+    """
+    for table in _lite_kits()["tables"]:
+        for height, row in table["prices"].items():
+            echoes = sum(1 for width, value in row.items() if str(value) == str(width))
+            assert echoes < max(3, len(row) // 2), (
+                f"page {table['pdf_page']} height {height} looks like a header row"
+            )
+
+
+def test_every_lite_kit_price_is_plausible():
+    """A lite kit is not eight dollars. The low outliers were header rows."""
+    values = [v for t in _lite_kits()["tables"] for r in t["prices"].values() for v in r.values()]
+    assert values, "no prices extracted"
+    assert min(values) >= 60, f"implausible low price: {min(values)}"
+
+
+def test_the_option_rules_survive_their_line_wrapping():
+    """The rules are the adders, and the PDF wraps them mid-sentence.
+
+    "Mullion Bars available ... -" continues on the next line with "price of
+    Lite Kit plus $236 per Mullion Bar"; the money is on the continuation.
+    """
+    table = next(t for t in _lite_kits()["tables"] if t["pdf_page"] == 30)
+    joined = " | ".join(table["rules"])
+    assert "$236 per Mullion Bar" in joined
+    assert "$11.00 per perimeter inch" in joined
