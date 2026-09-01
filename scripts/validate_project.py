@@ -210,17 +210,22 @@ def check_extraction(project: str, *, require_scope: bool = False) -> tuple[list
         problems.append(f"{project}: door_schedule.json is not valid JSON: {exc}")
         return problems, warnings
 
+    # Take the same shapes the importer takes, and no fewer. This gate runs
+    # first, so anything it refuses never reaches sync - and it was refusing a
+    # bare array that `_normalize_schedule_payload` has always accepted, and a
+    # `lines` wrapper that a run produced with every opening intact. A gate
+    # stricter than the thing it guards fails work that would have imported
+    # cleanly. What each opening must contain is checked below, unchanged.
     if isinstance(payload, list):
-        problems.append(
-            f"{project}: door_schedule.json must be {{\"openings\": [...]}}, not a bare array"
-        )
+        openings = payload
+    elif isinstance(payload, dict):
+        openings = payload.get("openings")
+        if not openings and isinstance(payload.get("lines"), list):
+            openings = payload["lines"]
+        openings = openings or []
+    else:
+        problems.append(f"{project}: door_schedule.json must be a JSON object or an array")
         return problems, warnings
-
-    if not isinstance(payload, dict):
-        problems.append(f"{project}: door_schedule.json must be a JSON object")
-        return problems, warnings
-
-    openings = payload.get("openings", [])
     if not openings:
         problems.append(f"{project}: door_schedule.json contains no openings")
 

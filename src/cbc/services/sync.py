@@ -64,6 +64,15 @@ def _normalize_schedule_payload(payload: dict[str, Any] | list[Any]) -> dict[str
     if not isinstance(payload, dict):
         raise ValueError("extracted/door_schedule.json must be a JSON object or openings array")
 
+    # `lines` is the key the priced artifact uses, and a run that writes both
+    # files in one pass reaches for it here too - it wrote a complete schedule,
+    # every opening carrying page_size, confidence and flags, under `lines`, and
+    # the import read zero openings and failed the whole pipeline. The file is
+    # the door schedule whichever word wraps the array, so take either. Field
+    # aliases below have worked this way all along.
+    if "openings" not in payload and isinstance(payload.get("lines"), list):
+        payload = {**payload, "openings": payload["lines"]}
+
     openings = []
     for item in payload.get("openings", []):
         if not isinstance(item, dict):

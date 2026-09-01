@@ -50,10 +50,36 @@ def validate_project(tmp_path, monkeypatch):
     shutil.rmtree(project_dir, ignore_errors=True)
 
 
-def test_extraction_rejects_bare_array(validate_project):
-    _write(validate_project, "extracted/door_schedule.json", [{"door_number": "01"}])
-    problems, _ = check_extraction(validate_project)
-    assert any("bare array" in p for p in problems)
+def test_extraction_takes_the_shapes_the_importer_takes(validate_project):
+    """The gate must not refuse what sync would have imported cleanly.
+
+    `_normalize_schedule_payload` has always accepted a bare array, and accepts
+    a `lines` wrapper since a run wrote a complete schedule under that key. This
+    check runs *before* sync, so anything it refuses never gets there - and it
+    was failing whole pipelines over the word wrapping the array while every
+    opening inside was well formed.
+
+    The shape is tolerated; the contents are not. Each opening still goes
+    through every per-opening check, which the assertions below pin.
+    """
+    for payload in (
+        [_good_opening()],                    # bare array
+        {"openings": [_good_opening()]},      # canonical
+        {"lines": [_good_opening()]},         # the priced artifact's key
+    ):
+        _write(validate_project, "extracted/door_schedule.json", payload)
+        problems, _ = check_extraction(validate_project)
+        assert not problems, f"{payload!r} was refused: {problems}"
+
+    # ... and a bad opening is still caught inside every one of those shapes.
+    for payload in (
+        [{"door_number": "01"}],
+        {"openings": [{"door_number": "01"}]},
+        {"lines": [{"door_number": "01"}]},
+    ):
+        _write(validate_project, "extracted/door_schedule.json", payload)
+        problems, _ = check_extraction(validate_project)
+        assert any("bbox" in p for p in problems), payload
 
 
 def test_extraction_requires_bbox_and_confidence(validate_project):
