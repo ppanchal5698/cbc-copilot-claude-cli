@@ -29,7 +29,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "reference-library"
 PRICEBOOKS = ROOT / "pricebooks"
-SERVERS = ["pdf-tools", "pricebook", "calc-engine", "artifact-storage", "p21-connector"]
+# Mirrors .mcp.json. `pricebook` was here until it turned out to be a pure alias
+# over `catalog` and was deleted; the pre-flight was still checking for it.
+SERVERS = ["pdf-tools", "catalog", "calc-engine", "artifact-storage", "p21-connector"]
 HOOKS = [
     "pre_send_quote.py",
     "pre_delete_guard.py",
@@ -102,6 +104,113 @@ def _valid_bbox(box: Any) -> bool:
         and box[2] > box[0]
         and box[3] > box[1]
     )
+
+
+# How much of a claimed box has to sit on text the extractor actually found.
+# Measured on a real fabrication: six invented boxes scored 0.001-0.179 against
+# page 19 of the Baldwin set, while every real row and every real cell scores
+# 1.000. Half is a wide margin either way.
+BBOX_COVERAGE = 0.5
+
+
+def _page_boxes(pdf_path: Path, page_number: int) -> tuple[list, tuple[float, float]] | None:
+    """Every row and cell box the extractor finds on one page, in display space."""
+    try:
+        import fitz
+
+        sys.path.insert(0, str(ROOT / "src"))
+        from cbc.core.pdfrows import rows_from_words
+    except Exception:
+        return None
+    try:
+        document = fitz.open(pdf_path)
+    except Exception:
+        return None
+    try:
+        if not 0 <= page_number - 1 < document.page_count:
+            return None
+        page = document[page_number - 1]
+        boxes = []
+        for row in rows_from_words(page):
+            boxes.append(fitz.Rect(row["bbox"]))
+            boxes.extend(fitz.Rect(cell) for cell in row["cell_boxes"])
+        return boxes, (page.rect.width, page.rect.height)
+    finally:
+        document.close()
+
+
+def check_bboxes_are_real(project: str, openings: list[dict]) -> tuple[list[str], list[str]]:
+    """Every bbox must land on text that is genuinely there.
+
+    The estimator verifies extracted values by eye against a highlight on the
+    real sheet, so a bbox is not decoration - it is the check itself. A run
+    produced six boxes of identical width marching down the page in exact
+    20-point steps: an arithmetic sequence, invented to satisfy a rule that only
+    asked whether a bbox was well formed. Shape is not truth, and in a drawing
+    as dense as a plan set an invented box still overlaps *something*, so
+    "contains a word" does not separate them either.
+
+    What does: a real box is one the extractor could have produced. Compare each
+    claim against the rows and cells actually on that page.
+    """
+    problems: list[str] = []
+    warnings: list[str] = []
+
+    raw = ROOT / "projects" / project / "uploads" / "raw"
+    pdfs = sorted(raw.glob("*.pdf")) if raw.is_dir() else []
+
+    cache: dict[tuple[str, int], Any] = {}
+    for index, opening in enumerate(openings, start=1):
+        label = opening.get("door_number") or opening.get("mark") or f"opening {index}"
+        box = opening.get("bbox")
+        page_number = opening.get("source_page")
+        if not _valid_bbox(box) or not isinstance(page_number, int):
+            continue  # already reported by the shape checks
+
+        named = opening.get("source_file")
+        candidates = [p for p in pdfs if named and Path(named).name == p.name] or pdfs
+        if len(candidates) != 1:
+            warnings.append(
+                f"{project}: opening {label} cannot be checked against its sheet - "
+                f"{'no source_file and ' if not named else ''}"
+                f"{len(pdfs)} PDF(s) in uploads/raw"
+            )
+            continue
+        pdf = candidates[0]
+
+        key = (pdf.name, page_number)
+        if key not in cache:
+            cache[key] = _page_boxes(pdf, page_number)
+        found = cache[key]
+        if found is None:
+            warnings.append(f"{project}: could not read {pdf.name} page {page_number} to check bboxes")
+            continue
+        boxes, (width, height) = found
+
+        size = opening.get("page_size") or {}
+        if isinstance(size, dict) and size.get("width") and size.get("height"):
+            if abs(size["width"] - width) > 1 or abs(size["height"] - height) > 1:
+                problems.append(
+                    f"{project}: opening {label} records page_size "
+                    f"{size['width']}x{size['height']} but page {page_number} of "
+                    f"{pdf.name} is {width:g}x{height:g}. A bbox scaled against the "
+                    "wrong frame lands nowhere near its row"
+                )
+
+        import fitz
+
+        claim = fitz.Rect(box)
+        area = claim.get_area()
+        covered = max(
+            ((claim & other).get_area() / area if area else 0.0) for other in boxes
+        ) if boxes and area else 0.0
+        if covered < BBOX_COVERAGE:
+            problems.append(
+                f"{project}: opening {label} bbox {box} does not sit on any text "
+                f"found on page {page_number} (covers {covered:.0%}). It was not "
+                "measured - take it from the extractor's row, do not construct one"
+            )
+    return problems, warnings
 
 
 def _valid_page_size(page_size: Any) -> bool:
@@ -269,6 +378,12 @@ def check_extraction(project: str, *, require_scope: bool = False) -> tuple[list
         for field in SOFT_FIELDS:
             if opening.get(field) is None:
                 warnings.append(f"{project}: opening {label} is missing {field}")
+
+    # Shape is checked above; this checks the numbers are real. It opens the
+    # sheet, so it runs once per page rather than once per opening.
+    box_problems, box_warnings = check_bboxes_are_real(project, openings)
+    problems.extend(box_problems)
+    warnings.extend(box_warnings)
 
     frp_path = extracted / "frp_takeoff.json"
     if frp_path.exists():

@@ -401,3 +401,80 @@ def test_a_real_citation_passes(validate_project):
     )
     problems, _ = check_pricing(validate_project)
     assert not [p for p in problems if "price-book file" in p], problems
+
+
+def _sheet_with_text(project: str):
+    """A one-page drawing in the project's uploads, and its real row boxes."""
+    import fitz
+
+    from cbc.core.pdfrows import rows_from_words
+
+    raw = ROOT / "projects" / project / "uploads" / "raw"
+    raw.mkdir(parents=True, exist_ok=True)
+    path = raw / "sheet.pdf"
+
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.insert_text((72, 300), "DOOR 101 3070 LH US26D", fontsize=11)
+    doc.save(path)
+    doc.close()
+
+    doc = fitz.open(path)
+    page = doc[0]
+    rows = rows_from_words(page)
+    size = {"width": round(page.rect.width, 2), "height": round(page.rect.height, 2)}
+    doc.close()
+    return rows, size
+
+
+def test_a_measured_bbox_is_accepted(validate_project):
+    rows, size = _sheet_with_text(validate_project)
+    _write(
+        validate_project,
+        "extracted/door_schedule.json",
+        {"openings": [_good_opening(bbox=rows[0]["bbox"], page_size=size, source_page=1)]},
+    )
+    problems, _ = check_extraction(validate_project)
+    assert not [p for p in problems if "bbox" in p], problems
+
+
+def test_an_invented_bbox_is_rejected(validate_project):
+    """Shape is not truth.
+
+    A run wrote six boxes of identical width marching down page 19 in exact
+    20-point steps - an arithmetic sequence, invented to satisfy a rule that only
+    asked whether a bbox was well formed. The estimator verifies every extracted
+    value against a highlight on the real sheet, so a box that points at blank
+    paper is worse than no box: it looks checked.
+    """
+    _, size = _sheet_with_text(validate_project)
+    _write(
+        validate_project,
+        "extracted/door_schedule.json",
+        {
+            "openings": [
+                _good_opening(door_number="01", bbox=[42, 500, 200, 520], page_size=size, source_page=1),
+                _good_opening(door_number="02", bbox=[42, 520, 200, 540], page_size=size, source_page=1),
+            ]
+        },
+    )
+    problems, _ = check_extraction(validate_project)
+    assert len([p for p in problems if "does not sit on any text" in p]) == 2, problems
+
+
+def test_a_page_size_from_the_wrong_frame_is_rejected(validate_project):
+    """Transposed dimensions are how the highlight drifted in the first place.
+
+    A bbox is scaled against page_size by the viewer. Record the unrotated
+    mediabox while measuring in the rotated frame - 1584x2448 against 2448x1584 -
+    and the box lands nowhere near its row even though every number is real.
+    """
+    rows, size = _sheet_with_text(validate_project)
+    swapped = {"width": size["height"], "height": size["width"]}
+    _write(
+        validate_project,
+        "extracted/door_schedule.json",
+        {"openings": [_good_opening(bbox=rows[0]["bbox"], page_size=swapped, source_page=1)]},
+    )
+    problems, _ = check_extraction(validate_project)
+    assert any("records page_size" in p for p in problems), problems
