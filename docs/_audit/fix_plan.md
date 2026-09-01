@@ -82,7 +82,8 @@ is read by every session.
 - **Proposed fix:** Reduce both to one-line pointers. Keep `## Non-negotiable guardrails` — 406 B, earns its place as an index.
 - **Risk:** high — shared content; conservative, and no rule text is lost since both sources stay auto-loaded.
 - **Verification:** the out-of-scope vendor list appears exactly once across auto-loaded files; `CLAUDE.md` shrinks with no rule losing its only statement.
-- **Status:** pending
+- **Status:** done — Scranton / American Dryer / JL Industries now in `scope-boundaries.md` only; 9-ft doors / option permutation in `manual_cutoff.md` only; both owners still auto-loaded
+- **Notes:** `## Non-negotiable guardrails` kept as planned. Net `CLAUDE.md` 8011 → 7620 B; the trim is larger than that figure suggests since Task 6 added the PageIndex description in the same file.
 
 ---
 

@@ -104,14 +104,10 @@ troubleshooting, was inlined twice.
 - Ops-Hub setup: `docs/opshub_setup.md`
 
 ## Scope
-**In-scope**: metal & wood doors; HM frames (welded/loaded & knock-down); HP-Fabrication
-doors; door hardware; Division 10 specialties; restroom partitions & accessories; washroom
-equipment / hand dryers; FRP wall panels.
-
-**Out-of-scope**: ceiling tile & grid, tile, thin brick, masonry (other HP departments);
-aluminum/glass storefront; coiling/overhead/oversized doors; engineered wood; metal siding /
-extruded aluminum; JL Industries access doors; **Scranton** (access lost); American Dryer
-(no longer used).
+Both lists, with the reason each item is out, live in
+`.claude/rules/scope-boundaries.md` — a project rule, so it is already in context.
+Restating them here put the same vendors in front of you twice every turn and gave
+two places for them to disagree.
 
 ## Vendor priority (Phase 1: top-10 only, ~90%+ of quotes)
 Hager (~75% of volume) · Allegion (Von Duprin / LCN / Schlage / Ives — bought via Banner
@@ -120,10 +116,7 @@ Rockwood · Bobrick · Bradley · ASI · World Dryer + Excel XLERATOR · Gamco.
 FRP: Marlite / NUDO / Midwest–East Coast.
 
 ## Manual cut-off (NR-13)
-Automate the stock / top-N items only. Beyond that there is a hard **MANUAL** cut-off:
-custom sizes (e.g. 9-ft doors), unusual preps, options not sold in years, distributor-bought
-lines. Do **not** attempt to price every option permutation — the estimator handles the long
-tail. See @.claude/memory/manual_cutoff.md.
+@.claude/memory/manual_cutoff.md
 
 ## Alternates and addenda (FR-14) — interim only
 The base bid and each alternate are **distinct, comparable line groups**, and an
