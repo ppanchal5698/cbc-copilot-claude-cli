@@ -22,6 +22,10 @@ interface TerminalReplay {
   status?: string | null;
 }
 
+function byteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
 export function useJobRecording(
   jobId: string,
   options?: {
@@ -38,6 +42,7 @@ export function useJobRecording(
   const carried = useRef("");
   const rawCarried = useRef("");
   const offset = useRef(0);
+  const seenEntryIds = useRef(new Set<string>());
 
   // Callbacks are read through refs so that a caller passing an inline function
   // does not tear down and re-open the EventSource on every render.
@@ -60,10 +65,64 @@ export function useJobRecording(
   useEffect(() => {
     let disposed = false;
     let source: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const endedRef = useRef(false);
 
     carried.current = "";
     rawCarried.current = "";
     offset.current = 0;
+    seenEntryIds.current = new Set();
+    endedRef.current = false;
+
+    const appendEntries = (incoming: LogEntry[]) => {
+      if (!incoming.length) return;
+      setEntries((prev) => {
+        const fresh = incoming.filter((entry) => {
+          if (seenEntryIds.current.has(entry.id)) return false;
+          seenEntryIds.current.add(entry.id);
+          return true;
+        });
+        return fresh.length ? mergeEntries(prev, fresh) : prev;
+      });
+    };
+
+    const openStream = () => {
+      if (disposed) return;
+      source?.close();
+      source = new EventSource(
+        `/api/proxy/jobs/${jobId}/terminal/stream?offset=${offset.current}`,
+      );
+      setState("live");
+
+      source.addEventListener("output", (event) => {
+        const chunk = decodeBase64Recording((event as MessageEvent).data);
+        offset.current += byteLength(chunk);
+
+        if (parseEntries) {
+          const next = parseStream(chunk, carried.current);
+          carried.current = next.remainder;
+          appendEntries(next.entries);
+        }
+
+        const rawNext = renderStream(chunk, rawCarried.current, true);
+        rawCarried.current = rawNext.remainder;
+        if (rawNext.lines) onRawChunkRef.current?.(rawNext.lines);
+      });
+
+      source.addEventListener("end", (event) => {
+        endedRef.current = true;
+        setState("ended");
+        source?.close();
+        onFinishedRef.current?.((event as MessageEvent).data);
+      });
+
+      source.onerror = () => {
+        source?.close();
+        if (disposed || endedRef.current) return;
+        reconnectTimer = setTimeout(openStream, 1500);
+      };
+    };
 
     (async () => {
       let replay: TerminalReplay;
@@ -96,54 +155,26 @@ export function useJobRecording(
         if (parseEntries) {
           const first = parseStream(decoded, "");
           carried.current = first.remainder;
-          setEntries(first.entries);
+          appendEntries(first.entries);
         }
         const rawFirst = renderStream(decoded, "", true);
         rawCarried.current = rawFirst.remainder;
         if (rawFirst.lines) onRawChunkRef.current?.(rawFirst.lines);
-        offset.current = replay.bytes ?? decoded.length;
+        offset.current = replay.bytes ?? byteLength(decoded);
       }
 
       if (replay.status && ["done", "failed", "cancelled"].includes(replay.status)) {
+        endedRef.current = true;
         setState("ended");
         return;
       }
 
-      source = new EventSource(
-        `/api/proxy/jobs/${jobId}/terminal/stream?offset=${offset.current}`,
-      );
-      setState("live");
-
-      source.addEventListener("output", (event) => {
-        const chunk = decodeBase64Recording((event as MessageEvent).data);
-        offset.current += chunk.length;
-
-        if (parseEntries) {
-          const next = parseStream(chunk, carried.current);
-          carried.current = next.remainder;
-          if (next.entries.length) {
-            setEntries((prev) => mergeEntries(prev, next.entries));
-          }
-        }
-
-        const rawNext = renderStream(chunk, rawCarried.current, true);
-        rawCarried.current = rawNext.remainder;
-        if (rawNext.lines) onRawChunkRef.current?.(rawNext.lines);
-      });
-
-      source.addEventListener("end", (event) => {
-        setState("ended");
-        source?.close();
-        onFinishedRef.current?.((event as MessageEvent).data);
-      });
-
-      source.onerror = () => {
-        if (source?.readyState === EventSource.CLOSED) setState("ended");
-      };
+      openStream();
     })();
 
     return () => {
       disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       source?.close();
     };
   }, [jobId, parseEntries]);

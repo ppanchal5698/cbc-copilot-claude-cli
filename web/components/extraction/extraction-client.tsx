@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import {
@@ -43,11 +43,8 @@ const SheetViewer = dynamic(
   {
     ssr: false,
     loading: () => (
-      <aside
-        className="grid h-[320px] w-full shrink-0 place-items-center rounded-xl xl:h-auto xl:w-[clamp(380px,34vw,560px)]"
-        style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-      >
-        <span className="text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+      <aside className="grid h-[320px] w-full shrink-0 place-items-center rounded-xl xl:h-auto xl:w-[clamp(380px,34vw,560px)] bg-panel border border-subtle shadow-sm">
+        <span className="text-[13px] font-medium text-tx-muted animate-pulse">
           Loading the sheet viewer…
         </span>
       </aside>
@@ -120,6 +117,10 @@ export function ExtractionClient({
   const items = data?.lineItems ?? [];
   const counts = data?.counts;
   const needsLook = counts?.needs_look ?? 0;
+
+  useEffect(() => {
+    setPicked(new Set());
+  }, [filter, alternate]);
 
   const togglePick = useCallback((item: LineItem) => {
     setPicked((current) => {
@@ -222,23 +223,14 @@ export function ExtractionClient({
     <>
       <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 xl:flex-row">
         <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-          <div
-            className="flex flex-col rounded-xl"
-            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-          >
-            <div
-              className="flex flex-wrap items-center gap-3 border-b px-4 py-3.5"
-              style={{ borderColor: "var(--app-line)" }}
-            >
-              <span
-                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
-                style={{ background: "var(--app-accent-soft)", color: "var(--app-accent)" }}
-              >
-                <ListChecks size={17} weight="duotone" />
+          <div className="flex flex-col rounded-xl bg-panel border border-subtle shadow-sm">
+            <div className="flex flex-wrap items-center gap-4 border-b border-subtle px-5 py-4 bg-background/30">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-primary/10 text-brand-primary shadow-sm border border-brand-primary/20">
+                <ListChecks size={20} weight="duotone" />
               </span>
               <span className="flex flex-col leading-tight">
-                <span className="text-[15px] font-semibold">Line items</span>
-                <span className="text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+                <span className="text-[15px] font-bold text-tx-primary tracking-tight">Line items</span>
+                <span className="text-[12px] font-medium text-tx-muted mt-0.5">
                   {progressLabel} · <b>J</b> <b>K</b> to move · <b>space</b> select ·{" "}
                   <b>&#8629;</b> confirm · <b>O</b> open the sheet · <b>C</b> log a call
                 </span>
@@ -249,10 +241,9 @@ export function ExtractionClient({
               <button
                 onClick={() => post("/line-items/rerun", "Claude is re-reading the drawings")}
                 disabled={busy || running}
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] disabled:opacity-50"
-                style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+                className="flex items-center gap-2 rounded-lg px-4 py-2 text-[12.5px] font-bold border border-subtle text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors disabled:opacity-50 shadow-sm bg-background"
               >
-                <ArrowsClockwise size={14} weight="duotone" />
+                <ArrowsClockwise size={16} weight="bold" />
                 Re-run extraction
               </button>
 
@@ -260,25 +251,23 @@ export function ExtractionClient({
                 <button
                   onClick={() => post("/line-items/confirm-all", "Everything flagged is confirmed")}
                   disabled={busy}
-                  className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50"
-                  style={{ background: "var(--app-accent)", color: "#fff" }}
+                  className="flex items-center gap-2 rounded-lg px-4 py-2 text-[12.5px] font-bold disabled:opacity-50 transition-colors bg-brand-primary text-white hover:bg-brand-primary/90 shadow-sm"
                 >
-                  <Checks size={14} weight="duotone" />
+                  <Checks size={16} weight="bold" />
                   Confirm all {needsLook}
                 </button>
               )}
 
               <button
                 onClick={() => setShowSheet((current) => !current)}
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px]"
-                style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+                className="flex items-center gap-2 rounded-lg px-4 py-2 text-[12.5px] font-bold border border-subtle text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm bg-background"
               >
-                <FilePdf size={14} weight="duotone" />
+                <FilePdf size={16} weight="bold" />
                 {showSheet ? "Hide the sheet" : "Open the sheet"}
               </button>
             </div>
 
-            <div className="flex flex-wrap gap-1 px-3 py-2">
+            <div className="flex flex-wrap gap-2 px-4 py-3 bg-panel-muted/20">
               {FILTERS.map((entry) => {
                 const active = filter === entry.key;
                 const count = counts?.[entry.countKey as keyof typeof counts] ?? 0;
@@ -286,15 +275,14 @@ export function ExtractionClient({
                   <button
                     key={entry.key}
                     onClick={() => setFilter(entry.key)}
-                    className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px]"
-                    style={{
-                      background: active ? "var(--app-panel-2)" : "transparent",
-                      color: active ? "var(--app-tx)" : "var(--app-tx-2)",
-                      border: `1px solid ${active ? "var(--app-line)" : "transparent"}`,
-                    }}
+                    className={`flex items-center gap-2 rounded-lg px-4 py-1.5 text-[13px] font-bold transition-all shadow-sm ${
+                      active
+                        ? "bg-panel border border-subtle text-tx-primary"
+                        : "bg-transparent text-tx-secondary hover:bg-panel hover:text-tx-primary border border-transparent"
+                    }`}
                   >
                     {entry.label}
-                    <span className="tnum" style={{ color: "var(--app-tx-3)" }}>
+                    <span className={`tnum ${active ? "text-brand-primary" : "text-tx-muted"}`}>
                       {count}
                     </span>
                   </button>
@@ -306,35 +294,21 @@ export function ExtractionClient({
           <AlternateBar code={code} active={alternate} onChange={setAlternate} />
 
           {running && (
-            <div
-              className="anim-fadein relative overflow-hidden rounded-xl px-4 py-3 text-[12.5px]"
-              style={{
-                background: "var(--app-warn-soft)",
-                border: "1px solid var(--app-warn-line)",
-                color: "var(--app-warn)",
-              }}
-            >
-              <span className="anim-sweep" />
+            <div className="anim-fadein relative overflow-hidden rounded-xl px-5 py-4 text-[13px] font-medium bg-status-warning-soft border border-status-warning/30 text-status-warning shadow-sm">
+              <span className="anim-sweep opacity-50" />
               Claude is reading the bid set. Lines appear here as they are found.
             </div>
           )}
 
           {job?.status === "done" && job.note && runDismissed !== job.id && !focusMode && (
-            <div
-              className="anim-fadein flex items-center gap-2.5 rounded-xl px-4 py-2.5"
-              style={{
-                background: "var(--app-pos-soft)",
-                border: "1px solid var(--app-pos)",
-                color: "var(--app-pos)",
-              }}
-            >
-              <Lightning size={15} weight="duotone" />
-              <span className="flex flex-1 flex-col leading-tight">
-                <span className="text-[12.5px] font-semibold">Last pass complete</span>
-                <span className="text-[11.5px]">{job.note}</span>
+            <div className="anim-fadein flex items-center gap-3 rounded-xl px-5 py-3.5 bg-status-success-soft border border-status-success/30 text-status-success shadow-sm">
+              <Lightning size={20} weight="fill" />
+              <span className="flex flex-1 flex-col leading-tight gap-0.5">
+                <span className="text-[13px] font-bold tracking-tight">Last pass complete</span>
+                <span className="text-[12.5px] font-medium opacity-90">{job.note}</span>
               </span>
-              <button onClick={() => setRunDismissed(job.id)} aria-label="Dismiss the run status">
-                <X size={13} weight="bold" />
+              <button onClick={() => setRunDismissed(job.id)} aria-label="Dismiss the run status" className="p-1 rounded hover:bg-status-success/10 transition-colors">
+                <X size={16} weight="bold" />
               </button>
             </div>
           )}
@@ -356,23 +330,11 @@ export function ExtractionClient({
             />
           )}
 
-          <div
-            className="min-h-[200px] flex-1 overflow-auto rounded-xl"
-            style={{
-              background: "var(--app-panel)",
-              border: "1px solid var(--app-line)",
-              boxShadow: "inset 8px 0 8px -8px rgba(0,0,0,0.08)",
-            }}
-          >
+          <div className="min-h-[200px] flex-1 overflow-auto rounded-xl bg-panel border border-subtle shadow-inner">
             <div style={{ minWidth: 820 }}>
             <div
-              className="sticky top-0 z-20 grid gap-3 border-b px-4 py-2.5 text-[10.5px] uppercase tracking-[0.07em] backdrop-blur-sm"
-              style={{
-                gridTemplateColumns: ROW_COLUMNS,
-                borderColor: "var(--app-line)",
-                background: "var(--app-panel)",
-                color: "var(--app-tx-3)",
-              }}
+              className="sticky top-0 z-20 grid gap-3 border-b border-subtle px-5 py-3 text-[11px] font-bold uppercase tracking-widest bg-panel/95 backdrop-blur text-tx-muted shadow-sm"
+              style={{ gridTemplateColumns: ROW_COLUMNS }}
             >
               <span>
                 <input
@@ -396,33 +358,32 @@ export function ExtractionClient({
             </div>
 
             {error ? (
-              <div className="grid place-items-center gap-2 px-6 py-16 text-center">
-                <span className="text-[13.5px] font-semibold" style={{ color: "var(--app-neg)" }}>
+              <div className="grid place-items-center gap-2 px-6 py-20 text-center">
+                <span className="text-[14px] font-bold text-status-error">
                   Could not load the line items
                 </span>
-                <span className="max-w-[420px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                <span className="max-w-[420px] text-[13px] font-medium text-tx-secondary">
                   {errorMessage(error)}
                 </span>
                 <button
                   onClick={() => mutate()}
-                  className="mt-1 rounded-md px-3 py-1.5 text-[12px]"
-                  style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+                  className="mt-2 rounded-lg px-4 py-2 text-[12.5px] font-bold border border-subtle text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm bg-background"
                 >
                   Try again
                 </button>
               </div>
             ) : isLoading && !data ? (
-              <div className="grid place-items-center px-6 py-16 text-center">
-                <span className="text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+              <div className="grid place-items-center px-6 py-20 text-center">
+                <span className="text-[13px] font-medium text-tx-muted animate-pulse">
                   Loading the openings…
                 </span>
               </div>
             ) : items.length === 0 ? (
-              <div className="grid place-items-center gap-1.5 px-6 py-16 text-center">
-                <span className="text-[13.5px] font-semibold">
+              <div className="grid place-items-center gap-2 px-6 py-20 text-center">
+                <span className="text-[14px] font-bold text-tx-primary">
                   {running ? "Reading the bid set…" : "Nothing here yet"}
                 </span>
-                <span className="max-w-[420px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                <span className="max-w-[420px] text-[13px] font-medium text-tx-secondary">
                   {running
                     ? "Claude is working through the schedules and elevations."
                     : filter === "all"
@@ -477,32 +438,24 @@ export function ExtractionClient({
         )}
       </main>
 
-      <footer
-        className="flex shrink-0 flex-wrap items-center gap-3 border-t px-5 py-3"
-        style={{ borderColor: "var(--app-line)", background: "var(--app-bg)" }}
-      >
+      <footer className="flex shrink-0 flex-wrap items-center gap-4 border-t border-subtle px-6 py-4 bg-background">
         <a
           href={`/bids/${code}/intake`}
-          className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] no-underline"
-          style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+          className="flex items-center gap-2 rounded-lg px-4 py-2 text-[12.5px] font-bold no-underline border border-subtle text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm bg-panel"
         >
-          <ArrowLeft size={14} weight="bold" />
+          <ArrowLeft size={16} weight="bold" />
           Back
         </a>
 
         <button
           onClick={() => openNotes("Extraction & entry")}
-          className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px]"
-          style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+          className="flex items-center gap-2 rounded-lg px-4 py-2 text-[12.5px] font-bold border border-subtle text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm bg-panel"
         >
-          <PhoneCall size={14} weight="duotone" />
+          <PhoneCall size={16} weight="bold" />
           Log a call
         </button>
 
-        <span
-          className="min-w-[200px] flex-1 text-[12.5px]"
-          style={{ color: "var(--app-tx-2)" }}
-        >
+        <span className="min-w-[200px] flex-1 text-[13px] font-medium text-tx-secondary text-center sm:text-left">
           {needsLook > 0
             ? `${needsLook} item${needsLook === 1 ? "" : "s"} need a look. Open one, check it against the sheet, confirm.`
             : counts?.all
@@ -513,10 +466,9 @@ export function ExtractionClient({
         <button
           onClick={() => post("/line-items/rerun", "Re-extraction queued")}
           disabled={busy || running}
-          className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] disabled:opacity-50"
-          style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+          className="flex items-center gap-2 rounded-lg px-4 py-2 text-[12.5px] font-bold disabled:opacity-50 border border-subtle text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm bg-panel"
         >
-          <ArrowsClockwise size={14} weight="duotone" />
+          <ArrowsClockwise size={16} weight="bold" />
           Re-run extraction
         </button>
 
@@ -527,11 +479,10 @@ export function ExtractionClient({
             )
           }
           disabled={busy || !counts?.all}
-          className="flex items-center gap-1.5 rounded-md px-4 py-2 text-[12.5px] font-semibold disabled:opacity-50"
-          style={{ background: "var(--app-accent)", color: "#fff" }}
+          className="flex items-center gap-2 rounded-lg px-5 py-2.5 text-[13px] font-bold disabled:opacity-50 transition-all bg-brand-primary text-white hover:bg-brand-primary/90 shadow-md hover:shadow-lg"
         >
           Continue to Quote
-          <ArrowRight size={14} weight="bold" />
+          <ArrowRight size={16} weight="bold" />
         </button>
       </footer>
     </>

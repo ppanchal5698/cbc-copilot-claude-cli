@@ -18,34 +18,34 @@ import type { LineItem, LineStatus } from "@/lib/types";
 
 const STATUS: Record<
   LineStatus,
-  { label: string; colour: string; soft: string; line: string; Icon: typeof CheckCircle }
+  { label: string; colourClass: string; softClass: string; lineClass: string; Icon: typeof CheckCircle }
 > = {
   clear: {
     label: "Clear",
-    colour: "var(--app-accent)",
-    soft: "var(--app-accent-soft)",
-    line: "var(--app-accent-line)",
+    colourClass: "text-brand-primary",
+    softClass: "bg-brand-primary/10",
+    lineClass: "border-brand-primary/20",
     Icon: CheckCircle,
   },
   needs_look: {
     label: "Looks right",
-    colour: "var(--app-warn)",
-    soft: "var(--app-warn-soft)",
-    line: "var(--app-warn-line)",
+    colourClass: "text-status-warning",
+    softClass: "bg-status-warning-soft",
+    lineClass: "border-status-warning/30",
     Icon: WarningCircle,
   },
   duplicate: {
     label: "Keep one",
-    colour: "var(--app-neg)",
-    soft: "var(--app-neg-soft)",
-    line: "var(--app-neg-line)",
+    colourClass: "text-status-error",
+    softClass: "bg-status-error-soft",
+    lineClass: "border-status-error/30",
     Icon: Copy,
   },
   by_hand: {
     label: "By hand",
-    colour: "var(--app-pos)",
-    soft: "var(--app-pos-soft)",
-    line: "var(--app-pos)",
+    colourClass: "text-status-success",
+    softClass: "bg-status-success-soft",
+    lineClass: "border-status-success/30",
     Icon: PencilSimple,
   },
 };
@@ -199,15 +199,11 @@ export function LineItemRow({
   return (
     <div
       data-row-id={item.id}
-      className="border-b"
+      className={`border-b border-subtle transition-colors ${
+        picked ? "bg-brand-primary/10" : selected ? "bg-panel-muted" : "bg-transparent"
+      }`}
       style={{
-        borderColor: "var(--app-line)",
-        background: picked
-          ? "var(--app-accent-soft)"
-          : selected
-            ? "var(--app-panel-2)"
-            : "transparent",
-        boxShadow: focused ? "inset 3px 0 0 var(--app-accent)" : undefined,
+        boxShadow: focused ? "inset 4px 0 0 var(--color-brand-primary)" : undefined,
       }}
     >
       <div
@@ -215,15 +211,9 @@ export function LineItemRow({
         tabIndex={0}
         aria-expanded={open}
         aria-label={`${item.mark ? `${item.mark}: ` : ""}${item.description}`}
-        className="grid cursor-pointer items-center gap-3 px-4 py-2.5"
+        className="grid cursor-pointer items-center gap-3 px-5 py-3 hover:bg-background/30 transition-colors"
         style={{ gridTemplateColumns: ROW_COLUMNS }}
         onClick={toggleOpen}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            toggleOpen();
-          }
-        }}
       >
         <span onClick={(event) => event.stopPropagation()}>
           <input
@@ -234,19 +224,16 @@ export function LineItemRow({
           />
         </span>
 
-        <span
-          className="grid h-6 w-6 place-items-center rounded-md"
-          style={{ background: status.soft, color: status.colour }}
-        >
-          <status.Icon size={14} weight="duotone" />
+        <span className={`grid h-7 w-7 place-items-center rounded-lg shadow-sm border ${status.softClass} ${status.colourClass} ${status.lineClass}`}>
+          <status.Icon size={16} weight="duotone" />
         </span>
 
-        <span className="tnum text-[13px] font-semibold">{item.mark ?? "—"}</span>
+        <span className="tnum text-[13.5px] font-bold text-tx-primary">{item.mark ?? "—"}</span>
 
-        <span className="min-w-0">
-          <span className="block truncate text-[13px]">{item.description}</span>
+        <span className="min-w-0 flex flex-col justify-center">
+          <span className="block truncate text-[13px] font-medium text-tx-secondary">{item.description}</span>
           {item.flags.length > 0 && (
-            <span className="mt-0.5 flex flex-wrap gap-1">
+            <span className="mt-1 flex flex-wrap gap-1.5">
               {item.flags.slice(0, 3).map((flag) => (
                 <StatusBadge key={flag} variant="caution" dashed>
                   {flag.replace(/_/g, " ")}
@@ -256,40 +243,30 @@ export function LineItemRow({
           )}
         </span>
 
-        <span className="tnum text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+        <span className="tnum text-[12.5px] font-medium text-tx-muted">
           {item.size ?? "—"}
         </span>
-        <span className="tnum text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+        <span className="tnum text-[12.5px] font-medium text-tx-muted">
           {item.qty}
         </span>
-        <span className="text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+        <span className="text-[12.5px] font-medium text-tx-muted">
           {item.hwSet ?? "—"}
         </span>
 
         <span className="flex justify-end">
-          <span
-            className="rounded-md px-2.5 py-1 text-[11.5px] font-semibold"
-            style={{
-              background: status.soft,
-              color: status.colour,
-              border: `1px solid ${status.line}`,
-            }}
-          >
+          <span className={`rounded-lg px-3 py-1 text-[11px] font-bold uppercase tracking-widest border shadow-sm ${status.softClass} ${status.colourClass} ${status.lineClass}`}>
             {status.label}
           </span>
         </span>
       </div>
 
       {open && (
-        <div className="anim-fadein px-4 pb-4">
-          <div
-            className="rounded-lg p-4"
-            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-          >
-            <div className="flex items-start gap-2.5">
-              <status.Icon size={16} weight="duotone" style={{ color: status.colour }} />
+        <div className="anim-fadein px-5 pb-5">
+          <div className="rounded-xl p-5 bg-panel border border-subtle shadow-sm">
+            <div className="flex items-start gap-3.5">
+              <status.Icon size={20} weight="fill" className={status.colourClass} />
               <div className="min-w-0 flex-1">
-                <span className="block text-[13px] font-semibold">
+                <span className="block text-[14px] font-bold text-tx-primary tracking-tight">
                   {item.addedByHand
                     ? "Added by hand"
                     : item.status === "duplicate"
@@ -298,13 +275,13 @@ export function LineItemRow({
                         ? "Read cleanly from the sheet"
                         : "Worth a second look"}
                 </span>
-                <span className="mt-0.5 block text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                <span className="mt-1 block text-[13px] font-medium text-tx-secondary leading-relaxed">
                   {evidence?.note ??
                     (item.addedByHand
                       ? "Typed in by an estimator, so there is nothing to check it against."
                       : "Read from the door schedule.")}
                 </span>
-                <span className="mt-1 block text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                <span className="mt-2 block text-[11.5px] font-bold uppercase tracking-widest text-tx-muted">
                   {evidence?.sourcePage ? `page ${evidence.sourcePage}` : "no source page"}
                   {evidence?.row ? ` · row ${evidence.row}` : ""}
                   {item.confidence !== null && item.confidence !== undefined
@@ -320,40 +297,31 @@ export function LineItemRow({
                     event.stopPropagation();
                     onSelect(item);
                   }}
-                  className="flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11.5px]"
-                  style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+                  className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-[12px] font-bold border border-subtle bg-background text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm"
                 >
-                  <Eye size={13} weight="duotone" />
+                  <Eye size={16} weight="bold" />
                   See it on the sheet
                 </button>
               )}
             </div>
 
             {item.status === "duplicate" && (
-              <div
-                className="mt-3 flex items-center gap-3 rounded-lg px-3 py-2.5"
-                style={{
-                  background: "var(--app-neg-soft)",
-                  border: "1px solid var(--app-neg-line)",
-                }}
-              >
-                <Copy size={15} weight="duotone" style={{ color: "var(--app-neg)" }} />
-                <span className="flex-1 text-[12px]" style={{ color: "var(--app-neg)" }}>
+              <div className="mt-4 flex items-center gap-3 rounded-xl px-4 py-3.5 bg-status-error-soft border border-status-error/30 shadow-sm">
+                <Copy size={18} weight="fill" className="text-status-error" />
+                <span className="flex-1 text-[13px] font-medium text-status-error leading-relaxed">
                   {item.duplicateReason ?? "This line was read from more than one document."}
                 </span>
                 <button
                   onClick={() => resolveDuplicate("one")}
                   disabled={busy}
-                  className="rounded-md px-2.5 py-1 text-[11.5px] font-semibold"
-                  style={{ background: "var(--app-neg)", color: "#fff" }}
+                  className="rounded-lg px-4 py-2 text-[12px] font-bold bg-status-error text-white hover:bg-status-error/90 transition-colors shadow-sm"
                 >
                   Keep one
                 </button>
                 <button
                   onClick={() => resolveDuplicate("both")}
                   disabled={busy}
-                  className="rounded-md px-2.5 py-1 text-[11.5px]"
-                  style={{ border: "1px solid var(--app-neg-line)", color: "var(--app-neg)" }}
+                  className="rounded-lg px-4 py-2 text-[12px] font-bold border border-status-error/30 text-status-error bg-background hover:bg-status-error/10 transition-colors shadow-sm"
                 >
                   Keep both
                 </button>
@@ -361,7 +329,7 @@ export function LineItemRow({
             )}
 
             <div
-              className="mt-3.5 grid gap-2.5 sm:grid-cols-2 lg:[grid-template-columns:var(--editable-cols)]"
+              className="mt-5 grid gap-3 sm:grid-cols-2 lg:[grid-template-columns:var(--editable-cols)]"
               style={
                 {
                   "--editable-cols": EDITABLE.map((f) => f.width).join(" "),
@@ -370,55 +338,44 @@ export function LineItemRow({
             >
               {EDITABLE.map((field) => (
                 <label key={field.key} className="block">
-                  <span
-                    className="block text-[10.5px] uppercase tracking-[0.06em]"
-                    style={{ color: "var(--app-tx-3)" }}
-                  >
+                  <span className="block text-[11px] font-bold uppercase tracking-widest text-tx-muted mb-1.5">
                     {field.label}
                   </span>
                   <input
                     value={draft[field.key] ?? ""}
                     inputMode={field.key === "qty" ? "numeric" : undefined}
                     onChange={(event) => setField(field.key, event.target.value)}
-                    className="mt-1 w-full rounded-md px-2 py-1.5 text-[12.5px] outline-none focus:ring-2"
-                    style={{
-                      background: "var(--app-panel-2)",
-                      border: "1px solid var(--app-line)",
-                      color: "var(--app-tx)",
-                    }}
+                    className="w-full rounded-lg px-3 py-2 text-[13px] font-medium outline-none transition-all bg-panel-muted border border-subtle text-tx-primary focus:ring-2 focus:ring-brand-border focus:border-brand-primary/30 shadow-sm"
                   />
                 </label>
               ))}
             </div>
 
-            <div className="mt-4 flex items-center gap-2">
+            <div className="mt-6 flex items-center gap-3 border-t border-subtle pt-4">
               <button
                 onClick={confirm}
                 disabled={busy}
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold disabled:opacity-60"
-                style={{ background: "var(--app-accent)", color: "#fff" }}
+                className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-bold disabled:opacity-50 transition-colors bg-brand-primary text-white hover:bg-brand-primary/90 shadow-sm"
               >
-                <CheckCircle size={14} weight="duotone" />
+                <CheckCircle size={16} weight="bold" />
                 Keep as is
               </button>
               <button
                 onClick={save}
                 disabled={busy || !dirty}
                 title={dirty ? undefined : "Nothing changed yet"}
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] disabled:opacity-60"
-                style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+                className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-bold disabled:opacity-50 transition-colors border border-subtle bg-background text-tx-secondary hover:bg-panel-muted hover:text-tx-primary shadow-sm"
               >
-                <FloppyDisk size={14} weight="duotone" />
+                <FloppyDisk size={16} weight="bold" />
                 Save my changes
               </button>
               <span className="flex-1" />
               <button
                 onClick={remove}
                 disabled={busy}
-                className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] disabled:opacity-60"
-                style={{ color: "var(--app-neg)" }}
+                className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-bold disabled:opacity-50 transition-colors text-status-error hover:bg-status-error-soft hover:text-status-error"
               >
-                <Trash size={14} weight="duotone" />
+                <Trash size={16} weight="fill" />
                 Remove
               </button>
             </div>
