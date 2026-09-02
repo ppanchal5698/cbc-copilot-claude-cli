@@ -99,7 +99,9 @@ async def list_versions(code: str) -> dict[str, Any]:
         .sort("version", -1)
         .to_list(50)
     )
-    unreconciled = sum(1 for v in found if not v.get("reconciled"))
+    unreconciled = await db.versions.count_documents(
+        {"projectId": project["_id"], "reconciled": {"$ne": True}}
+    )
     return {
         "versions": serialise(found),
         "current": project.get("version", 1),

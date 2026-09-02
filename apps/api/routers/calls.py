@@ -34,11 +34,19 @@ async def list_calls(code: str, limit: int = Query(default=100, le=500)) -> dict
     for entry in entries:
         counts[entry.get("kind", "call")] = counts.get(entry.get("kind", "call"), 0) + 1
 
+    open_rfis = await db.calls.count_documents(
+        {
+            "projectId": project["_id"],
+            "kind": "rfi",
+            "$or": [{"resolvedAt": None}, {"resolvedAt": {"$exists": False}}],
+        }
+    )
+
     return {
         "calls": serialise(entries),
         "count": len(entries),
         "counts": counts,
-        "openRfis": sum(1 for e in entries if e.get("kind") == "rfi" and not e.get("resolvedAt")),
+        "openRfis": open_rfis,
     }
 
 

@@ -16,6 +16,7 @@ from apps.api.deps import Actor
 from cbc.schemas import BulkAction, LineItemCreate, LineItemUpdate
 from apps.api.routers.projects import load
 from cbc.services import audit, jobs, sync
+from cbc.services.quote import MAX_QUOTE_LINES
 
 router = APIRouter(prefix="/api/projects/{code}/line-items", tags=["line-items"])
 
@@ -44,7 +45,7 @@ async def list_line_items(
     query: dict[str, Any] = {"projectId": project["_id"], **FILTERS[filter]}
     if alternate is not None:
         query["alternateGroup"] = alternate or None
-    items = await db.line_items.find(query).sort([("mark", 1), ("createdAt", 1)]).to_list(1000)
+    items = await db.line_items.find(query).sort([("mark", 1), ("createdAt", 1)]).to_list(MAX_QUOTE_LINES)
 
     counts_raw = await db.line_items.aggregate(
         [{"$match": {"projectId": project["_id"]}}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}]

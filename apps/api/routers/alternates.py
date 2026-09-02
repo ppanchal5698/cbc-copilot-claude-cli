@@ -119,7 +119,10 @@ def _parse_assign_payload(
                 raise HTTPException(400, "ids must be a list of line id strings")
             line_ids = raw_ids
             if "alternate" in payload:
-                alternate = payload["alternate"]
+                alt = payload["alternate"]
+                if alt is not None and not isinstance(alt, str):
+                    raise HTTPException(400, "alternate must be a string or null")
+                alternate = alt
             if "scope" in payload:
                 scope = payload["scope"]
         else:
@@ -154,19 +157,18 @@ async def assign_to_alternate(
 
     project = await load(code)
     collection = db.line_items if scope == "line-items" else db.quote_lines
+    object_ids = [oid(i) for i in line_ids]
 
-    moved = 0
     now = _now()
-    async for doc in collection.find(
-        {"_id": {"$in": [oid(i) for i in line_ids]}, "projectId": project["_id"]}
-    ):
-        if doc.get("alternateGroup") == alternate:
-            continue
-        await collection.update_one(
-            {"_id": doc["_id"]},
-            {"$set": {"alternateGroup": alternate, "updatedAt": now}},
-        )
-        moved += 1
+    result = await collection.update_many(
+        {
+            "_id": {"$in": object_ids},
+            "projectId": project["_id"],
+            "alternateGroup": {"$ne": alternate},
+        },
+        {"$set": {"alternateGroup": alternate, "updatedAt": now}},
+    )
+    moved = result.modified_count
 
     await audit.record(
         "alternate.assign",
