@@ -20,6 +20,29 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
 
+def _may_seed_accounts() -> bool:
+    """Only seed the published dev accounts where they are meant to exist.
+
+    seed_users creates admin@cbc.com with the password `opshub`, which is in this
+    repository. docker/entrypoint.sh runs this file whenever AUTO_BOOTSTRAP is not
+    0 and compose leaves it unset, so the first start of any deployment against an
+    empty database created a known-password admin - regardless of APP_ENV.
+    config._assert_production_secrets does not cover it: it gates secrets, not
+    seeded accounts, and it runs after this.
+
+    Unset does not mean development here. An environment that has not said what it
+    is does not get credentials published on the internet.
+    """
+    declared = (os.environ.get("APP_ENV") or "").strip().lower()
+    if declared in ("development", "dev", "local", "test"):
+        return True
+    print(
+        f"[bootstrap] APP_ENV={declared or '(unset)'} - skipping the seed accounts. "
+        "Create the first user deliberately, or set APP_ENV=development locally."
+    )
+    return False
+
+
 def main() -> int:
     from pymongo import MongoClient
 
@@ -37,7 +60,7 @@ def main() -> int:
         print(f"[bootstrap] MongoDB not ready: {exc}")
         return 0  # entrypoint must not block container start
 
-    if db["users"].estimated_document_count() == 0:
+    if db["users"].estimated_document_count() == 0 and _may_seed_accounts():
         from scripts.seed_db import seed_price_books, seed_products, seed_users
 
         print("[bootstrap] empty database — seeding users, price books, and catalog")
@@ -45,8 +68,10 @@ def main() -> int:
         seed_price_books(db)
         seed_products(db)
         print("[bootstrap] sign in with estimator@cbc.com or admin@cbc.com / opshub")
-    else:
+    elif db["users"].estimated_document_count():
         print("[bootstrap] users already present — skipping database seed")
+    # The empty-database-but-not-permitted case has already printed its reason,
+    # and saying "users already present" there would contradict it.
 
     # The page index lives in MongoDB, so ask MongoDB whether it is there. This
     # used to test for `.index/catalog.sqlite3` - the SQLite index PageIndex

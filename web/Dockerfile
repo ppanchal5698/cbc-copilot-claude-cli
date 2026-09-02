@@ -13,6 +13,13 @@ RUN npm ci
 
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
+# Anything the build renders is frozen into the image. This defaulted to unset,
+# which dev-auth read as development, which baked the seed accounts and their
+# passwords into .next/server/app/signin.html - a file no runtime environment
+# variable can unwrite. The page is force-dynamic now; this is the second guard,
+# so a build is safe even if that export is later removed.
+ARG APP_ENV=production
+ENV APP_ENV=$APP_ENV
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .

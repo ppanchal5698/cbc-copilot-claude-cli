@@ -113,3 +113,25 @@ def test_development_keeps_working_with_no_configuration(monkeypatch) -> None:
     from cbc.config import DEV_SECRET, Settings
 
     assert Settings().internal_api_token == DEV_SECRET
+
+
+def test_the_seed_accounts_are_not_created_outside_development(monkeypatch):
+    """admin@cbc.com / opshub is in this repository.
+
+    docker/entrypoint.sh runs bootstrap.py whenever AUTO_BOOTSTRAP is not 0, and
+    compose leaves it unset, so the first start of any deployment against an
+    empty database created a known-password admin. _assert_production_secrets
+    does not cover it - it gates secrets, not seeded accounts, and runs after.
+    """
+    from scripts.bootstrap import _may_seed_accounts
+
+    for declared in ("production", "prod", "staging", "", "  "):
+        monkeypatch.setenv("APP_ENV", declared)
+        assert _may_seed_accounts() is False, declared
+
+    monkeypatch.delenv("APP_ENV", raising=False)
+    assert _may_seed_accounts() is False, "an undeclared environment must not seed"
+
+    for declared in ("development", "DEV", " local "):
+        monkeypatch.setenv("APP_ENV", declared)
+        assert _may_seed_accounts() is True, declared
