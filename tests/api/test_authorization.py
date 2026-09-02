@@ -122,7 +122,11 @@ def test_a_base_url_off_the_allowlist_is_refused(client, as_role) -> None:
 
 @pytest.mark.parametrize(
     "url",
-    ["https://api.anthropic.com", "http://localhost:4000", "http://host.docker.internal:4000"],
+    [
+        "https://api.anthropic.com",
+        "http://localhost:4000",
+        "http://host.docker.internal:4000",
+    ],
 )
 def test_the_documented_providers_are_allowed(url: str) -> None:
     from cbc.services import provider
@@ -224,3 +228,44 @@ def test_a_correct_password_clears_the_budget(client) -> None:
         raw.close()
     assert before == 3
     _clear_attempts()
+
+
+def test_a_document_cannot_be_reached_through_another_bid(client):
+    """Bid sets are confidential; the URL's project must scope the lookup.
+
+    Every route under /documents/{id} looked the document up by _id alone.
+    `await load(code)` proved the project existed and its _id was then unused,
+    so any signed-in estimator could read - or DELETE - another bid's drawings
+    by id. Every sibling router already filters on projectId.
+    """
+    import fitz
+
+    first = client.post("/api/projects", json={"name": "Alpha Tower", "client": "GC One"})
+    second = client.post("/api/projects", json={"name": "Beta Plaza", "client": "GC Two"})
+    assert first.status_code == 201 and second.status_code == 201, (first.text, second.text)
+    mine, theirs = first.json()["code"], second.json()["code"]
+
+    pdf = fitz.open()
+    pdf.new_page()
+    payload = pdf.tobytes()
+    pdf.close()
+
+    upload = client.post(
+        f"/api/projects/{theirs}/documents",
+        files={"file": ("plans.pdf", payload, "application/pdf")},
+    )
+    assert upload.status_code == 201, upload.text
+    document_id = upload.json()["document"]["id"]
+
+    # Reachable from its own bid...
+    assert client.get(f"/api/projects/{theirs}/documents/{document_id}/file").status_code == 200
+
+    # ...and from no other.
+    for method, suffix in [("get", "/file"), ("get", "/page/1/size"), ("delete", "")]:
+        response = getattr(client, method)(
+            f"/api/projects/{mine}/documents/{document_id}{suffix}"
+        )
+        assert response.status_code == 404, (method, suffix, response.status_code)
+
+    # Still there, because the cross-bid delete did not land.
+    assert client.get(f"/api/projects/{theirs}/documents/{document_id}/file").status_code == 200

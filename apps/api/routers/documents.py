@@ -134,13 +134,30 @@ async def upload_document(
     }
 
 
+async def _document(code: str, document_id: str) -> dict:
+    """The document, scoped to the bid in the URL.
+
+    Every one of these routes used to look up `{"_id": oid(document_id)}` alone.
+    `await load(code)` proved the project existed and its _id was then never
+    used, so any signed-in estimator could read or DELETE a document belonging
+    to a different bid by id - another customer's drawings, on a system whose
+    whole point is that a bid set is confidential. Every sibling router already
+    filters on projectId (line_items.py, quote.py, calls.py); one helper here
+    means a fifth route cannot quietly regress.
+    """
+    project = await load(code)
+    document = await db.documents.find_one(
+        {"_id": oid(document_id), "projectId": project["_id"]}
+    )
+    if not document:
+        raise HTTPException(404, "document not found")
+    return document
+
+
 @router.get("/{document_id}/file")
 async def get_file(code: str, document_id: str) -> FileResponse:
     """Serve the raw PDF so the reviewer sees the actual drawing, not a re-rendering."""
-    await load(code)
-    document = await db.documents.find_one({"_id": oid(document_id)})
-    if not document:
-        raise HTTPException(404, "document not found")
+    document = await _document(code, document_id)
 
     path = storage.absolute(document["path"])
     if not path.exists():
@@ -157,10 +174,7 @@ async def get_file(code: str, document_id: str) -> FileResponse:
 @router.get("/{document_id}/page/{page_number}")
 async def get_page(code: str, document_id: str, page_number: int, dpi: int = 110) -> Response:
     """A rendered page image, for viewers that cannot run pdf.js."""
-    await load(code)
-    document = await db.documents.find_one({"_id": oid(document_id)})
-    if not document:
-        raise HTTPException(404, "document not found")
+    document = await _document(code, document_id)
 
     try:
         image = await asyncio.to_thread(
@@ -179,10 +193,7 @@ async def get_page(code: str, document_id: str, page_number: int, dpi: int = 110
 @router.get("/{document_id}/page/{page_number}/size")
 async def get_page_size(code: str, document_id: str, page_number: int) -> dict:
     """Page dimensions in PDF points - the frame every stored bbox is measured against."""
-    await load(code)
-    document = await db.documents.find_one({"_id": oid(document_id)})
-    if not document:
-        raise HTTPException(404, "document not found")
+    document = await _document(code, document_id)
     return await asyncio.to_thread(
         pdf.page_size, storage.absolute(document["path"]), page_number
     )
@@ -191,16 +202,13 @@ async def get_page_size(code: str, document_id: str, page_number: int) -> dict:
 @router.delete("/{document_id}", status_code=204)
 async def delete_document(code: str, document_id: str, actor: Actor) -> None:
     """Detach a document from the bid. The file itself stays - raw uploads are immutable."""
-    project = await load(code)
-    document = await db.documents.find_one({"_id": oid(document_id)})
-    if not document:
-        raise HTTPException(404, "document not found")
+    document = await _document(code, document_id)
 
     await db.documents.delete_one({"_id": document["_id"]})
     await audit.record(
         "document.delete",
         actor,
-        {"projectId": project["_id"], "documentId": document["_id"]},
+        {"projectId": document["projectId"], "documentId": document["_id"]},
         before=document.get("filename"),
         note="file retained on disk",
     )
