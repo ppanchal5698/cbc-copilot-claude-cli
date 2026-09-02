@@ -90,15 +90,17 @@ def test_an_unpriced_manual_line_is_flagged_medium(project) -> None:
 
 
 def test_a_below_band_margin_is_flagged_against_the_real_floor(project) -> None:
-    """NFR-8. The floor comes from calc.validate_margin, not from a copy here."""
+    """NFR-8. The floor comes from calc.validate_margin on the division's band."""
     from cbc.core import calc
+    from cbc.services import pricing
 
-    product_type, floor = next(iter(calc.bands().items()))
+    band = pricing.band_for_division("08 11")
+    floor = calc.bands()[band]
     slug, directory = project
     _write(directory, "priced/line_items.json", {"lines": [
-        {"line_id": "L1", "group": "Door 1", "product_type": product_type,
+        {"line_id": "L1", "group": "Door 1", "division": "08 11",
          "margin": floor - 0.05, "cost_source": "LIST_X_MULTIPLIER", "cost": 10},
-        {"line_id": "L2", "group": "Door 2", "product_type": product_type,
+        {"line_id": "L2", "group": "Door 2", "division": "08 11",
          "margin": floor, "cost_source": "LIST_X_MULTIPLIER", "cost": 10},
     ]})
     fields = _fields(review.derive_flags(slug))
@@ -157,6 +159,15 @@ def test_the_merge_keeps_what_only_the_agent_could_have_found(project) -> None:
     }
     rating = next(f for f in merged if f["field"] == "fire_rating")
     assert rating["note"] == "derived", "the derived flag owns its field"
+
+
+def test_a_bare_array_priced_file_still_derives_flags(project) -> None:
+    slug, directory = project
+    _write(directory, "priced/line_items.json", [
+        {"line_id": "MAN-1", "cost_source": "MANUAL", "cost": None},
+    ])
+    flags = review.derive_flags(slug)
+    assert ("MAN-1", "cost") in _fields(flags)
 
 
 def test_write_flags_is_idempotent(project) -> None:

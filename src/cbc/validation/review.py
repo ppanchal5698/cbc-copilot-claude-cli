@@ -23,6 +23,7 @@ from typing import Any
 
 from cbc.core import calc
 from cbc.core.paths import repo_root
+from cbc.services import pricing
 
 ROOT = repo_root()
 
@@ -120,9 +121,9 @@ def _line_flags(lines: list[dict]) -> list[dict]:
             )
 
         margin = line.get("margin")
-        product_type = line.get("product_type") or line.get("group_type")
-        if isinstance(margin, (int, float)) and product_type:
-            verdict = calc.validate_margin(str(product_type), float(margin))
+        if isinstance(margin, (int, float)):
+            band = pricing.band_for_division(line.get("division"))
+            verdict = calc.validate_margin(band, float(margin))
             if verdict.get("flag") == "below_band":
                 note = "Margin {:.0%} is below the {:.0%} floor for {} (NFR-8)".format(
                     margin, verdict["floor"], verdict["product_type"]
@@ -179,7 +180,12 @@ def derive_flags(slug: str) -> list[dict]:
     project = ROOT / "projects" / slug
     openings = _openings(_load(project / "extracted" / "door_schedule.json"))
     priced = _load(project / "priced" / "line_items.json")
-    lines = priced.get("lines", []) if isinstance(priced, dict) else []
+    if isinstance(priced, list):
+        lines = priced
+    elif isinstance(priced, dict):
+        lines = priced.get("lines", [])
+    else:
+        lines = []
 
     return [
         *_opening_flags(openings),
