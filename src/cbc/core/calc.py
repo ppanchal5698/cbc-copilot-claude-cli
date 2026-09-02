@@ -19,6 +19,7 @@ calc-engine/server.py` is now an adapter over this module.
 from __future__ import annotations
 
 import json
+import math
 from decimal import ROUND_HALF_UP, Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -108,8 +109,18 @@ def tax_rates() -> dict[str, float]:
 def calculate_line(cost: float, margin: float, quantity: float = 1) -> dict[str, Any]:
     if not 0 <= margin < 1:
         raise ValueError(f"margin must be a fraction in [0, 1), got {margin}")
+    # isfinite before the sign test: `nan < 0` is False, so a nan cost passed the
+    # negative check and came back out as `sale_ea: nan, priced: True`, which
+    # `compute_totals` then summed into grandTotal and `quote.persist` wrote to
+    # Mongo. An inf cost was worse still - Decimal raises InvalidOperation, an
+    # ArithmeticError, which the caller's `except (ValueError, TypeError)` did
+    # not catch, so one bad row took down the whole quote screen.
+    if not math.isfinite(cost):
+        raise ValueError(f"cost must be a finite number, got {cost}")
     if cost < 0:
         raise ValueError(f"cost must not be negative, got {cost}")
+    if not math.isfinite(quantity) or quantity < 0:
+        raise ValueError(f"quantity must be a non-negative finite number, got {quantity}")
     divisor = 1 - margin
     sale_ea = _money(Decimal(str(cost)) / Decimal(str(divisor)))
     return {

@@ -275,3 +275,33 @@ def test_the_option_rules_survive_their_line_wrapping():
     joined = " | ".join(table["rules"])
     assert "$236 per Mullion Bar" in joined
     assert "$11.00 per perimeter inch" in joined
+
+
+# A bad number must never reach a customer as a confident one. Each of these
+# returned `priced: True` before: a null quantity as $0, a nan cost as nan all
+# the way into grandTotal, and an inf cost as an uncaught ArithmeticError that
+# took down the whole quote screen because reprice loops every line.
+@pytest.mark.parametrize(
+    "label,kwargs",
+    [
+        ("null quantity", {"cost": 100.0, "margin": 0.27, "qty": None}),
+        ("infinite cost", {"cost": float("inf"), "margin": 0.27, "qty": 1}),
+        ("nan cost", {"cost": float("nan"), "margin": 0.27, "qty": 1}),
+        ("nan quantity", {"cost": 100.0, "margin": 0.27, "qty": float("nan")}),
+        ("negative quantity", {"cost": 100.0, "margin": 0.27, "qty": -2}),
+    ],
+)
+def test_an_unusable_number_is_reported_unpriced_not_valued(label, kwargs):
+    from cbc.services.pricing import price_line
+
+    line = price_line(**kwargs)
+    assert line["priced"] is False, f"{label} was priced anyway: {line}"
+    assert line["sell"] is None and line["extended"] is None, line
+    assert line.get("error"), f"{label} gives the estimator no reason: {line}"
+
+
+def test_a_good_line_still_prices():
+    """The guard above must not have made every line unpriceable."""
+    from cbc.services.pricing import price_line
+
+    assert price_line(cost=100.0, margin=0.27, qty=3)["priced"] is True
