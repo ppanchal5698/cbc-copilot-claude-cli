@@ -15,6 +15,7 @@ import asyncio
 import logging
 import os
 import signal
+import socket
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
@@ -27,9 +28,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from cbc.core import envfile  # noqa: E402
+from cbc.services import provider  # noqa: E402
+
+envfile.apply_to_environ(skip=provider.MANAGED)
+
 from cbc import db as db_module  # noqa: E402
 from cbc.db import db  # noqa: E402
-from cbc.services import audit, provider, quote as quote_service, render, storage, sync  # noqa: E402
+from cbc.services import audit, quote as quote_service, render, storage, sync  # noqa: E402
 from cbc.core import claude_cli as runner, streaming  # noqa: E402
 from cbc.core import logs  # noqa: E402
 from cbc.validation import validate_job_artifacts  # noqa: E402
@@ -93,6 +99,11 @@ STALE_AFTER = HEARTBEAT_SECONDS * 3
 # seconds burns its whole attempt budget in six.
 RETRY_BASE_SECONDS = int(os.environ.get("WORKER_RETRY_BASE_SECONDS", "30"))
 
+# Identifies this process when claiming jobs. A stale reaper can hand the same
+# job to another worker; finish() only writes when workerId and claimGeneration
+# still match, so a slow worker cannot overwrite a faster one's terminal state.
+WORKER_ID = f"{socket.gethostname()}-{os.getpid()}"
+
 _stop = asyncio.Event()
 
 
@@ -110,8 +121,13 @@ async def claim() -> dict | None:
             "$or": [{"nextAttemptAt": None}, {"nextAttemptAt": {"$lte": now}}],
         },
         {
-            "$set": {"status": "running", "startedAt": now, "heartbeatAt": now},
-            "$inc": {"attempts": 1},
+            "$set": {
+                "status": "running",
+                "startedAt": now,
+                "heartbeatAt": now,
+                "workerId": WORKER_ID,
+            },
+            "$inc": {"attempts": 1, "claimGeneration": 1},
         },
         sort=[("createdAt", 1)],
         return_document=True,
@@ -135,39 +151,88 @@ async def reap_abandoned() -> int:
         }
     ).to_list(100)
 
-    for job in abandoned:
-        attempts = job.get("attempts", 1)
-        retry = attempts < MAX_ATTEMPTS
-        await db.jobs.update_one(
-            {"_id": job["_id"], "status": "running"},
+    reaped = 0
+    while abandoned:
+        for job in abandoned:
+            attempts = job.get("attempts", 1)
+            retry = attempts < MAX_ATTEMPTS
+            result = await db.jobs.update_one(
+                {
+                    "_id": job["_id"],
+                    "status": "running",
+                    "claimGeneration": job.get("claimGeneration"),
+                },
+                {
+                    "$set": {
+                        "status": "queued" if retry else "failed",
+                        "error": "worker stopped while this job was running",
+                        "nextAttemptAt": _now() if retry else None,
+                        "heartbeatAt": None,
+                        "workerId": None,
+                        "finishedAt": None if retry else _now(),
+                    },
+                    "$inc": {"claimGeneration": 1},
+                },
+            )
+            if not result.matched_count:
+                continue
+            reaped += 1
+            await audit.record(
+                f"job.reaped.{job['type']}",
+                actor="worker",
+                target={"jobId": job["_id"], "projectId": job.get("projectId")},
+                note="requeued" if retry else "attempts exhausted",
+            )
+            log.warning(
+                "reaped abandoned %s (attempt %s) - %s",
+                job["type"], attempts, "requeued" if retry else "failed",
+            )
+        if len(abandoned) < 100:
+            break
+        abandoned = await db.jobs.find(
             {
-                "$set": {
-                    "status": "queued" if retry else "failed",
-                    "error": "worker stopped while this job was running",
-                    "nextAttemptAt": _now() if retry else None,
-                    "heartbeatAt": None,
-                    "finishedAt": None if retry else _now(),
-                }
-            },
-        )
-        await audit.record(
-            f"job.reaped.{job['type']}",
-            actor="worker",
-            target={"jobId": job["_id"], "projectId": job.get("projectId")},
-            note="requeued" if retry else "attempts exhausted",
-        )
-        log.warning(
-            "reaped abandoned %s (attempt %s) - %s",
-            job["type"], attempts, "requeued" if retry else "failed",
-        )
-    return len(abandoned)
+                "status": "running",
+                "$or": [{"heartbeatAt": {"$lt": cutoff}}, {"heartbeatAt": None}],
+            }
+        ).to_list(100)
+    return reaped
 
 
-async def _beat(job_id) -> None:
-    """Say the job is still alive until this task is cancelled."""
+async def _beat(job_id, worker_id: str, claim_gen: int) -> None:
+    """Say the job is still alive until this task is cancelled.
+
+    One unhandled exception here killed the task for the rest of the run, with
+    the exception never retrieved. Ninety seconds later reap_abandoned saw a
+    stale heartbeat and requeued a job that was still running, and another
+    worker claimed it - two Claude passes over the same project directory,
+    because of one transient Mongo blip during a forty-minute pipeline.
+    """
     while True:
         await asyncio.sleep(HEARTBEAT_SECONDS)
-        await db.jobs.update_one({"_id": job_id}, {"$set": {"heartbeatAt": _now()}})
+        try:
+            await db.jobs.update_one(
+                {"_id": job_id, "workerId": worker_id, "claimGeneration": claim_gen},
+                {"$set": {"heartbeatAt": _now()}},
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - a missed beat is not fatal
+            log.warning("heartbeat for job %s failed, will retry: %s", job_id, exc)
+
+
+def _owns_job(job: dict, current: dict | None) -> bool:
+    """True when this worker's claim is still the active one."""
+    if not current:
+        return False
+    return (
+        current.get("workerId") == job.get("workerId")
+        and current.get("claimGeneration") == job.get("claimGeneration")
+    )
+
+
+async def _job_cancelled(job_id) -> bool:
+    doc = await db.jobs.find_one({"_id": job_id}, {"status": 1})
+    return bool(doc and doc.get("status") == "cancelled")
 
 
 async def finish(
@@ -179,7 +244,10 @@ async def finish(
     permanent: bool = False,
     error_code: str | None = None,
 ) -> None:
-    current = await db.jobs.find_one({"_id": job["_id"]}, {"status": 1})
+    current = await db.jobs.find_one(
+        {"_id": job["_id"]},
+        {"status": 1, "workerId": 1, "claimGeneration": 1},
+    )
     if current and current.get("status") == "cancelled":
         await db.jobs.update_one(
             {"_id": job["_id"]},
@@ -221,12 +289,23 @@ async def finish(
         log.info("job %s cancelled during run", job["type"])
         return
 
+    if not _owns_job(job, current):
+        log.warning(
+            "job %s completion ignored - claim was reaped or taken by another worker",
+            job["type"],
+        )
+        return
+
     attempts = job.get("attempts", 1)
     retryable = not ok and not permanent and attempts < MAX_ATTEMPTS
     status = "queued" if retryable else ("done" if ok else "failed")
 
     await db.jobs.update_one(
-        {"_id": job["_id"]},
+        {
+            "_id": job["_id"],
+            "workerId": job.get("workerId"),
+            "claimGeneration": job.get("claimGeneration"),
+        },
         {
                 "$set": {
                     "status": status,
@@ -236,7 +315,7 @@ async def finish(
                 "note": note or None,
                 "heartbeatAt": None,
                 "nextAttemptAt": (
-                    _now() + timedelta(seconds=RETRY_BASE_SECONDS * 2**attempts)
+                    _now() + timedelta(seconds=RETRY_BASE_SECONDS * 2 ** max(attempts - 1, 0))
                     if retryable
                     else None
                 ),
@@ -264,7 +343,10 @@ async def finish(
     if retryable:
         entry.warning(
             "job %s failed, retrying in %ss (attempt %s): %s",
-            job["type"], RETRY_BASE_SECONDS * 2**attempts, attempts, error,
+            job["type"],
+            RETRY_BASE_SECONDS * 2 ** max(attempts - 1, 0),
+            attempts,
+            error,
         )
     elif permanent and not ok:
         entry.error("job %s FAILED permanently (not retried): %s", job["type"], error)
@@ -288,18 +370,9 @@ def _derive_review_flags(job_type: str, slug: str) -> None:
         log.exception("%s: could not derive review flags for %s", job_type, slug)
 
 
-async def sync_results(job: dict, project: dict | None) -> str:
-    """Move what Claude wrote on disk into Mongo."""
-    if project is None:
-        return ""
-
+def _sync_blocking_pre(job: dict, project: dict) -> None:
+    """BBox measurement, frame depths, and artifact validation — all sync I/O."""
     slug = project["slug"]
-    # Measure bboxes before validating them. The extracting pass reads schedules
-    # through extract_text, which has no coordinates, so it cannot carry one -
-    # told the field was required it invented six, and once those were rejected
-    # it wrote six nulls. The rows are still on the page, so they are found again
-    # and measured here. Deterministic, and it never invents: an opening that
-    # does not match exactly one row keeps a null bbox and a flag.
     if job["type"] in ("extract_bid_set", "rerun_extraction", "run_full_pipeline"):
         attached, unmatched = sync.measure_bboxes(project)
         if attached or unmatched:
@@ -319,13 +392,35 @@ async def sync_results(job: dict, project: dict | None) -> str:
         "rerun_extraction",
         "match_and_price",
         "build_proposal",
-        # Autopilot was absent from this list while ARTIFACT_CHECKS defined all
-        # three checks for it, so the one path that runs unattended end to end
-        # was the one path nothing verified. Every pricing rule was live and
-        # none of them applied here.
         "run_full_pipeline",
     ):
         validate_job_artifacts(job["type"], slug)
+
+
+def _sync_blocking_render(job_type: str, slug: str) -> list[str]:
+    """Derive review flags and render proposal artifacts. Returns failure details."""
+    _derive_review_flags(job_type, slug)
+    failed: list[str] = []
+    for result in (render.render_quotation(slug), render.render_review_summary(slug)):
+        if not result.ok:
+            log.warning("%s: %s", job_type, result.detail)
+            failed.append(result.detail)
+    return failed
+
+
+async def sync_results(job: dict, project: dict | None) -> str:
+    """Move what Claude wrote on disk into Mongo."""
+    if project is None:
+        return ""
+
+    if await _job_cancelled(job["_id"]):
+        raise RuntimeError("cancelled by estimator")
+
+    slug = project["slug"]
+    await asyncio.to_thread(_sync_blocking_pre, job, project)
+
+    if await _job_cancelled(job["_id"]):
+        raise RuntimeError("cancelled by estimator")
 
     if job["type"] in ("extract_bid_set", "rerun_extraction"):
         counts = await sync.import_extraction(project)
@@ -342,11 +437,9 @@ async def sync_results(job: dict, project: dict | None) -> str:
         )
 
     if job["type"] == "match_and_price":
+        if await _job_cancelled(job["_id"]):
+            raise RuntimeError("cancelled by estimator")
         counts = await sync.import_quote_lines(project)
-        # Store the totals here, because the quote screen no longer does it on
-        # read (api/services/quote.py). Landing new priced lines is a change, so
-        # this is the moment they are rolled up - otherwise the board would show
-        # a stale quote total until somebody happened to open the bid.
         await quote_service.persist(project)
         await db.projects.update_one(
             {"_id": project["_id"]},
@@ -355,24 +448,17 @@ async def sync_results(job: dict, project: dict | None) -> str:
         return f"{counts['inserted']} priced, {counts['updated']} updated, {counts['skipped']} kept"
 
     if job["type"] == "run_full_pipeline":
-        # One session produced all of it, so all of it lands at once - the same
-        # three imports the gated path does at its three phase boundaries.
+        if await _job_cancelled(job["_id"]):
+            raise RuntimeError("cancelled by estimator")
         openings = await sync.import_extraction(project)
         await db.documents.update_many(
             {"projectId": project["_id"]}, {"$set": {"state": "read"}}
         )
+        if await _job_cancelled(job["_id"]):
+            raise RuntimeError("cancelled by estimator")
         priced = await sync.import_quote_lines(project)
-        # Totals are stored on a change, not on a read (api/services/quote.py), and
-        # new priced lines are a change - otherwise the board shows no value until
-        # somebody opens the bid.
         await quote_service.persist(project)
-        # Same deterministic render as the gated build_proposal below. On this
-        # path it matters more, not less: nobody confirms anything between the
-        # phases, so the review at the end is the only review there is.
-        _derive_review_flags(job["type"], slug)
-        for result in (render.render_quotation(slug), render.render_review_summary(slug)):
-            if not result.ok:
-                log.warning("%s: %s", job["type"], result.detail)
+        failed = await asyncio.to_thread(_sync_blocking_render, job["type"], slug)
         artifacts = await sync.import_proposal_artifacts(project)
         await db.projects.update_one(
             {"_id": project["_id"]},
@@ -380,35 +466,24 @@ async def sync_results(job: dict, project: dict | None) -> str:
                       "updatedAt": _now()}},
         )
         written = sum(1 for present in artifacts.values() if present)
-        return (
+        note = (
             f"{openings['inserted'] + openings['updated']} opening(s), "
             f"{priced['inserted'] + priced['updated']} priced line(s), "
             f"{written} proposal artifact(s) - draft ready for estimator review"
         )
+        return f"{note} ({'; '.join(failed)})" if failed else note
 
     if job["type"] == "build_proposal":
-        # Render before syncing, so what lands in Mongo is the validated output
-        # rather than whatever the pass happened to write. The prompt asks the
-        # agents to run these scripts; this is what makes it true.
-        # The mechanical findings first: the summary is rendered from
-        # review_flags.json, so deriving after rendering would show the estimator
-        # a page built from whatever the pass happened to enumerate by hand.
-        _derive_review_flags(job["type"], slug)
-        renders = [render.render_quotation(slug), render.render_review_summary(slug)]
-        for result in renders:
-            if not result.ok:
-                log.warning("%s: %s", job["type"], result.detail)
-
+        if await _job_cancelled(job["_id"]):
+            raise RuntimeError("cancelled by estimator")
+        failed = await asyncio.to_thread(_sync_blocking_render, job["type"], slug)
         artifacts = await sync.import_proposal_artifacts(project)
         await db.projects.update_one(
             {"_id": project["_id"]},
             {"$set": {"stage": "proposal", "progress": 100, "updatedAt": _now()}},
         )
         written = sum(1 for present in artifacts.values() if present)
-        failed = [r.detail for r in renders if not r.ok]
         note = f"{written} proposal artifact(s) synced from disk"
-        # Reported rather than raised: a good review with a quote that does not
-        # validate is still worth keeping, and the reason has to reach the job.
         return f"{note} ({'; '.join(failed)})" if failed else note
 
     if job["type"] == "ingest_addendum":
@@ -433,7 +508,7 @@ LOCAL_HANDLERS = {
 async def process_locally(job: dict) -> None:
     """Run a job in this process rather than through a Claude Code pass."""
     handler = LOCAL_HANDLERS[job["type"]]
-    heartbeat = asyncio.create_task(_beat(job["_id"]))
+    heartbeat = asyncio.create_task(_beat(job["_id"], job.get("workerId", WORKER_ID), job.get("claimGeneration", 0)))
     try:
         note = await handler(job)
     except Exception as exc:
@@ -539,7 +614,9 @@ async def process(job: dict) -> None:
             await asyncio.sleep(10)
 
     watcher = asyncio.create_task(watch_cancel())
-    heartbeat = asyncio.create_task(_beat(job["_id"]))
+    heartbeat = asyncio.create_task(
+        _beat(job["_id"], job.get("workerId", WORKER_ID), job.get("claimGeneration", 0))
+    )
     progress_watcher = asyncio.create_task(watch_progress())
     try:
         result = await asyncio.to_thread(
@@ -551,7 +628,6 @@ async def process(job: dict) -> None:
             recording,
             job["type"],
             max_turns,
-            None,
             cancel_event.is_set,
         )
     finally:
@@ -562,19 +638,37 @@ async def process(job: dict) -> None:
 
     # Stopped because the worker is going down, not because anyone asked. Put it
     # back on the queue rather than recording a failure nobody caused.
-    if _stop.is_set():
-        current = await db.jobs.find_one({"_id": job["_id"]}, {"status": 1})
-        if not current or current.get("status") != "cancelled":
+    if _stop.is_set() and not result.ok:
+        # Two guards finish() has always had and this did not.
+        #
+        # Ownership: an unfiltered write here requeued a job this worker no
+        # longer held - reaped, re-claimed and already running elsewhere - so a
+        # third worker picked it up and two Claude passes wrote
+        # projects/{slug}/priced/line_items.json at once.
+        #
+        # And `result.ok`: a SIGTERM arriving after a successful run but before
+        # finish() threw the completed pass away and decremented attempts, so a
+        # three-hour extraction ran again from the start on restart.
+        current = await db.jobs.find_one(
+            {"_id": job["_id"]}, {"status": 1, "workerId": 1, "claimGeneration": 1}
+        )
+        if _owns_job(job, current) and current.get("status") != "cancelled":
             await db.jobs.update_one(
-                {"_id": job["_id"]},
+                {
+                    "_id": job["_id"],
+                    "workerId": job.get("workerId"),
+                    "claimGeneration": job.get("claimGeneration"),
+                },
                 {
                     "$set": {
                         "status": "queued",
                         "startedAt": None,
                         "heartbeatAt": None,
                         "nextAttemptAt": None,
+                        "workerId": None,
                         "note": "worker shut down mid-run; requeued",
-                    }
+                    },
+                    "$inc": {"attempts": -1},
                 },
             )
             log.info("job %s requeued for shutdown", job["type"])
@@ -601,7 +695,9 @@ async def process(job: dict) -> None:
     recording_note = ""
     if recording.exists():
         try:
-            raw = recording.read_text(encoding="utf-8", errors="replace")
+            raw = await asyncio.to_thread(
+                recording.read_text, encoding="utf-8", errors="replace"
+            )
             rec_warnings = streaming.recording_warnings(raw)
             if rec_warnings:
                 recording_note = "; ".join(rec_warnings)
@@ -629,6 +725,9 @@ async def process(job: dict) -> None:
             else await sync_results(job, project)
         )
     except Exception as exc:  # a sync failure is a real failure - do not mask it
+        if str(exc) == "cancelled by estimator":
+            await finish(job, False, "cancelled by estimator", result.output)
+            return
         await finish(job, False, f"result sync failed: {exc}", result.output, error_code="sync_failed")
         return
 

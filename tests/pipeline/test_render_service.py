@@ -29,11 +29,19 @@ def _branch(job_type: str) -> str:
     return rest[: nxt.start() + 10] if nxt else rest
 
 
+def test_the_render_helper_calls_both_scripts() -> None:
+    """Rendering is centralized so job branches cannot skip either artifact."""
+    start = WORKER.index("def _sync_blocking_render(")
+    end = WORKER.index("\n\nasync def sync_results", start)
+    body = WORKER[start:end]
+    assert "render.render_quotation" in body
+    assert "render.render_review_summary" in body
+
+
 @pytest.mark.parametrize("job_type", ["build_proposal", "run_full_pipeline"])
 def test_the_worker_renders_both_artifacts_itself(job_type: str) -> None:
     body = _branch(job_type)
-    assert "render.render_quotation" in body, f"{job_type} trusts the pass for the quote"
-    assert "render.render_review_summary" in body, f"{job_type} trusts it for the review"
+    assert "_sync_blocking_render" in body, f"{job_type} trusts the pass for rendering"
 
 
 def test_a_render_failure_is_reported_rather_than_raised() -> None:
