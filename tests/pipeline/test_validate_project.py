@@ -478,3 +478,20 @@ def test_a_page_size_from_the_wrong_frame_is_rejected(validate_project):
     )
     problems, _ = check_extraction(validate_project)
     assert any("records page_size" in p for p in problems), problems
+
+
+def test_a_warning_only_run_passes_the_gate(validate_project, monkeypatch):
+    """The warning print path used `sys` in a module that never imported it.
+
+    Every job producing at least one warning and no problems - a single opening
+    missing `handing` is enough, SOFT_FIELDS warn by design - died with
+    NameError instead of passing, so a valid extraction failed its own gate.
+    """
+    from cbc.validation import artifacts
+
+    monkeypatch.setitem(
+        artifacts.ARTIFACT_CHECKS,
+        "extract_bid_set",
+        (lambda slug: ([], [f"{slug}: opening 01 is missing handing"]),),
+    )
+    assert validate_job_artifacts("extract_bid_set", validate_project) is None
