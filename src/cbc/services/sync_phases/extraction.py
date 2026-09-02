@@ -1,8 +1,11 @@
 """What a take-off pass wrote, into the database."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
+
+from pymongo import InsertOne, UpdateOne
 
 from cbc.db import db
 from cbc.services import storage
@@ -35,13 +38,28 @@ async def import_extraction(project: dict[str, Any]) -> dict[str, int]:
     payload = _normalize_schedule_payload(raw)
     await import_scope_metadata(project)
 
-    existing = {
-        _identity(doc): doc
-        async for doc in db.line_items.find({"projectId": project_id})
-    }
+    existing_docs = [
+        doc
+        async for doc in db.line_items.find({"projectId": project_id}).sort(
+            [("mark", 1), ("createdAt", 1)]
+        )
+    ]
+    existing_keys = _distinct_keys(
+        [
+            {
+                "mark": doc.get("mark"),
+                "description": doc.get("description"),
+                "raw_row": doc.get("description"),
+            }
+            for doc in existing_docs
+        ],
+        _identity,
+    )
+    existing = {key: doc for key, doc in zip(existing_keys, existing_docs)}
 
     openings = payload.get("openings", [])
     inserted = updated = skipped = 0
+    bulk: list[InsertOne | UpdateOne] = []
     for key, item in zip(_distinct_keys(openings, _identity), openings):
         evidence = {
             "note": item.get("evidence_note"),
@@ -78,29 +96,37 @@ async def import_extraction(project: dict[str, Any]) -> dict[str, int]:
 
         current = existing.get(key)
         if current is None:
-            await db.line_items.insert_one(
-                {
-                    "projectId": project_id,
-                    "status": _status_for(item),
-                    "addedByHand": False,
-                    "createdAt": _now(),
-                    **fields,
-                }
+            bulk.append(
+                InsertOne(
+                    {
+                        "projectId": project_id,
+                        "status": _status_for(item),
+                        "addedByHand": False,
+                        "createdAt": _now(),
+                        **fields,
+                    }
+                )
             )
             inserted += 1
         elif current.get("confirmedAt") or current.get("addedByHand"):
-            # The estimator has ruled on this line. Refresh provenance only.
-            await db.line_items.update_one(
-                {"_id": current["_id"]},
-                {"$set": {"evidence": evidence, "updatedAt": _now()}},
+            bulk.append(
+                UpdateOne(
+                    {"_id": current["_id"]},
+                    {"$set": {"evidence": evidence, "updatedAt": _now()}},
+                )
             )
             skipped += 1
         else:
-            await db.line_items.update_one(
-                {"_id": current["_id"]},
-                {"$set": {"status": _status_for(item), **fields}},
+            bulk.append(
+                UpdateOne(
+                    {"_id": current["_id"]},
+                    {"$set": {"status": _status_for(item), **fields}},
+                )
             )
             updated += 1
+
+    if bulk:
+        await db.line_items.bulk_write(bulk, ordered=False)
 
     return {"inserted": inserted, "updated": updated, "skipped": skipped}
 async def import_scope_metadata(project: dict[str, Any]) -> bool:

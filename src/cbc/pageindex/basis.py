@@ -30,6 +30,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+from cbc.core.calc import _file_signature
 from cbc.core.paths import repo_root
 
 LIST = "list"
@@ -51,8 +52,8 @@ def _pricebook_dir() -> Path:
     return path if path.is_absolute() else (repo_root() / path).resolve()
 
 
-@lru_cache(maxsize=1)
-def _sheet_kinds() -> dict[str, str]:
+@lru_cache(maxsize=4)
+def _sheet_kinds_at(_signature: tuple[int, int]) -> dict[str, str]:
     """file name -> 'price_book' | 'multiplier_sheet', from the curated inventory."""
     index = _pricebook_dir() / "index.json"
     if not index.exists():
@@ -68,8 +69,19 @@ def _sheet_kinds() -> dict[str, str]:
     }
 
 
-@lru_cache(maxsize=1)
-def _vendors_with_a_multiplier() -> frozenset[str]:
+def _sheet_kinds() -> dict[str, str]:
+    index = _pricebook_dir() / "index.json"
+    if not index.exists():
+        return {}
+    try:
+        signature = _file_signature(index)
+    except OSError:
+        return {}
+    return dict(_sheet_kinds_at(signature))
+
+
+@lru_cache(maxsize=4)
+def _vendors_with_a_multiplier_at(_signature: tuple[int, int]) -> frozenset[str]:
     """Vendor keys whose sheets are list-priced, i.e. a multiplier exists to apply."""
     tiers = repo_root() / "reference-library" / "multipliers" / "vendor_tiers.json"
     if not tiers.exists():
@@ -90,8 +102,19 @@ def _vendors_with_a_multiplier() -> frozenset[str]:
     return frozenset(keys)
 
 
-@lru_cache(maxsize=1)
-def _net_program_vendors() -> frozenset[str]:
+def _vendors_with_a_multiplier() -> frozenset[str]:
+    tiers = repo_root() / "reference-library" / "multipliers" / "vendor_tiers.json"
+    if not tiers.exists():
+        return frozenset()
+    try:
+        signature = _file_signature(tiers)
+    except OSError:
+        return frozenset()
+    return _vendors_with_a_multiplier_at(signature)
+
+
+@lru_cache(maxsize=4)
+def _net_program_vendors_at(_signature: tuple[int, int]) -> frozenset[str]:
     """Vendors CBC buys on a flat net program, so their sheets carry costs already.
 
     ponytail: reads the wording of the curated tier record, because that is where
@@ -121,6 +144,17 @@ def _net_program_vendors() -> frozenset[str]:
                 if name:
                     keys.add(str(name).strip().lower())
     return frozenset(keys)
+
+
+def _net_program_vendors() -> frozenset[str]:
+    tiers = repo_root() / "reference-library" / "multipliers" / "vendor_tiers.json"
+    if not tiers.exists():
+        return frozenset()
+    try:
+        signature = _file_signature(tiers)
+    except OSError:
+        return frozenset()
+    return _net_program_vendors_at(signature)
 
 
 def price_basis(source_file: str | None, vendor: str | None) -> str:

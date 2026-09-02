@@ -306,7 +306,7 @@ def check_pricing(project: str, *, require_hardware_sets: bool = False) -> tuple
 
     priced_count = 0
     for index, line in enumerate(lines, start=1):
-        label = line.get("line_id") or line.get("description", f"line {index}")[:40]
+        label = line.get("line_id") or (line.get("description") or f"line {index}")[:40]
         for field in PRICING_LINE_FIELDS:
             if line.get(field) is None or line.get(field) == "":
                 problems.append(f"{project}: priced line {label} is missing {field}")

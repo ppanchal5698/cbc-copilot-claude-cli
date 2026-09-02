@@ -10,6 +10,7 @@ itself, so these two have to agree exactly. Here they are the same code.
 """
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -76,7 +77,17 @@ def _writable_target(file_path: Path, out_dir: str | Path | None) -> Path:
     PyMuPDF rather than through Write or Bash - so the check lives here, next to
     the write it governs.
     """
-    target = Path(out_dir).resolve() if out_dir else RENDER_CACHE
+    root = ROOT.resolve()
+    target = Path(out_dir).resolve() if out_dir else RENDER_CACHE.resolve()
+    allowed_roots = (
+        RENDER_CACHE.resolve(),
+        (root / "projects").resolve(),
+        (root / ".cache").resolve(),
+    )
+    if not any(target == allowed or allowed in target.parents for allowed in allowed_roots):
+        raise ValueError(
+            f"refusing to write a rendered page outside allowed directories: {target}"
+        )
     for protected in (PRICEBOOKS, REFERENCE_LIBRARY):
         if target == protected or protected in target.parents:
             raise ValueError(
@@ -89,6 +100,14 @@ def _writable_target(file_path: Path, out_dir: str | Path | None) -> Path:
             "immutable; use uploads/processed/ or leave out_dir unset"
         )
     return target
+
+
+def _render_cache_name(file_path: Path, page_number: int, dpi: int) -> str:
+    stat = file_path.stat()
+    digest = hashlib.sha256(
+        f"{file_path.resolve()}|{stat.st_mtime_ns}|{stat.st_size}|{page_number}|{dpi}".encode()
+    ).hexdigest()[:24]
+    return f"{digest}.png"
 
 
 def page_image(
@@ -105,7 +124,7 @@ def page_image(
             raise ValueError(f"page {page_number} out of range (1-{doc.page_count})")
         target = _writable_target(Path(file_path), out_dir)
         target.mkdir(parents=True, exist_ok=True)
-        output = target / f"{Path(file_path).stem}_p{page_number}_{dpi}dpi.png"
+        output = target / _render_cache_name(Path(file_path), page_number, dpi)
         doc[index].get_pixmap(dpi=dpi).save(output)
         return {
             "source_page": page_number,

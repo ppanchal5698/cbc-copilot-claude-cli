@@ -217,6 +217,7 @@ def attach_measured_bboxes(
     openings: list[dict[str, Any]],
     page: fitz.Page,
     number_key: str = "door_number",
+    shift: int = 0,
 ) -> tuple[int, int]:
     """Fill in bboxes by finding the row each opening was read from.
 
@@ -237,7 +238,7 @@ def attach_measured_bboxes(
 
     Returns (attached, unmatched).
     """
-    rows = rows_from_words(page)
+    rows = rows_from_words(page, shift=shift)
     size = {"width": round(page.rect.width, 2), "height": round(page.rect.height, 2)}
     attached = unmatched = 0
 

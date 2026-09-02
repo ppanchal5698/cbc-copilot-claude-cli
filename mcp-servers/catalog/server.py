@@ -287,7 +287,7 @@ def get_multiplier(vendor: str, category: str | None = None) -> dict[str, Any]:
     needle = str(vendor or "").strip().lower()
     for record in data.get("vendors", []):
         names = {str(record.get("key", "")).lower(), str(record.get("name", "")).lower()}
-        if needle not in names and needle not in str(record.get("name", "")).lower():
+        if needle not in names:
             continue
         categories = record.get("categories") or {}
         if category and categories:

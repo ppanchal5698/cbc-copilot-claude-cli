@@ -53,7 +53,7 @@ def measure_bboxes(project: dict[str, Any]) -> tuple[int, int]:
 
     import fitz
 
-    from cbc.core.pdfrows import attach_measured_bboxes
+    from cbc.core.pdfrows import attach_measured_bboxes, detect_shift
 
     by_page: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for opening in openings:
@@ -87,7 +87,11 @@ def measure_bboxes(project: dict[str, Any]) -> tuple[int, int]:
     touched = False
     for page_number, group in by_page.items():
         named = next((o.get("source_file") for o in group if o.get("source_file")), None)
-        candidates = [p for p in pdfs if named and Path(named).name == p.name] or pdfs
+        candidates = [p for p in pdfs if named and Path(named).name == p.name]
+        if not candidates:
+            _give_up(group, page_number, f"source_file {named!r} matches none of the uploads")
+            touched = True
+            continue
         if len(candidates) != 1:
             _give_up(
                 group, page_number,
@@ -109,7 +113,10 @@ def measure_bboxes(project: dict[str, Any]) -> tuple[int, int]:
                 )
                 touched = True
                 continue
-            got, missed = attach_measured_bboxes(group, document[page_number - 1])
+            shift = detect_shift(document, str(candidates[0]))
+            got, missed = attach_measured_bboxes(
+                group, document[page_number - 1], shift=shift
+            )
             attached += got
             unmatched += missed
         finally:
