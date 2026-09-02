@@ -52,3 +52,8 @@ building-plans/
 # The audit hook writes projects/{project}/audit_trail.jsonl. Running with no
 # project in scope makes it fall back to the repo root, leaving a stray here.
 /audit_trail.jsonl
+
+# Knowledge graph output and local agent tooling
+graphify-out/
+.agents/
+.claude/settings.json.graphify-bak

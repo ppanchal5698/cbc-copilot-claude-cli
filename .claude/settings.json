@@ -26,7 +26,7 @@
             "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/pre_delete_guard.py\""
           }
         ]
-      }
+      },
     ],
     "PostToolUse": [
       {
