@@ -6,6 +6,7 @@ NFR-10 has no named owner yet, and pretending otherwise would hide the risk.
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -21,6 +22,8 @@ from cbc.pageindex import basis
 from cbc.services.reference_library import sync_vendor_categories
 
 router = APIRouter(prefix="/api/price-books", tags=["price-books"])
+
+PDF_MAGIC = b"%PDF-"
 
 STALE_DAYS = 180
 
@@ -74,7 +77,8 @@ async def get_price_book(book_id: str) -> dict[str, Any]:
         raise HTTPException(404, "price book not found")
 
     parts = await db.products.find({"priceBookId": book["_id"]}).sort("part", 1).to_list(500)
-    return {"priceBook": _decorate(book), "parts": serialise(parts), "partCount": len(parts)}
+    part_count = await db.products.count_documents({"priceBookId": book["_id"]})
+    return {"priceBook": _decorate(book), "parts": serialise(parts), "partCount": part_count}
 
 
 @router.post("", status_code=201)
@@ -102,9 +106,11 @@ async def upload_price_book_file(
     settings.pricebook_dir.mkdir(parents=True, exist_ok=True)
     target = storage.unique_filename(settings.pricebook_dir, file.filename or "pricebook.pdf")
     try:
-        size = await storage.receive_upload(file, target, settings.max_upload_bytes)
+        size = await storage.receive_upload(
+            file, target, settings.max_upload_bytes, magic=PDF_MAGIC
+        )
     except ValueError as exc:
-        raise HTTPException(413, str(exc)) from exc
+        raise HTTPException(413 if "exceeds" in str(exc) else 415, str(exc)) from exc
 
     await db.price_books.update_one(
         {"_id": book["_id"]},
@@ -150,7 +156,7 @@ async def download_price_book(book_id: str) -> FileResponse:
 
 
 @router.patch("/{book_id}")
-async def update_price_book(book_id: str, body: PriceBookUpdate, actor: Actor) -> dict:
+async def update_price_book(book_id: str, body: PriceBookUpdate, actor: AdminActor) -> dict:
     book = await db.price_books.find_one({"_id": oid(book_id)})
     if not book:
         raise HTTPException(404, "price book not found")
@@ -162,7 +168,9 @@ async def update_price_book(book_id: str, body: PriceBookUpdate, actor: Actor) -
     await db.price_books.update_one({"_id": book["_id"]}, {"$set": {**changes, "updatedAt": _now()}})
 
     if "categories" in changes and changes["categories"] is not None:
-        sync_vendor_categories(book.get("vendor", ""), changes["categories"])
+        await asyncio.to_thread(
+            sync_vendor_categories, book.get("vendor", ""), changes["categories"]
+        )
 
     # A changed multiplier reprices every part on this program - but only where
     # there is a list price to multiply. A vendor bought on a flat net program
@@ -246,15 +254,13 @@ async def delete_price_book(book_id: str, actor: AdminActor) -> None:
     # appearing in search. Queued rather than done inline: the worker is the only
     # writer to the index, and deletion has to be verified, not assumed.
     if book.get("catalogId") or book.get("filename"):
-        await jobs.enqueue(
-            "delete_catalog",
-            payload={
-                "catalogId": book["catalogId"],
-                "filename": book.get("filename"),
-                "priceBookId": str(book["_id"]),
-            },
-            actor=actor,
-        )
+        payload: dict[str, Any] = {
+            "filename": book.get("filename"),
+            "priceBookId": str(book["_id"]),
+        }
+        if book.get("catalogId"):
+            payload["catalogId"] = book["catalogId"]
+        await jobs.enqueue("delete_catalog", payload=payload, actor=actor)
     await db.price_books.delete_one({"_id": book["_id"]})
     await audit.record(
         "price_book.delete",
