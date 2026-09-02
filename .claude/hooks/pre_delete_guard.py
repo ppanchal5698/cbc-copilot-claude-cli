@@ -18,7 +18,7 @@ from pathlib import Path
 
 PROTECTED_DIRS = ("pricebooks", "reference-library", ".claude")
 
-RM_RF = re.compile(r"\brm\b[^|;&]*-[a-zA-Z]*[rR][a-zA-Z]*f|\brm\b[^|;&]*-[a-zA-Z]*f[a-zA-Z]*[rR]")
+_SEGMENT_SPLIT = re.compile(r"\|\||&&|[|;&\n()]")
 GIT_PUSH = re.compile(r"\bgit\s+push\b")
 _HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)(\w+)\1")
 
@@ -197,9 +197,16 @@ def _strip_heredoc_bodies(command: str) -> str:
             index += 1
             continue
 
+        # Everything after the marker on the start line is still shell, not body -
+        # and it is where the redirection lives. Dropping it meant
+        # `cat <<EOF > pricebooks/vendor.csv` was scanned as bare `cat`, so
+        # _write_targets saw no target at all and a run could overwrite a vendor
+        # sheet: the exact case this guard exists for.
         prefix = line[: match.start()].rstrip()
-        if prefix:
-            kept.append(prefix)
+        suffix = line[match.end():].strip()
+        head = " ".join(part for part in (prefix, suffix) if part)
+        if head:
+            kept.append(head)
 
         delimiter = match.group(2)
         strip_tabs = match.group(0).startswith("<<-")
@@ -213,6 +220,50 @@ def _strip_heredoc_bodies(command: str) -> str:
             if closed:
                 break
     return "\n".join(kept)
+
+
+def _is_recursive_force_rm(segment: str) -> tuple[bool, str]:
+    """True when this segment is an `rm` carrying both recursive and force.
+
+    The regex this replaces required both letters inside one flag cluster, so
+    `rm -r -f <path>` - the same command, spelled the way half the world spells
+    it - was not recognised at all. Reading the flags as tokens covers clustered,
+    separated and long forms without another unreadable alternation.
+    """
+    try:
+        tokens = shlex.split(segment, posix=True)
+    except ValueError:
+        tokens = segment.split()
+    while tokens and (
+        "=" in tokens[0].split("/")[0] or Path(tokens[0].strip("([{ ")).name in _WRAPPERS
+    ):
+        tokens = tokens[1:]
+    if not tokens or Path(tokens[0].strip("([{ ")).name != "rm":
+        return False, ""
+
+    recursive = force = False
+    flags: list[str] = []
+    for token in tokens[1:]:
+        if not token.startswith("-") or token == "-":
+            continue
+        flags.append(token)
+        if token.startswith("--"):
+            recursive |= token == "--recursive"
+            force |= token == "--force"
+        else:
+            recursive |= "r" in token.lower()
+            force |= "f" in token
+    return recursive and force, ("rm " + " ".join(flags)).strip()
+
+
+def _under_projects(path: str) -> bool:
+    """True when the path resolves inside this project's own projects/ tree."""
+    try:
+        resolved = Path(path).resolve()
+    except (OSError, ValueError):
+        return False
+    workspaces = (PROJECT_ROOT / "projects").resolve()
+    return resolved == workspaces or workspaces in resolved.parents
 
 
 def block(reason: str, *, rule: str | None = None, matched: str | None = None) -> int:
@@ -282,12 +333,21 @@ def main() -> int:
             matched=match.group(0),
         )
 
-    if rm_match := RM_RF.search(scan):
-        if "projects/" not in scan and "projects\\" not in scan:
+    # Scope is decided by where the delete targets resolve, never by whether the
+    # command text happens to contain the word. The substring test this replaces
+    # was switched off by `projects/` appearing anywhere at all - a trailing
+    # comment was enough to permit a recursive delete of any path on the machine.
+    for segment in _SEGMENT_SPLIT.split(scan):
+        is_rm_rf, flags = _is_recursive_force_rm(segment)
+        if not is_rm_rf:
+            continue
+        targets = _segment_write_targets(segment)
+        outside = [target for target in targets if not _under_projects(target)]
+        if outside or not targets:
             return block(
                 "File deletion outside project scope is prohibited",
                 rule="rm-rf-outside-projects",
-                matched=rm_match.group(0),
+                matched=outside[0] if outside else flags,
             )
 
     # Writing into reference data by any other means. The rule says a run never
