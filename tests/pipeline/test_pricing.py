@@ -27,7 +27,11 @@ def test_sale_ea_is_cost_over_one_minus_margin(calc):
 def test_ext_is_sale_ea_times_quantity(calc):
     line = calc.calculate_line(cost=74.33, margin=0.27, quantity=3)
     assert line["sale_ea"] == 101.82
-    assert line["ext_price"] == round(101.82 * 3, 2) == 305.46
+    # 74.33 / 0.73 = 101.8219..., and three of those is 305.4657 -> 305.47.
+    # This asserted 305.46, the result of multiplying the *rounded* unit price:
+    # half a cent of error per unit, scaling with quantity, so the printed
+    # extensions did not reconcile against a customer's own arithmetic.
+    assert line["ext_price"] == 305.47
 
 
 @pytest.mark.parametrize(
@@ -305,3 +309,27 @@ def test_a_good_line_still_prices():
     from cbc.services.pricing import price_line
 
     assert price_line(cost=100.0, margin=0.27, qty=3)["priced"] is True
+
+
+def test_the_extension_is_rounded_once_not_twice():
+    """A line extension must equal the arithmetic, not the rounded unit times qty.
+
+    sale_ea was rounded to cents and *then* multiplied, so every unit carried up
+    to half a cent of error and it scaled linearly with quantity. 74.33 at 27%
+    over three units extended to 305.46 where 74.33/0.73*3 is 305.47 - and the
+    calc-engine self-test asserted the wrong value, pinning it in place.
+    """
+    from decimal import ROUND_HALF_UP, Decimal
+
+    from cbc.core.calc import calculate_line
+
+    for cost, margin, quantity in [(74.33, 0.27, 3), (12.01, 0.35, 17), (9.99, 0.56, 40)]:
+        line = calculate_line(cost=cost, margin=margin, quantity=quantity)
+        exact = (Decimal(str(cost)) / Decimal(str(1 - margin))) * Decimal(str(quantity))
+        expected = float(exact.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        assert line["ext_price"] == expected, (cost, margin, quantity, line["ext_price"])
+
+    # The per-unit figure an estimator reads is still whole cents.
+    single = calculate_line(cost=74.33, margin=0.27, quantity=1)
+    assert single["sale_ea"] == 101.82
+    assert single["ext_price"] == 101.82

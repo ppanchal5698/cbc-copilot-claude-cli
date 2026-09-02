@@ -39,7 +39,11 @@ def _demo() -> None:
     """Runnable check: the arithmetic that every quote depends on."""
     line = calculate_line(cost=74.33, margin=0.27, quantity=3)
     assert line["sale_ea"] == 101.82, line
-    assert line["ext_price"] == 305.46, line
+    # 74.33 / 0.73 = 101.8219..., times three is 305.4657 -> 305.47. The 305.46
+    # this used to assert came from multiplying the rounded 101.82, which is
+    # half a cent per unit adrift and pinned the defect in place with its own
+    # test. Rounding happens once, at the extension.
+    assert line["ext_price"] == 305.47, line
 
     totals = compute_totals(
         [

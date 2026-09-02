@@ -122,7 +122,14 @@ def calculate_line(cost: float, margin: float, quantity: float = 1) -> dict[str,
     if not math.isfinite(quantity) or quantity < 0:
         raise ValueError(f"quantity must be a non-negative finite number, got {quantity}")
     divisor = 1 - margin
-    sale_ea = _money(Decimal(str(cost)) / Decimal(str(divisor)))
+    exact_ea = Decimal(str(cost)) / Decimal(str(divisor))
+    sale_ea = _money(exact_ea)
+    # Round once, at the extension. Multiplying the already-rounded unit price
+    # put up to half a cent of error into every unit: 74.33 at 27% over three
+    # units extended to 305.46 where the arithmetic gives 305.47, and the error
+    # scales linearly with quantity - so the printed extensions stopped
+    # reconciling against a customer's own multiplication. `sale_ea` is still
+    # the cents figure shown per unit; only the extension is computed exactly.
     return {
         "cost": _money(cost),
         "margin": margin,
@@ -130,7 +137,7 @@ def calculate_line(cost: float, margin: float, quantity: float = 1) -> dict[str,
         "quantity": quantity,
         "sale_ea": sale_ea,
         "unit_sale_ea": sale_ea,
-        "ext_price": _money(Decimal(str(sale_ea)) * Decimal(str(quantity))),
+        "ext_price": _money(exact_ea * Decimal(str(quantity))),
         "formula": "sale_ea = cost / (1 - margin); ext_price = sale_ea * quantity",
     }
 

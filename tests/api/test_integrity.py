@@ -79,7 +79,9 @@ def test_an_ordinary_line_still_prices() -> None:
     priced = pricing.price_line(cost=74.33, margin=0.27, qty=3, division="08 71 00")
     assert priced["priced"] is True
     assert priced["sell"] == 101.82
-    assert priced["extended"] == 305.46
+    # 305.47, not 305.46: the extension is rounded once, from the unrounded
+    # unit price. See test_the_extension_is_rounded_once_not_twice.
+    assert priced["extended"] == 305.47
 
 
 def test_quote_line_schema_rejects_a_negative_cost() -> None:

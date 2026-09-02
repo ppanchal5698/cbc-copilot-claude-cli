@@ -193,7 +193,9 @@ def test_quote_line_math_matches_calc_engine(client, project):
     # Commodity band: 27% -> divisor 0.73
     assert line["margin"] == pytest.approx(0.27)
     assert line["sell"] == pytest.approx(round(412.00 / 0.73, 2))
-    assert line["extended"] == pytest.approx(round(line["sell"] * 3, 2))
+    # From the unrounded unit price, not the displayed one: rounding the unit
+    # first and multiplying put up to half a cent per unit into the extension.
+    assert line["extended"] == pytest.approx(round(412.00 / 0.73 * 3, 2))
 
 
 def test_editing_margin_recomputes_and_records_the_override(client, project):
