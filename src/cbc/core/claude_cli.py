@@ -99,7 +99,11 @@ def run_claude(
     if max_turns:
         scope += ["--max-turns", str(max_turns)]
 
-    command = [binary, "--print", *scope, "--dangerously-skip-permissions", prompt]
+    # `--` first: the prompt carries project names, file names and text lifted
+    # out of a customer's PDF. One starting with `-` was parsed as a flag, and a
+    # `--mcp-config` or `--allowed-tools` arriving that way would re-scope the run
+    # straight past toolsets.flags_for - which is the whole tool restriction.
+    command = [binary, "--print", *scope, "--dangerously-skip-permissions", "--", prompt]
 
     # A recorded run narrates itself.
     #
@@ -176,6 +180,51 @@ def run_claude(
     )
 
 
+# Bedrock reports these as 400/403 bodies, not as "failed to authenticate".
+# Retrying the same model ID or key will not change the answer.
+_BEDROCK_FAILURES: tuple[tuple[tuple[str, ...], str, str], ...] = (
+    (
+        (
+            "on-demand throughput isn't supported",
+            "retry with an inference profile",
+        ),
+        (
+            "Bedrock rejected a foundation-model ID. Use a full inference-profile ID "
+            "(for example global.anthropic.claude-sonnet-4-5-20250929-v1:0 in ap-south-1), "
+            "not a bare anthropic.claude-… ID."
+        ),
+        "bedrock_model_id",
+    ),
+    (
+        (
+            "authorization header is missing",
+            "not authorized to perform: bedrock",
+            "accessdeniedexception",
+        ),
+        (
+            "Bedrock refused the request. Check the API key (AWS_BEARER_TOKEN_BEDROCK) "
+            "or the Fargate task role, and that the model is enabled in this region."
+        ),
+        "bedrock_auth",
+    ),
+    (
+        ("validationexception", "model identifier is invalid"),
+        (
+            "Bedrock did not recognise that model ID. Use a region-correct inference "
+            "profile (us./eu./apac./global. prefix), not a foundation-model ID."
+        ),
+        "bedrock_model_id",
+    ),
+)
+
+
+def _bedrock_failure(lowered: str) -> tuple[str, str] | None:
+    for markers, message, code in _BEDROCK_FAILURES:
+        if any(marker in lowered for marker in markers):
+            return message, code
+    return None
+
+
 def _interpret(
     stdout: str,
     stderr: str,
@@ -212,6 +261,17 @@ def _interpret(
 
     # The CLI exits 0 on an auth failure, so the exit code alone is not enough.
     lowered = f"{output}\n{errors}".lower()
+    bedrock = _bedrock_failure(lowered)
+    if bedrock:
+        message, code = bedrock
+        return RunResult(
+            ok=False,
+            output=output,
+            error=message,
+            returncode=returncode,
+            permanent=True,
+            error_code=code,
+        )
     for marker in ("failed to authenticate", "oauth session expired", "invalid api key"):
         if marker in lowered:
             return RunResult(

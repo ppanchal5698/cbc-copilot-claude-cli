@@ -56,9 +56,22 @@ run_phase() {
   # the opposite of what an unattended pass over a customer's drawings wants.
   local job_type
   job_type="$(job_type_for "${agent}")" || return 1
-  local scope
-  if ! mapfile -t scope < <(PYTHONPATH="${ROOT}:${ROOT}/src"         python -m cbc.core.toolsets "${job_type}"); then
+  # `mapfile < <(cmd)` reports mapfile's own status, not the command's, and
+  # `set -e` does not cover process substitution - so a failed toolsets call left
+  # `scope` empty and the run went ahead with NO --strict-mcp-config and NO
+  # --disallowed-tools, under --dangerously-skip-permissions. That is every
+  # server in .mcp.json plus WebSearch and WebFetch over a customer's drawings:
+  # a wider surface than the same phase gets through the Ops-Hub, which is the
+  # opposite of what the lines below exist to do.
+  local scope_text
+  if ! scope_text="$(PYTHONPATH="${ROOT}:${ROOT}/src" python -m cbc.core.toolsets "${job_type}")"; then
     echo "Could not read the tool scope for ${job_type}" >&2
+    return 1
+  fi
+  local scope
+  mapfile -t scope <<< "${scope_text}"
+  if [[ "${#scope[@]}" -eq 0 || -z "${scope[0]}" ]]; then
+    echo "Empty tool scope for ${job_type} - refusing to run unrestricted." >&2
     return 1
   fi
 
