@@ -43,6 +43,26 @@ DEFAULT_BANDS = {
 # The JSON file is the source of truth; this is the fallback if it is missing.
 DEFAULT_TAX_RATES = {"OH": 0.08, "KY": 0.065}
 
+_STATE_ALIASES = {
+    "OHIO": "OH",
+    "KENTUCKY": "KY",
+}
+
+
+def normalise_state(state: str | None) -> str | None:
+    """Map full state names and abbreviations to the tax table's keys."""
+    if not state:
+        return None
+    cleaned = str(state).strip()
+    if not cleaned:
+        return None
+    upper = cleaned.upper()
+    if upper in _STATE_ALIASES:
+        return _STATE_ALIASES[upper]
+    if upper in DEFAULT_TAX_RATES or upper in tax_rates():
+        return upper
+    return upper if len(upper) == 2 else None
+
 
 def _money(value: float | Decimal) -> float:
     return float(Decimal(str(value)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
@@ -216,8 +236,8 @@ def compute_totals(
         bucket["subtotal"] = _money(bucket["subtotal"] + ext)
 
     subtotal = _money(sum(g["subtotal"] for g in groups.values()))
-    state = (project_state or "").upper()
-    tax_rate = tax_rates().get(state, 0.0)
+    state = normalise_state(project_state)
+    tax_rate = tax_rates().get(state or "", 0.0)
     tax = _money(subtotal * tax_rate)
 
     return {

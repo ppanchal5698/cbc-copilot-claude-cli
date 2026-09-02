@@ -14,7 +14,7 @@ MAIL_COMMAND = re.compile(
     r"\b(sendmail|mailx|mutt|msmtp|postfix|swaks)\b"
     # prefix match, so smtplib / smtpd / smtp-cli are caught too
     r"|\bsmtp"
-    r"|\b(sendgrid|mailgun|postmark)\b"
+    r"|\b(sendgrid|mailgun|postmark)"
     r"|curl[^|;&]*\bmail\b",
     re.IGNORECASE,
 )

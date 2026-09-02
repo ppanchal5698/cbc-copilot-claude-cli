@@ -13,30 +13,62 @@ something persist.
 """
 from __future__ import annotations
 
+import logging
+import time
 from datetime import datetime, timezone
 from typing import Any
 
+from pymongo import UpdateOne
+
 from cbc.db import db
 from cbc.services import pricing
+
+log = logging.getLogger("cbc.services.quote")
+
+# Bids above this are refused rather than silently truncated.
+MAX_QUOTE_LINES = 10_000
+
+# Short TTL cache so polling during a job does not reprice thousands of lines
+# every four seconds on every tab.
+_TOTALS_CACHE_TTL = 3.0
+_totals_cache: dict[str, tuple[float, dict, list[dict[str, Any]]]] = {}
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _cache_key(project_id) -> str:
+    return str(project_id)
+
+
+def invalidate_totals_cache(project_id) -> None:
+    _totals_cache.pop(_cache_key(project_id), None)
+
+
 async def lines_for(project_id) -> list[dict[str, Any]]:
-    return await db.quote_lines.find({"projectId": project_id}).sort("division", 1).to_list(2000)
+    lines = await db.quote_lines.find({"projectId": project_id}).sort("division", 1).to_list(
+        MAX_QUOTE_LINES + 1
+    )
+    if len(lines) > MAX_QUOTE_LINES:
+        raise ValueError(
+            f"this bid has more than {MAX_QUOTE_LINES} quote lines; "
+            "contact an administrator before repricing"
+        )
+    return lines
 
 
 def tax_state(project: dict[str, Any], quote: dict[str, Any]) -> str | None:
     """Which jurisdiction decides the tax on this bid.
 
-    "NONE" is the estimator saying there is no nexus. Unset means nobody has
-    ruled, so the ship-to state decides. Collapsing both into null would let a
-    deliberate "no tax" silently become "tax per the project state".
+    "NONE" is the estimator saying there is no nexus. Otherwise the ship-to
+    state on the project row is authoritative on every reprice - the first
+    pricing pass must not freeze a model-written jurisdiction into the quote.
     """
     stored = quote.get("taxJurisdiction")
-    return stored if stored else project.get("state")
+    if stored == "NONE":
+        return None
+    return project.get("state")
 
 
 def reprice(lines: list[dict[str, Any]], state: str | None, freight: float | None) -> dict:
@@ -72,12 +104,23 @@ def reprice(lines: list[dict[str, Any]], state: str | None, freight: float | Non
     return {"totals": pricing.totals(lines, state, freight), "changed": changed}
 
 
-async def totals_for(project: dict[str, Any]) -> tuple[dict, list[dict[str, Any]]]:
+async def totals_for(
+    project: dict[str, Any], *, use_cache: bool = True
+) -> tuple[dict, list[dict[str, Any]]]:
     """Current totals and priced lines, without touching the database."""
+    key = _cache_key(project["_id"])
+    if use_cache:
+        cached = _totals_cache.get(key)
+        if cached and time.monotonic() - cached[0] < _TOTALS_CACHE_TTL:
+            return cached[1], cached[2]
+
     quote = await db.quotes.find_one({"projectId": project["_id"]}) or {}
     lines = await lines_for(project["_id"])
     result = reprice(lines, tax_state(project, quote), quote.get("freight"))
-    return result["totals"], lines
+    totals = result["totals"]
+    if use_cache:
+        _totals_cache[key] = (time.monotonic(), totals, lines)
+    return totals, lines
 
 
 async def persist(project: dict[str, Any]) -> dict:
@@ -86,6 +129,7 @@ async def persist(project: dict[str, Any]) -> dict:
     Called from the routes that change something and from the worker once a
     pricing pass has landed - never from a read.
     """
+    invalidate_totals_cache(project["_id"])
     project_id = project["_id"]
     quote = await db.quotes.find_one({"projectId": project_id}) or {}
     state = tax_state(project, quote)
@@ -93,19 +137,23 @@ async def persist(project: dict[str, Any]) -> dict:
     lines = await lines_for(project_id)
     result = reprice(lines, state, quote.get("freight"))
 
-    for line in result["changed"]:
-        await db.quote_lines.update_one(
-            {"_id": line["_id"]},
-            {
-                "$set": {
-                    "sell": line["sell"],
-                    "extended": line["extended"],
-                    "margin": line["margin"],
-                    "priceError": line["priceError"],
-                    "marginCheck": line["marginCheck"],
-                }
-            },
-        )
+    if result["changed"]:
+        operations = [
+            UpdateOne(
+                {"_id": line["_id"]},
+                {
+                    "$set": {
+                        "sell": line["sell"],
+                        "extended": line["extended"],
+                        "margin": line["margin"],
+                        "priceError": line["priceError"],
+                        "marginCheck": line["marginCheck"],
+                    }
+                },
+            )
+            for line in result["changed"]
+        ]
+        await db.quote_lines.bulk_write(operations, ordered=False)
 
     totals = result["totals"]
     await db.quotes.update_one(
@@ -113,7 +161,6 @@ async def persist(project: dict[str, Any]) -> dict:
         {
             "$set": {
                 **totals,
-                "taxJurisdiction": state,
                 "updatedAt": _now(),
                 "quoteNumber": quote.get("quoteNumber") or f"Q-{project.get('code', '')}",
             },
