@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import useSWR from "swr";
 import { toast } from "sonner";
 import {
   ArrowSquareOut,
   CheckCircle,
   Cloud,
+  Globe,
   HardDrives,
   Key,
   Lock,
@@ -25,8 +26,28 @@ import type {
 
 import { endpoints } from "@/lib/endpoints";
 import { ProxyError, errorMessage, proxyFetch, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
+import { cn } from "@/lib/utils";
 
 type Mode = ClaudeSettings["mode"];
+
+function ModeNotice({ summary, advanced }: { summary: string; advanced: ReactNode }) {
+  return (
+    <div className="flex items-start gap-2.5 rounded-lg px-4 py-3 text-[12.5px] leading-relaxed bg-status-warning-soft border border-status-warning/30 text-status-warning shadow-sm">
+      <Warning size={16} weight="duotone" className="mt-0.5 shrink-0" />
+      <div className="min-w-0">
+        <p className="font-medium">{summary}</p>
+        <details className="mt-2.5">
+          <summary className="cursor-pointer text-[11.5px] font-bold uppercase tracking-widest text-status-warning/80 hover:text-status-warning transition-colors">
+            Advanced configuration
+          </summary>
+          <div className="mt-2 space-y-1.5 text-[12px] opacity-90">
+            {advanced}
+          </div>
+        </details>
+      </div>
+    </div>
+  );
+}
 
 const MODES: {
   key: Mode;
@@ -53,6 +74,12 @@ const MODES: {
     Icon: Cloud,
   },
   {
+    key: "cloudflare",
+    label: "Cloudflare",
+    blurb: "AI Gateway, or a Workers URL that speaks /v1/messages.",
+    Icon: Globe,
+  },
+  {
     key: "gateway",
     label: "Gateway / self-hosted",
     blurb: "Any endpoint that speaks the Anthropic Messages API.",
@@ -64,6 +91,13 @@ const MODES: {
     blurb: "Host-installed Ollama — local or :cloud models.",
     Icon: HardDrives,
   },
+];
+
+const CF_ROUTES: { key: string; label: string }[] = [
+  { key: "anthropic", label: "Anthropic (AI Gateway)" },
+  { key: "bedrock", label: "Bedrock via Gateway" },
+  { key: "vertex", label: "Vertex via Gateway" },
+  { key: "workers", label: "Workers AI bridge" },
 ];
 
 const FIELD_LABELS: Record<string, { label: string; hint?: string; placeholder?: string }> = {
@@ -95,12 +129,68 @@ const FIELD_LABELS: Record<string, { label: string; hint?: string; placeholder?:
     hint: "Optional. Used for session titles and other background work.",
     placeholder: "us.anthropic.claude-haiku-4-5-20251001-v1:0",
   },
+  accountId: {
+    label: "Cloudflare account ID",
+    hint: "From the AI Gateway URL: gateway.ai.cloudflare.com/v1/<account>/<gateway>/…",
+    placeholder: "0123456789abcdef0123456789abcdef",
+  },
+  gatewayId: {
+    label: "AI Gateway ID",
+    placeholder: "cbc-claude",
+  },
+  gatewayToken: {
+    label: "AI Gateway token",
+    hint: "Token with Run permission. Sent as cf-aig-authorization.",
+    placeholder: "cf-aig-…",
+  },
+  cfRoute: {
+    label: "Route",
+    hint: "Anthropic, Bedrock, and Vertex go through AI Gateway. Workers is a URL you already deployed.",
+  },
+  vertexProject: {
+    label: "Vertex project ID",
+    placeholder: "my-gcp-project",
+  },
+  vertexRegion: {
+    label: "Vertex region",
+    placeholder: "us-east5",
+  },
 };
 
 function fieldMeta(
   mode: Mode,
   key: string,
 ): { label: string; hint?: string; placeholder?: string } {
+  if (mode === "bedrock") {
+    if (key === "awsRegion") {
+      return {
+        label: "AWS region",
+        placeholder: "ap-south-1",
+        hint: "The region where Bedrock runs. India uses a different profile prefix than US or EU.",
+      };
+    }
+    if (key === "bedrockApiKey") {
+      return {
+        label: "Bedrock API key",
+        placeholder: "ABSK…",
+        hint: "Saved to the repo `.env` as AWS_BEARER_TOKEN_BEDROCK (file mode 600, gitignored). Leave empty on Fargate — the task role is used instead.",
+      };
+    }
+    if (key === "model") {
+      return {
+        label: "Model",
+        placeholder: "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        hint: "A full cross-region inference-profile ID — not a bare foundation-model ID.",
+      };
+    }
+    if (key === "smallFastModel") {
+      return {
+        label: "Background model",
+        placeholder: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+        hint: "Optional. Haiku for session titles; leave empty to reuse the main model. Maps to the haiku alias.",
+      };
+    }
+  }
   if (mode === "ollama") {
     if (key === "baseUrl") {
       return {
@@ -124,7 +214,62 @@ function fieldMeta(
       };
     }
   }
+  if (mode === "cloudflare") {
+    if (key === "apiKey") {
+      return {
+        label: "Anthropic API key (optional)",
+        placeholder: "sk-ant-api03-…",
+        hint: "BYOK: the real Anthropic key, forwarded by the gateway. Leave empty for Unified Billing — the gateway token is used instead.",
+      };
+    }
+    if (key === "baseUrl") {
+      return {
+        label: "Workers / custom URL",
+        placeholder: "https://claude-bridge.example.workers.dev",
+        hint: "An Anthropic-compatible /v1/messages endpoint you already deployed. Do not type the AI Gateway URL here — that is built from account + gateway ID.",
+      };
+    }
+    if (key === "model") {
+      return {
+        label: "Model",
+        placeholder: "claude-sonnet-4-5",
+        hint: "Anthropic/Bedrock/Vertex: a Claude ID (claude-sonnet-4-5). Workers: a @cf/… id, which is pinned onto sonnet/opus/haiku aliases.",
+      };
+    }
+    if (key === "awsRegion") {
+      return {
+        label: "Bedrock region",
+        placeholder: "us-east-1",
+        hint: "Used only for the Bedrock-via-Gateway URL. No AWS keys are sent.",
+      };
+    }
+    if (key === "smallFastModel") {
+      return {
+        label: "Background model",
+        placeholder: "claude-haiku-4-5",
+        hint: "Optional. Haiku for session titles; leave empty to reuse the main model.",
+      };
+    }
+  }
   return FIELD_LABELS[key] ?? { label: key };
+}
+
+function cloudflareFieldVisible(route: string, key: string): boolean {
+  if (
+    key === "accountId" ||
+    key === "gatewayId" ||
+    key === "gatewayToken" ||
+    key === "cfRoute" ||
+    key === "model" ||
+    key === "smallFastModel"
+  ) {
+    return true;
+  }
+  if (key === "apiKey") return route === "anthropic" || route === "workers";
+  if (key === "awsRegion") return route === "bedrock";
+  if (key === "vertexProject" || key === "vertexRegion") return route === "vertex";
+  if (key === "baseUrl") return route === "workers";
+  return false;
 }
 
 /**
@@ -161,14 +306,7 @@ export function ClaudeSettingsClient() {
     const forbidden = error instanceof ProxyError && error.status === 403;
     return (
       <div className="px-7 py-6">
-        <div
-          className="rounded-lg px-4 py-3 text-[12.5px]"
-          style={{
-            background: "var(--app-neg-soft)",
-            border: "1px solid var(--app-neg-line)",
-            color: "var(--app-neg)",
-          }}
-        >
+        <div className="rounded-lg px-4 py-3 text-[13px] font-medium bg-status-error-soft border border-status-error/30 text-status-error shadow-sm">
           {forbidden
             ? "You do not have permission to configure the provider. Ask whoever administers this installation."
             : `Could not read the configuration: ${errorMessage(error)}`}
@@ -179,7 +317,7 @@ export function ClaudeSettingsClient() {
 
   if (isLoading || !data) {
     return (
-      <div className="px-7 py-6 text-[13px]" style={{ color: "var(--app-tx-3)" }}>
+      <div className="px-7 py-6 text-[13px] font-medium text-tx-muted">
         Reading the current configuration…
       </div>
     );
@@ -190,7 +328,6 @@ export function ClaudeSettingsClient() {
   // Not `data.fields`, which only covers the saved mode - picking a provider you
   // have not saved yet would render an empty form with no way to configure it.
   const fields = data.schema?.[mode] ?? (mode === data.mode ? data.fields : {});
-  const fieldKeys = Object.keys(fields);
 
   // A different provider, or a fresh save, is a different form. Keying the
   // draft off both reseeds it without an effect - switching provider starts
@@ -200,6 +337,11 @@ export function ClaudeSettingsClient() {
     edits?.key === draftKey
       ? edits.values
       : Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value ?? ""]));
+
+  const cfRoute = (draft.cfRoute || "anthropic").trim() || "anthropic";
+  const fieldKeys = Object.keys(fields).filter(
+    (key) => mode !== "cloudflare" || cloudflareFieldVisible(cfRoute, key),
+  );
 
   function setField(key: string, value: string) {
     setEdits({ key: draftKey, values: { ...draft, [key]: value } });
@@ -214,9 +356,11 @@ export function ClaudeSettingsClient() {
     const body: Record<string, string> = { mode };
     for (const [key, field] of Object.entries(fields)) {
       if (field.locked) continue;
+      if (mode === "cloudflare" && !cloudflareFieldVisible(cfRoute, key)) continue;
       const value = draft[key];
       if (value) body[key] = value;
     }
+    if (mode === "cloudflare" && !body.cfRoute) body.cfRoute = cfRoute;
     return body;
   }
 
@@ -323,51 +467,51 @@ export function ClaudeSettingsClient() {
   }
 
   return (
-    <div className="flex flex-col gap-5 px-7 py-6">
-      <header className="flex items-baseline justify-between">
+    <div className="flex flex-col gap-6 p-8 bg-panel border border-subtle rounded-xl shadow-sm">
+      <header className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-4">
         <div>
-          <h1 className="text-[19px] font-semibold">Claude Code</h1>
-          <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+          <h1 className="text-[20px] font-bold text-tx-primary tracking-tight">Claude Code</h1>
+          <p className="mt-1 text-[13px] font-medium text-tx-secondary">
             Which model runs the extraction and pricing passes.
             {data.updatedBy ? ` Last changed by ${data.updatedBy}.` : ""}
           </p>
         </div>
         {!data.cliAvailable && (
-          <span
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11.5px]"
-            style={{ background: "var(--app-neg-soft)", color: "var(--app-neg)" }}
-          >
-            <Warning size={13} weight="duotone" />
+          <span className="flex items-center gap-2 rounded-md px-3 py-2 text-[12.5px] font-medium bg-status-error-soft text-status-error">
+            <Warning size={14} weight="duotone" />
             The CLI is not installed on the API host
           </span>
         )}
       </header>
 
-      <div className="grid grid-cols-2 gap-2.5 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
         {MODES.map(({ key, label, blurb, Icon }) => {
           const on = mode === key;
           return (
             <button
               key={key}
               onClick={() => pickMode(key)}
-              className="flex flex-col items-start gap-1.5 rounded-xl p-3.5 text-left transition"
-              style={{
-                background: on ? "var(--app-accent-soft)" : "var(--app-panel)",
-                border: `1px solid ${on ? "var(--app-accent-line)" : "var(--app-line)"}`,
-              }}
+              className={cn(
+                "flex flex-col items-start gap-2 rounded-xl p-4 text-left transition-colors shadow-sm",
+                on 
+                  ? "bg-brand-soft border-2 border-brand-primary" 
+                  : "bg-background border border-subtle hover:border-brand-border"
+              )}
             >
               <Icon
-                size={17}
-                weight="duotone"
-                style={{ color: on ? "var(--app-accent)" : "var(--app-tx-3)" }}
+                size={20}
+                weight={on ? "bold" : "duotone"}
+                className={on ? "text-brand-primary" : "text-tx-muted"}
               />
               <span
-                className="text-[13px] font-semibold"
-                style={{ color: on ? "var(--app-accent)" : "var(--app-tx)" }}
+                className={cn(
+                  "text-[13.5px] font-bold tracking-tight",
+                  on ? "text-brand-primary" : "text-tx-primary"
+                )}
               >
                 {label}
               </span>
-              <span className="text-[11.5px] leading-snug" style={{ color: "var(--app-tx-3)" }}>
+              <span className="text-[12.5px] font-medium leading-snug text-tx-secondary">
                 {blurb}
               </span>
             </button>
@@ -375,45 +519,75 @@ export function ClaudeSettingsClient() {
         })}
       </div>
 
+      {mode === "bedrock" && (
+        <ModeNotice
+          summary="Use a cross-region inference-profile ID for Bedrock, not a bare foundation-model ID. On Fargate leave the API key empty — the task role is used."
+          advanced={
+            <>
+              <p>
+                A value like <code>anthropic.claude-sonnet-4-5-20250929-v1:0</code> is rewritten
+                to <code>global.anthropic.…</code> in <code>ap-south-1</code> (or{" "}
+                <code>us.</code> / <code>eu.</code> / <code>apac.</code> elsewhere).
+              </p>
+              <p>
+                Phase agents declare <code>model: sonnet</code>; those aliases, and opus, are pinned
+                to the configured model. Save writes the key into <code>.env</code> (gitignored) as
+                well as Mongo, so native runs and the next worker job see it without a restart.
+              </p>
+            </>
+          }
+        />
+      )}
+
+      {mode === "cloudflare" && (
+        <ModeNotice
+          summary="Claude Code connects through Cloudflare AI Gateway. Use a gateway token for Unified Billing, or add an Anthropic key for BYOK."
+          advanced={
+            <>
+              <p>
+                Bedrock and Vertex via Gateway skip AWS/GCP keys (
+                <code>CLAUDE_CODE_SKIP_BEDROCK_AUTH</code> / <code>SKIP_VERTEX_AUTH</code>).
+              </p>
+              <p>
+                The Workers route is a URL you deployed that speaks <code>/v1/messages</code>; OSS{" "}
+                <code>@cf/</code> models do not reliably call the Agent tool.
+              </p>
+            </>
+          }
+        />
+      )}
+
       {mode === "ollama" && (
-        <p
-          className="flex items-start gap-2 rounded-lg px-3.5 py-2.5 text-[12px] leading-relaxed"
-          style={{ background: "var(--app-warn-soft)", color: "var(--app-warn)" }}
-        >
-          <Warning size={15} weight="duotone" className="mt-px shrink-0" />
-          <span>
-            Ollama runs on the host — no Ollama container is bundled. Use a model with 64k+
-            context (<code>OLLAMA_CONTEXT_LENGTH=65536</code> before starting Ollama). Phase
-            agents declare <code>model: sonnet</code>; in Ollama mode those aliases are routed
-            to your configured model automatically. Tool-call fidelity may degrade with
-            non-Claude models; check anything these models produce against the drawing.
-          </span>
-        </p>
+        <ModeNotice
+          summary="Ollama runs on the host — no Ollama container is bundled. Pick a model with at least 64k context and verify tool output against the drawing."
+          advanced={
+            <>
+              <p>
+                Set <code>OLLAMA_CONTEXT_LENGTH=65536</code> before starting Ollama. Phase agents
+                declare <code>model: sonnet</code>; in Ollama mode those aliases route to your
+                configured model automatically.
+              </p>
+            </>
+          }
+        />
       )}
 
       {mode === "gateway" && (
-        <p
-          className="flex items-start gap-2 rounded-lg px-3.5 py-2.5 text-[12px] leading-relaxed"
-          style={{ background: "var(--app-warn-soft)", color: "var(--app-warn)" }}
-        >
-          <Warning size={15} weight="duotone" className="mt-px shrink-0" />
-          <span>
-            A gateway can front Ollama, NVIDIA NIM or OpenRouter — start the bundled one with{" "}
-            <code>docker compose --profile oss up -d litellm</code>. Anthropic does not support
-            Claude Code against non-Claude models: tool calls are what degrade first, and a loose
-            tool call produces an extraction that looks finished and is wrong. Check anything
-            these models produce against the drawing.
-          </span>
-        </p>
+        <ModeNotice
+          summary="A gateway can front Ollama, NVIDIA NIM, or OpenRouter. Non-Claude models may degrade tool-call fidelity — verify extraction output against the drawing."
+          advanced={
+            <p>
+              Start the bundled gateway with{" "}
+              <code>docker compose --profile oss up -d litellm</code>.
+            </p>
+          }
+        />
       )}
 
       {mode === "subscription" && data.localDev && (
-        <section
-          className="rounded-xl p-4"
-          style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-        >
-          <h2 className="text-[13px] font-semibold">Sign in through the browser</h2>
-          <p className="mt-1 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+        <section className="rounded-xl p-5 bg-panel-muted border border-subtle shadow-sm">
+          <h2 className="text-[14px] font-bold text-tx-primary tracking-tight">Sign in through the browser</h2>
+          <p className="mt-1 text-[13px] font-medium text-tx-secondary">
             There is no browser inside the container, so Claude Code prints an authorization URL
             and waits for the code it gives you back. Local development only.
           </p>
@@ -421,20 +595,18 @@ export function ClaudeSettingsClient() {
           {!signIn ? (
             <button
               onClick={startSignIn}
-              className="mt-3 flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium"
-              style={{ background: "var(--app-accent)", color: "#fff" }}
+              className="mt-4 flex items-center gap-1.5 rounded-md px-4 py-2.5 text-[13px] font-semibold bg-brand-primary text-white shadow-sm hover:bg-brand-primary/90 transition-colors"
             >
-              <ArrowSquareOut size={13} weight="bold" />
+              <ArrowSquareOut size={16} weight="bold" />
               Sign in to Claude Code
             </button>
           ) : (
-            <div className="mt-3 flex flex-col gap-2">
+            <div className="mt-4 flex flex-col gap-3">
               <a
                 href={signIn.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="truncate text-[12px] underline"
-                style={{ color: "var(--app-accent)" }}
+                className="truncate text-[13px] font-medium underline text-brand-primary hover:text-brand-primary/80 transition-colors"
               >
                 {signIn.url}
               </a>
@@ -445,17 +617,11 @@ export function ClaudeSettingsClient() {
                   onChange={(event) => setCode(event.target.value)}
                   onKeyDown={(event) => event.key === "Enter" && finishSignIn()}
                   placeholder="Paste the code from the browser"
-                  className="flex-1 rounded-md px-2.5 py-1.5 text-[12.5px] outline-none"
-                  style={{
-                    background: "var(--app-panel-2)",
-                    border: "1px solid var(--app-accent-line)",
-                    color: "var(--app-tx)",
-                  }}
+                  className="flex-1 rounded-md px-3 py-2 text-[13px] outline-none border border-brand-border bg-background text-tx-primary focus:ring-1 focus:ring-brand-primary transition-colors shadow-sm"
                 />
                 <button
                   onClick={finishSignIn}
-                  className="rounded-md px-3 py-1.5 text-[12.5px] font-medium"
-                  style={{ background: "var(--app-accent)", color: "#fff" }}
+                  className="rounded-md px-4 py-2 text-[13px] font-semibold bg-brand-primary text-white shadow-sm hover:bg-brand-primary/90 transition-colors"
                 >
                   Finish
                 </button>
@@ -466,42 +632,45 @@ export function ClaudeSettingsClient() {
       )}
 
       {fieldKeys.length > 0 && (
-        <section
-          className="flex flex-col gap-3.5 rounded-xl p-4"
-          style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-        >
+        <section className="flex flex-col gap-4 rounded-xl p-5 bg-background border border-subtle shadow-sm">
           {fieldKeys.map((key) => {
             const field = fields[key];
             const meta = fieldMeta(mode, key);
             const showModelPicker = mode === "ollama" && key === "model";
+            const showRoutePicker = mode === "cloudflare" && key === "cfRoute";
             return (
-              <label key={key} className="flex flex-col gap-1">
-                <span className="flex items-center gap-1.5 text-[12px] font-medium">
+              <label key={key} className="flex flex-col gap-1.5">
+                <span className="flex items-center gap-2 text-[12.5px] font-semibold text-tx-primary">
                   {meta.label}
-                  <code className="text-[10.5px]" style={{ color: "var(--app-tx-3)" }}>
+                  <code className="text-[11px] font-medium text-tx-muted px-1.5 py-0.5 rounded bg-panel-muted border border-subtle">
                     {field.variable}
                   </code>
                   {field.locked && (
-                    <span
-                      className="flex items-center gap-1 rounded px-1.5 py-px text-[10px]"
-                      style={{ background: "var(--app-panel-2)", color: "var(--app-tx-3)" }}
-                    >
-                      <Lock size={9} weight="bold" />
-                      set by environment
+                    <span className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest bg-panel border border-subtle text-tx-muted shadow-sm">
+                      <Lock size={10} weight="bold" />
+                      set by env
                     </span>
                   )}
                 </span>
-                {showModelPicker && ollamaModels.length > 0 ? (
+                {showRoutePicker ? (
+                  <select
+                    value={draft[key] || "anthropic"}
+                    disabled={field.locked}
+                    onChange={(event) => setField(key, event.target.value)}
+                    className="rounded-md px-3 py-2 text-[13px] outline-none border border-subtle bg-background text-tx-primary focus:ring-1 focus:ring-brand-border disabled:opacity-60 shadow-sm"
+                  >
+                    {CF_ROUTES.map((entry) => (
+                      <option key={entry.key} value={entry.key}>
+                        {entry.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : showModelPicker && ollamaModels.length > 0 ? (
                   <select
                     value={draft[key] ?? ""}
                     disabled={field.locked}
                     onChange={(event) => setField(key, event.target.value)}
-                    className="rounded-md px-2.5 py-1.5 text-[12.5px] outline-none disabled:opacity-60"
-                    style={{
-                      background: "var(--app-panel-2)",
-                      border: "1px solid var(--app-line)",
-                      color: "var(--app-tx)",
-                    }}
+                    className="rounded-md px-3 py-2 text-[13px] outline-none border border-subtle bg-background text-tx-primary focus:ring-1 focus:ring-brand-border disabled:opacity-60 shadow-sm"
                   >
                     <option value="">Select a model…</option>
                     {ollamaModels.map((name) => (
@@ -519,12 +688,7 @@ export function ClaudeSettingsClient() {
                     autoComplete="off"
                     autoCorrect="off"
                     spellCheck={false}
-                    className="rounded-md px-2.5 py-1.5 text-[12.5px] outline-none disabled:opacity-60"
-                    style={{
-                      background: "var(--app-panel-2)",
-                      border: "1px solid var(--app-line)",
-                      color: "var(--app-tx)",
-                    }}
+                    className="rounded-md px-3 py-2 text-[13px] outline-none border border-subtle bg-background text-tx-primary placeholder:text-tx-muted focus:ring-1 focus:ring-brand-border disabled:opacity-60 shadow-sm"
                   />
                 )}
                 {showModelPicker && (
@@ -532,14 +696,13 @@ export function ClaudeSettingsClient() {
                     type="button"
                     onClick={refreshOllamaModels}
                     disabled={loadingModels || field.locked}
-                    className="self-start rounded-md px-2.5 py-1 text-[11.5px] disabled:opacity-60"
-                    style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+                    className="self-start mt-1 rounded-md px-3 py-1.5 text-[12px] font-medium border border-subtle text-tx-secondary hover:bg-panel-muted transition-colors disabled:opacity-60"
                   >
                     {loadingModels ? "Refreshing…" : "Refresh models from Ollama"}
                   </button>
                 )}
                 {meta.hint && (
-                  <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                  <span className="text-[12px] font-medium text-tx-muted mt-0.5">
                     {meta.hint}
                   </span>
                 )}
@@ -549,50 +712,54 @@ export function ClaudeSettingsClient() {
         </section>
       )}
 
-      <div className="flex items-center gap-2.5">
+      <div className="flex items-center gap-3 pt-2">
         <button
           onClick={save}
           disabled={saving}
-          className="rounded-md px-3.5 py-1.5 text-[12.5px] font-medium disabled:opacity-60"
-          style={{ background: "var(--app-accent)", color: "#fff" }}
+          className="rounded-md px-4 py-2.5 text-[13px] font-semibold bg-brand-primary text-white shadow-sm hover:bg-brand-primary/90 transition-colors disabled:opacity-60"
         >
           {saving ? "Saving…" : "Save"}
         </button>
         <button
           onClick={test}
           disabled={testing}
-          className="rounded-md px-3.5 py-1.5 text-[12.5px] disabled:opacity-60"
-          style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+          className="rounded-md px-4 py-2.5 text-[13px] font-medium border border-subtle text-tx-secondary hover:bg-panel-muted transition-colors shadow-sm disabled:opacity-60"
         >
           {testing ? "Asking Claude Code…" : "Test connection"}
         </button>
-        <span className="text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+        <span className="text-[12.5px] font-medium text-tx-muted">
           Test runs a real one-line pass against what is on screen, not what is saved.
         </span>
       </div>
 
       {result && (
         <div
-          className="flex items-start gap-2 rounded-lg px-3.5 py-2.5 text-[12px]"
-          style={{
-            background: result.ok ? "var(--app-pos-soft)" : "var(--app-neg-soft)",
-            color: result.ok ? "var(--app-pos)" : "var(--app-neg)",
-          }}
+          className={cn(
+            "flex items-start gap-2.5 rounded-lg px-4 py-3 text-[12.5px] shadow-sm",
+            result.ok 
+              ? "bg-status-success-soft border border-status-success/30 text-status-success"
+              : "bg-status-error-soft border border-status-error/30 text-status-error"
+          )}
         >
           {result.ok ? (
-            <CheckCircle size={15} weight="duotone" className="mt-px shrink-0" />
+            <CheckCircle size={16} weight="duotone" className="mt-0.5 shrink-0" />
           ) : (
-            <Warning size={15} weight="duotone" className="mt-px shrink-0" />
+            <Warning size={16} weight="duotone" className="mt-0.5 shrink-0" />
           )}
           <span>
             {result.ok ? (
               <>
-                Answered through <strong>{result.provider.mode}</strong> on{" "}
-                <strong>{result.provider.model}</strong>
+                Answered through <strong className="font-bold">{result.provider.mode}</strong> on{" "}
+                <strong className="font-bold">{result.provider.model}</strong>
                 {result.provider.region ? ` in ${result.provider.region}` : ""}.
               </>
             ) : (
               result.error
+            )}
+            {result.provider.warnings && result.provider.warnings.length > 0 && (
+              <span className="mt-1.5 block font-medium opacity-90">
+                {result.provider.warnings.join(" ")}
+              </span>
             )}
           </span>
         </div>

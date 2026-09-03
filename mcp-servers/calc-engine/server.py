@@ -23,12 +23,14 @@ from cbc.core.calc import (  # noqa: E402
     calculate_line,
     compute_totals,
     cost_from_list,
+    lookup_lite_kit_list_price,
     validate_margin,
 )
 
 HANDLERS = {
     "calculate_line": calculate_line,
     "cost_from_list": cost_from_list,
+    "lookup_lite_kit_list_price": lookup_lite_kit_list_price,
     "apply_margin": apply_margin,
     "compute_totals": compute_totals,
     "validate_margin": validate_margin,

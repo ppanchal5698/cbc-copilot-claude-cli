@@ -100,16 +100,145 @@ _WRITE_ANY = (
     "tee", "touch", "mkdir", "truncate", "chmod", "chown", "unzip", "tar",
 )
 _INPLACE = ("sed", "perl")
+_PYTHON = {"python", "python3", "py"}
+_PDF_IMPORT = re.compile(r"(?:^|\s)(?:import|from)\s+(fitz|pymupdf|pypdf)\b")
+_PYTHON_WRITE = re.compile(
+    r"\bwrite_text\b|\bwrite_bytes\b|\bjson\.dump\b|"
+    r"""open\s*\([^)]*['\"](?:w|wb|a|at|wt|ab)['\"]"""
+)
+_STRING_LIT = re.compile(r"""['\"]([^'\"]+)['\"]""")
+
+
+def _python_tokens(command: str) -> list[str]:
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        tokens = command.split()
+    while tokens and (
+        "=" in tokens[0].split("/")[0]
+        or Path(tokens[0].strip("([{ ")).name in _WRAPPERS
+    ):
+        tokens = tokens[1:]
+    if not tokens:
+        return []
+    return [tokens[0].strip("([{ ")] + tokens[1:]
+
+
+def _is_inline_python_prefix(prefix: str) -> bool:
+    """True when this is `python`/`python3` with no .py script argument."""
+    tokens = _python_tokens(prefix)
+    if not tokens or Path(tokens[0]).name not in _PYTHON:
+        return False
+    for token in tokens[1:]:
+        if token.startswith("-"):
+            continue
+        return not token.endswith(".py")
+    return True
+
+
+def _python_dash_c_bodies(command: str) -> list[str]:
+    """Every `python -c` program in the command. Quoted `;` / `()` stay inside the body."""
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        tokens = command.split()
+    bodies: list[str] = []
+    index = 0
+    while index < len(tokens):
+        name = Path(tokens[index].strip("([{ ")).name
+        if name not in _PYTHON:
+            index += 1
+            continue
+        index += 1
+        while index < len(tokens):
+            token = tokens[index]
+            if token == "-c" and index + 1 < len(tokens):
+                bodies.append(tokens[index + 1])
+                break
+            if token.startswith("-c") and len(token) > 2:
+                bodies.append(token[2:])
+                break
+            if not token.startswith("-"):
+                break
+            index += 1
+        index += 1
+    return bodies
+
+
+def _python_heredoc_bodies(command: str) -> list[str]:
+    """Bodies of `python <<EOF` / `python3 << 'PY'` — the program, not stdin docs."""
+    lines = command.split("\n")
+    bodies: list[str] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        match = _HEREDOC_START.search(line)
+        if not match:
+            index += 1
+            continue
+        prefix = line[: match.start()].rstrip()
+        index += 1
+        chunk: list[str] = []
+        delimiter = match.group(2)
+        strip_tabs = match.group(0).startswith("<<-")
+        while index < len(lines):
+            body = lines[index]
+            closed = body.strip() == delimiter or (
+                strip_tabs and body.strip().lstrip("\t") == delimiter
+            )
+            index += 1
+            if closed:
+                break
+            chunk.append(body)
+        if _is_inline_python_prefix(prefix):
+            bodies.append("\n".join(chunk))
+    return bodies
+
+
+def _inline_python_bodies(command: str) -> list[str]:
+    """Program text of `python -c` and `python <<EOF`. Script-file invocations are omitted."""
+    return _python_heredoc_bodies(command) + _python_dash_c_bodies(
+        _strip_heredoc_bodies(command)
+    )
+
+
+def _python_write_target(body: str) -> str | None:
+    if not _PYTHON_WRITE.search(body):
+        return None
+    for match in _STRING_LIT.finditer(body):
+        value = match.group(1)
+        if _in_protected_dir(value):
+            return value
+    return None
+
+
+def _check_inline_python(command: str) -> int:
+    """T-11 / U-9: block inline fitz/pypdf and Python writes into protected dirs."""
+    for body in _inline_python_bodies(command):
+        if match := _PDF_IMPORT.search(body):
+            return block(
+                "inline import of fitz/pypdf is blocked; use pdf-tools or parse_schedule.py",
+                rule="inline-pdf-lib",
+                matched=match.group(0).strip(),
+            )
+        target = _python_write_target(body)
+        if target:
+            return block(
+                f"{target} is read-only during a run",
+                rule="protected-python-write",
+                matched=target,
+            )
+    return 0
 
 
 def _write_targets(command: str) -> list[str]:
     """Paths this command would write to. Empty for a command that only reads.
 
-    ponytail: recognises write-shaped shell, not all of it. `bash -c`, a python
-    one-liner, backticks, a variable holding the path, `find -exec` and `xargs`
-    all still get through, and no amount of regex closes that - parsing arbitrary
-    shell to decide intent is not a solvable problem. This catches accidents and
-    the obvious cases, which is what a PreToolUse hook can honestly offer.
+    ponytail: recognises write-shaped shell, not all of it. `bash -c`, backticks,
+    a variable holding the path, `find -exec` and `xargs` all still get through,
+    and no amount of regex closes that. Inline `python -c` / `python <<EOF` is
+    checked separately in `_check_inline_python`. This catches accidents and the
+    obvious cases, which is what a PreToolUse hook can honestly offer.
 
     The enforceable boundary is the filesystem: docker-compose mounts all three
     protected directories into the worker read-only (`:ro`), so in the container
@@ -282,7 +411,10 @@ def main() -> int:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
         return 0
+    return check(payload)
 
+
+def check(payload: dict) -> int:
     tool_input = payload.get("tool_input") or {}
     tool_name = str(payload.get("tool_name") or "")
 
@@ -323,6 +455,10 @@ def main() -> int:
     command = str(tool_input.get("command") or "")
     if not command:
         return 0
+
+    blocked = _check_inline_python(command)
+    if blocked:
+        return blocked
 
     scan = _strip_heredoc_bodies(command)
 

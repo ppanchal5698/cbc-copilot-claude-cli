@@ -21,9 +21,10 @@ import asyncio
 import os
 import re
 import shutil
+import socket
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -52,10 +53,11 @@ DOC_ID = "claude"
 URL_PATTERN = re.compile("https://[^\\s\\x07\\x1b]+oauth/authorize[^\\s\\x07\\x1b]*")
 
 # In-flight `claude setup-token` processes, keyed by the id handed to the
-# browser. Deliberately in-process and short-lived: this is an interactive local
-# development flow, not state worth persisting.
+# browser. Process handles stay in-process; session metadata lives in Mongo so
+# multi-worker deployments can detect stale or foreign-host sessions.
 _PENDING: dict[str, dict[str, Any]] = {}
 _PENDING_TTL = 600
+API_INSTANCE_ID = f"{socket.gethostname()}-{os.getpid()}"
 
 
 class ClaudeSettings(BaseModel):
@@ -66,8 +68,14 @@ class ClaudeSettings(BaseModel):
     apiKey: str | None = None
     authToken: str | None = None
     bedrockApiKey: str | None = None
+    gatewayToken: str | None = None
     baseUrl: str | None = None
     awsRegion: str | None = None
+    accountId: str | None = None
+    gatewayId: str | None = None
+    cfRoute: str | None = None
+    vertexProject: str | None = None
+    vertexRegion: str | None = None
     model: str | None = None
     smallFastModel: str | None = None
 
@@ -105,6 +113,16 @@ def _sweep() -> None:
     for key, entry in list(_PENDING.items()):
         if time.time() - entry["startedAt"] > _PENDING_TTL:
             _close(key)
+
+
+async def sweep_oauth_sessions() -> None:
+    """Kill abandoned OAuth subprocesses and drop expired Mongo session rows."""
+    _sweep()
+    now = _now()
+    expired = await db.oauth_sessions.find({"expiresAt": {"$lte": now}}).to_list(100)
+    for row in expired:
+        _close(row["_id"])
+        await db.oauth_sessions.delete_one({"_id": row["_id"]})
 
 
 def _close(key: str) -> None:
@@ -158,6 +176,28 @@ async def save_pipeline_settings(body: PipelineSettings, actor: Actor) -> dict[s
     return await get_pipeline_settings()
 
 
+def _validate_provider_urls(body: ClaudeSettings, candidate: dict[str, Any] | None = None) -> None:
+    """Reject a typed or constructed base URL that we would send a credential to."""
+    try:
+        provider.check_base_url(body.baseUrl)
+        if body.mode == provider.CLOUDFLARE:
+            route = (body.cfRoute or provider.CF_ANTHROPIC).strip().lower()
+            if body.cfRoute and route not in provider.CF_ROUTES:
+                raise ValueError(f"unknown Cloudflare route {body.cfRoute!r}")
+            probe = candidate or {
+                "mode": body.mode,
+                **{
+                    key: value
+                    for key, value in body.model_dump(exclude_none=True).items()
+                    if key != "mode"
+                },
+            }
+            for url in provider.endpoint_urls(probe):
+                provider.check_base_url(url)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.get("/claude")
 async def get_claude_settings() -> dict[str, Any]:
     config = await load_config()
@@ -174,10 +214,6 @@ async def save_claude_settings(
 ) -> dict[str, Any]:
     if body.mode not in provider.MODES:
         raise HTTPException(400, f"unknown mode {body.mode!r}")
-    try:
-        provider.check_base_url(body.baseUrl)
-    except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
 
     current = await load_config()
     incoming = body.model_dump(exclude_none=True)
@@ -194,12 +230,15 @@ async def save_claude_settings(
         if document[field] != current.get(field):
             changed.append(field)
 
+    _validate_provider_urls(body, document)
+
     if body.mode != current.get("mode"):
         changed.append("mode")
 
     document["updatedAt"] = _now()
     document["updatedBy"] = actor
     await db.settings.update_one({"_id": DOC_ID}, {"$set": document}, upsert=True)
+    await asyncio.to_thread(provider.persist_env_file, document)
 
     # Field names only. The values are exactly what must never reach the trail.
     await audit.record(
@@ -224,10 +263,7 @@ async def test_claude_settings(body: ClaudeSettings | None = None) -> dict[str, 
     from cbc.core import claude_cli as runner
 
     if body is not None:
-        try:
-            provider.check_base_url(body.baseUrl)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
+        _validate_provider_urls(body)
 
     if body is not None and body.mode in provider.MODES:
         stored = await load_config()
@@ -361,6 +397,16 @@ async def oauth_start() -> dict[str, Any]:
         )
 
     session = uuid.uuid4().hex
+    expires = _now() + timedelta(seconds=_PENDING_TTL)
+    await db.oauth_sessions.insert_one(
+        {
+            "_id": session,
+            "hostId": API_INSTANCE_ID,
+            "url": match.group(0),
+            "startedAt": _now(),
+            "expiresAt": expires,
+        }
+    )
     _PENDING[session] = {
         "process": process,
         "fd": controller,
@@ -373,8 +419,19 @@ async def oauth_start() -> dict[str, Any]:
 @router.post("/claude/oauth/code")
 async def oauth_code(body: OAuthCode, actor: Actor) -> dict[str, Any]:
     """Hand the browser's authorization code back to the CLI and store the token."""
+    stored = await db.oauth_sessions.find_one({"_id": body.session})
+    if not stored:
+        raise HTTPException(404, "that sign-in has expired - start it again")
+    if stored.get("hostId") != API_INSTANCE_ID:
+        raise HTTPException(
+            409,
+            "this sign-in was started on another API instance; complete it there "
+            "or start a new sign-in on this one",
+        )
+
     entry = _PENDING.get(body.session)
     if not entry:
+        await db.oauth_sessions.delete_one({"_id": body.session})
         raise HTTPException(404, "that sign-in has expired - start it again")
 
     code = body.code.strip()
@@ -460,6 +517,7 @@ async def oauth_code(body: OAuthCode, actor: Actor) -> dict[str, Any]:
         )
 
     _close(body.session)
+    await db.oauth_sessions.delete_one({"_id": body.session})
 
     token = match
     await db.settings.update_one(

@@ -16,9 +16,10 @@ from fastapi.responses import FileResponse, Response
 from cbc.config import settings
 from cbc.db import db, oid, serialise
 from apps.api.deps import Actor
+from apps.api.pipeline_jobs import enqueue_pipeline, reserve
 from apps.api.routers.projects import load
 from apps.api.routers.versions import snapshot
-from cbc.services import audit, jobs, pdf, storage
+from cbc.services import audit, pdf, storage
 
 router = APIRouter(prefix="/api/projects/{code}/documents", tags=["documents"])
 
@@ -44,6 +45,18 @@ async def upload_document(
     kind: str = Form("plan"),
 ) -> dict:
     project = await load(code)
+
+    # Which job this upload becomes, decided before anything is written so the
+    # conflict check can refuse without leaving a file, a document row and a
+    # version behind it.
+    job_type = (
+        "ingest_addendum"
+        if kind == "addendum"
+        else "run_full_pipeline"
+        if project.get("autopilot")
+        else "extract_bid_set"
+    )
+    superseded = await reserve(project["_id"], job_type)
 
     storage.scaffold(project["slug"])
     target = storage.unique_filename(storage.raw_dir(project["slug"]), file.filename or "upload.pdf")
@@ -83,11 +96,11 @@ async def upload_document(
     # priced, so the current state is frozen into a new version first and the
     # differences are flagged rather than merged (Matrix 4.1 is still open).
     version = None
-    if kind == "addendum":
+    if job_type == "ingest_addendum":
         version = await snapshot(project, f"Addendum: {target.name}", actor)
-        job = await jobs.enqueue(
+        job = await enqueue_pipeline(
             "ingest_addendum",
-            project_id=project["_id"],
+            project["_id"],
             payload={
                 "documentId": str(result.inserted_id),
                 "filename": target.name,
@@ -95,21 +108,21 @@ async def upload_document(
             },
             actor=actor,
         )
-    elif project.get("autopilot"):
+    elif job_type == "run_full_pipeline":
         # Phase 0-6 in one session. Delayed a little so the rest of a multi-file
         # bid set lands first - the run reads the whole of uploads/raw/, and one
         # that started on this file alone would not see the others.
-        job = await jobs.enqueue(
+        job = await enqueue_pipeline(
             "run_full_pipeline",
-            project_id=project["_id"],
+            project["_id"],
             payload={"documentId": str(result.inserted_id), "filename": target.name},
             actor=actor,
             delay_seconds=PIPELINE_DEBOUNCE_SECONDS,
         )
     else:
-        job = await jobs.enqueue(
+        job = await enqueue_pipeline(
             "extract_bid_set",
-            project_id=project["_id"],
+            project["_id"],
             payload={"documentId": str(result.inserted_id), "filename": target.name},
             actor=actor,
         )
@@ -126,11 +139,21 @@ async def upload_document(
         "job": serialise(job),
         "autopilot": bool(project.get("autopilot")) and kind != "addendum",
         "version": version["version"] if version else None,
-        "note": (
-            "Prior work was snapshotted; differences will be flagged, not merged."
-            if version
-            else None
-        ),
+        "note": "; ".join(
+            note
+            for note in (
+                "Prior work was snapshotted; differences will be flagged, not merged."
+                if version
+                else None,
+                # Never cancel an estimator's run without saying so.
+                f"A queued {superseded['type']} run was superseded and must be "
+                "re-started once the differences have been reviewed."
+                if superseded
+                else None,
+            )
+            if note
+        )
+        or None,
     }
 
 

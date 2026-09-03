@@ -126,6 +126,8 @@ def test_a_base_url_off_the_allowlist_is_refused(client, as_role) -> None:
         "https://api.anthropic.com",
         "http://localhost:4000",
         "http://host.docker.internal:4000",
+        "https://gateway.ai.cloudflare.com/v1/acc/gw/anthropic",
+        "https://claude-bridge.example.workers.dev",
     ],
 )
 def test_the_documented_providers_are_allowed(url: str) -> None:

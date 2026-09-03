@@ -17,7 +17,7 @@ import pytest
 
 from tests.shared import ROOT  # noqa: E402
 
-from _runtime import load_server  # noqa: E402
+from _runtime import dump_payload, load_server  # noqa: E402
 from cbc.core import toolsets  # noqa: E402
 
 pdf = load_server("pdf-tools")
@@ -57,6 +57,16 @@ def test_no_document_is_inlined_twice():
     references = re.findall(r"@([\w/.\-]+\.md)", text)
     duplicates = {r for r in references if references.count(r) > 1}
     assert not duplicates, f"inlined more than once: {duplicates}"
+
+
+def test_agents_do_not_inline_project_rules():
+    """Rules under .claude/rules/ load automatically — @-inlining duplicates context."""
+    agents = ROOT / ".claude" / "agents"
+    offenders = []
+    for path in agents.glob("*.md"):
+        if "@.claude/rules/" in path.read_text(encoding="utf-8"):
+            offenders.append(path.name)
+    assert not offenders, f"agents still @-inline rules: {offenders}"
 
 
 # ── each phase sees only its own tools ──────────────────────────────────────
@@ -106,6 +116,21 @@ def test_every_profile_names_real_servers():
 # ── no single call may swallow the context ──────────────────────────────────
 
 
+def test_mcp_payloads_drop_json_indent():
+    """Whitespace was ~60% of every tool result (T-01). Semantics must not change."""
+    payload = {
+        "pages": [
+            {"source_page": n, "rows": [{"cells": ["A", "B"], "text": "A | B"}] * 20}
+            for n in range(1, 6)
+        ]
+    }
+    compact = dump_payload(payload)
+    pretty = json.dumps(payload, indent=2, default=str)
+    assert json.loads(compact) == json.loads(pretty)
+    saved = 1 - len(compact) / len(pretty)
+    assert saved >= 0.35, f"compact form only saved {saved:.1%}"
+
+
 @needs_set
 def test_finding_the_right_sheets_is_cheap():
     """Six searches cost six turns and ~2,300 tokens to answer one question."""
@@ -128,11 +153,25 @@ def test_the_page_map_reports_terms_it_could_not_find():
 def test_reading_a_whole_set_in_one_call_is_bounded():
     """This returned 1.5 million characters - roughly 385,000 tokens."""
     result = pdf.extract_tables(str(MIS_ENCODED), page_range="all")
-    size = len(json.dumps(result))
+    compact = dump_payload(result)
+    pretty = json.dumps(result, indent=2, default=str)
+    size = len(compact)
 
     assert size < 400_000, f"one call returned {size:,} chars"
+    assert json.loads(compact) == json.loads(pretty)
     assert result["pages_deferred"], "a 28-page set should have deferred pages"
     assert result["note"], "deferred pages must be named, not silently dropped"
+
+
+@needs_set
+def test_mcp_tool_results_are_compact():
+    """Pretty-print was ~60% of an extract_tables payload (T-01)."""
+    result = pdf.extract_tables(str(MIS_ENCODED), page_range="all")
+    compact = dump_payload(result)
+    pretty = json.dumps(result, indent=2, default=str)
+    assert json.loads(compact) == json.loads(pretty)
+    saved = 1 - len(compact) / len(pretty)
+    assert saved >= 0.35, f"compact form only saved {saved:.1%}"
 
 
 @needs_set

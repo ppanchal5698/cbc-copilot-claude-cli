@@ -34,22 +34,19 @@ export function StageBar({ project, current }: { project: Project; current: Stag
   }
 
   return (
-    <div
-      className="flex shrink-0 items-center gap-4 border-b px-5 py-3"
-      style={{ borderColor: "var(--app-line)", background: "var(--app-bg)" }}
-    >
+    <div className="flex shrink-0 items-center gap-4 border-b border-subtle bg-background px-5 py-3">
       <span className="flex w-[230px] shrink-0 flex-col leading-tight">
-        <span className="truncate text-[13.5px] font-semibold" title={project.name}>
+        <span className="truncate text-[14px] font-bold tracking-tight text-tx-primary" title={project.name}>
           {project.name}
         </span>
-        <span className="text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+        <span className="text-[12px] font-medium text-tx-muted mt-0.5">
           {project.code}
           {project.projectNumber ? ` / ${project.projectNumber}` : ""}
           {project.bidDue ? ` · bid due ${new Date(project.bidDue).toLocaleDateString()}` : ""}
         </span>
       </span>
 
-      <span className="flex flex-1 items-center gap-2.5">
+      <span className="flex flex-1 items-center gap-3">
         {STAGES.map(({ key, label, Icon }, index) => {
           const active = key === current;
           const done = index < currentIndex;
@@ -57,33 +54,28 @@ export function StageBar({ project, current }: { project: Project; current: Stag
             <Link
               key={key}
               href={`/bids/${project.code}/${key}`}
-              className="flex flex-1 items-center gap-2.5 rounded-lg px-3.5 py-2.5 no-underline transition"
-              style={{
-                background: active ? "var(--app-accent-soft)" : "var(--app-panel)",
-                border: `1px solid ${active ? "var(--app-accent-line)" : "var(--app-line)"}`,
-              }}
+              className={`flex flex-1 items-center gap-3 rounded-xl px-4 py-2.5 no-underline transition-all shadow-sm ${
+                active 
+                  ? "bg-brand-primary/10 border border-brand-primary/20" 
+                  : "bg-panel border border-subtle hover:bg-panel-muted hover:border-brand-border"
+              }`}
             >
               <span
-                className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-md"
-                style={{
-                  background: done
-                    ? "var(--app-pos-soft)"
-                    : active
-                      ? "var(--app-accent)"
-                      : "var(--app-panel-2)",
-                  color: done ? "var(--app-pos)" : active ? "#fff" : "var(--app-tx-3)",
-                }}
+                className={`grid h-[28px] w-[28px] shrink-0 place-items-center rounded-lg shadow-sm ${
+                  done 
+                    ? "bg-status-success-soft text-status-success border border-status-success/20" 
+                    : active 
+                      ? "bg-brand-primary text-white border border-brand-primary/20" 
+                      : "bg-panel-muted text-tx-muted border border-subtle"
+                }`}
               >
-                <Icon size={14} weight="duotone" />
+                <Icon size={16} weight={active || done ? "fill" : "duotone"} />
               </span>
               <span className="flex min-w-0 flex-col leading-tight">
-                <span
-                  className="truncate text-[12.5px] font-semibold"
-                  style={{ color: active ? "var(--app-accent)" : "var(--app-tx)" }}
-                >
+                <span className={`truncate text-[13px] font-bold ${active ? "text-brand-primary" : "text-tx-primary"}`}>
                   {label}
                 </span>
-                <span className="truncate text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                <span className="truncate text-[11px] font-medium text-tx-muted mt-0.5">
                   {subtitle(key)}
                 </span>
               </span>
@@ -92,21 +84,18 @@ export function StageBar({ project, current }: { project: Project; current: Stag
         })}
       </span>
 
-      <span className="flex w-[150px] shrink-0 flex-col items-end gap-1">
-        <span className="text-[10.5px] uppercase tracking-[0.08em]" style={{ color: "var(--app-tx-3)" }}>
+      <span className="flex w-[150px] shrink-0 flex-col items-end gap-1.5">
+        <span className="text-[11px] font-bold uppercase tracking-widest text-tx-muted">
           Bid progress
         </span>
-        <span className="flex w-full items-center gap-2">
-          <span
-            className="h-1 flex-1 overflow-hidden rounded-full"
-            style={{ background: "var(--app-panel-2)" }}
-          >
+        <span className="flex w-full items-center gap-3">
+          <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-panel-muted border border-subtle shadow-inner">
             <span
-              className="block h-full rounded-full transition-all"
-              style={{ width: `${project.progress}%`, background: "var(--app-accent)" }}
+              className="block h-full rounded-full bg-brand-primary transition-all duration-500 ease-out"
+              style={{ width: `${project.progress}%` }}
             />
           </span>
-          <span className="tnum text-[12px] font-semibold">{project.progress}%</span>
+          <span className="tnum text-[12.5px] font-bold text-tx-primary">{project.progress}%</span>
         </span>
       </span>
     </div>

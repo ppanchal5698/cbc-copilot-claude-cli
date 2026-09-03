@@ -28,3 +28,4 @@ class Job(BaseModel):
     createdAt: datetime
     startedAt: datetime | None = None
     finishedAt: datetime | None = None
+    phaseState: dict[str, Any] | None = None

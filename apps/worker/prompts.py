@@ -23,7 +23,7 @@ DELEGATION_RULE = """- **Delegate with the Agent tool, not by reading agent file
   MUST include all three parameters:
     description: short label (REQUIRED - calls without it fail validation)
     subagent_type: one of intake-coordinator, spec-scope-analyst, takeoff-engineer,
-      frp-specialist, product-matcher, pricing-engineer, quote-builder,
+      frp-specialist, product-matcher, pricing-engineer,
       quality-reviewer, delivery-agent, pricebook-ingestor
     prompt: full task with paths, page numbers and output files
   Example:
@@ -31,6 +31,17 @@ DELEGATION_RULE = """- **Delegate with the Agent tool, not by reading agent file
           prompt="Read {project_dir}/uploads/raw/... page 15. Run parse_schedule.py
           --page 15 --openings --json. Write {project_dir}/extracted/door_schedule.json
           with bbox and page_size on every opening.")
+- **Wait for each subagent to finish before starting the next phase.** Agent
+  launches are async. When the tool returns, the subagent is still running - you
+  get a completion notification when it is done. Do not launch the next phase,
+  read that phase's output files, or assume success until that notification
+  arrives. Starting Phase 3 while Phase 2 is still running is how two writers
+  fight over the same JSON.
+- **Never duplicate a subagent's work.** Once you have delegated a phase, do not
+  run its PDF reads, its scripts, or its writes yourself - not even "to help"
+  or "while you wait". The orchestrator reads `extracted/_sheetmap.json` (or
+  calls `find_sheets` once if that file is missing) and hands page numbers down;
+  everything else in that phase belongs to the subagent.
 - **Do not `cat` the agent files either.** Here they are subagent types you
   invoke, and each one loads its own definition when you call it. Reading it
   first puts its whole text in this context and gains nothing."""
@@ -47,7 +58,8 @@ SOLO_RULE = """- **Do the work yourself. The Agent tool is not available on this
 
 HOW_DELEGATED = """Delegate each phase to its subagent with the Agent tool - they are registered
 subagent types, not files to read. Reading their definitions with `cat` puts
-their whole text in this context and gains nothing:"""
+their whole text in this context and gains nothing. Launch one phase at a time
+and wait for its completion notification before starting the next:"""
 
 HOW_SOLO = """Do these yourself, in order, writing each file before starting the next. Do not
 call the Agent tool - it is unavailable here, and a phase left undelegated is a
@@ -68,11 +80,8 @@ validation on all three attempts:"""
 PREAMBLE = """Constraints that override anything else:
 
 - **Use the MCP tools. Do not reimplement them.** pdf-tools, catalog,
-  calc-engine, artifact-storage and p21-connector are connected and are
-  the supported way to read a PDF, price a line and write an artifact. Do not
-  open a PDF with `python -c "import fitz ..."`, and do not write a throwaway
-  parser in Bash. The first real run of this pipeline did exactly that 52 times
-  and exhausted a million-token budget without producing a schedule.
+  calc-engine, artifact-storage and p21-connector are connected. Inline
+  `import fitz` / `pypdf` in Bash is blocked; run `parse_schedule.py` instead.
 - **Find the page before you read it.** `search_pdf` is cheap and tells you which
   sheet carries the schedule. `extract_tables` on a whole bid set costs more
   context than the entire estimate. Search, then read the two or three pages that
@@ -126,15 +135,17 @@ The bid set is in {project_dir}/uploads/raw/.
 
 Give each subagent the file path and the page numbers it needs. Do the sheet-
 finding once, here, and hand the answer down - four subagents each searching the
-same set is the same work four times.
+same set is the same work four times. **Launch one subagent at a time** and wait
+for its completion notification before starting the next; do not duplicate its
+work while it runs.
 
-Start with `find_sheets`. One call returns which sheets carry doors, hardware,
-partitions and FRP, ranked, for a few hundred tokens. Then `extract_tables` on
-the two or three sheets that scored, and `parse_schedule.py` from the
-extract-door-schedule skill against the one holding the opening schedule - it
-already returns bbox, row_bbox, cell_boxes and page_size, so run it rather than
-rebuilding its clustering. A line without a bbox cannot be checked against the
-drawing by the estimator.
+Read `{project_dir}/extracted/_sheetmap.json` for ranked sheets. Do **not** re-run
+`find_sheets` unless that file is missing (keep the tool as a fallback). Then
+`extract_tables` on the two or three sheets that scored, and `parse_schedule.py`
+from the extract-door-schedule skill against the one holding the opening
+schedule - it already returns bbox, row_bbox, cell_boxes and page_size, so run
+it rather than rebuilding its clustering. A line without a bbox cannot be
+checked against the drawing by the estimator.
 
 Do not read the whole set. Most sheets are elevations and details that cost
 context and carry nothing a take-off needs.
@@ -160,7 +171,8 @@ lines the estimator has confirmed (`confirmed_by` set) or added by hand
 A rerun is take-off only - intake and spec scoping already ran, and their outputs
 in extracted/ still stand. Do not redo them.
 
-Start with `find_sheets` to locate the opening schedule, then `extract_tables` and
+Read `{project_dir}/extracted/_sheetmap.json` to locate the opening schedule; do
+not re-run `find_sheets` unless that file is missing. Then `extract_tables` and
 `parse_schedule.py` from the extract-door-schedule skill on the sheet that carries
 it. The estimator asked for another pass because something was wrong or missing on
 the last one, not for the whole set to be read again.
@@ -181,17 +193,31 @@ The estimator has confirmed the openings in {project_dir}/extracted/door_schedul
   2. `pricing-engineer` -> {project_dir}/priced/line_items.json,
                             {project_dir}/priced/margin_applied.json
 
-The `catalog` server does not return prices. It tells you which page of which
-vendor book to open, and you read the price off that page:
+When delegating **product-matcher**, tell it to read `extracted/door_schedule.json`
+and `extracted/scope_summary.json` only — hardware groups are already in
+scope_summary; do **not** ask it to read `uploads/raw/` or call pdf-tools.
+
+{match_reuse}
+
+The `catalog` server does not return prices. **pricing-engineer** (not product-matcher)
+opens vendor books:
 
   1. `mcp__catalog__find_pages` with the part number or series, and `vendor`.
      Each hit carries `file_path`, `pdf_page` and a `locator`.
   2. `mcp__pdf-tools__extract_tables` with that `file_path` and `pdf_page`,
      exactly as given. Do not build the path yourself - the books are not under
      this project's uploads.
-  3. `mcp__catalog__get_multiplier` for the tier. Hager prices by product
-     category, so pass one (`locks`, `door_controls`, `exit_devices`, ...).
-  4. `mcp__calc-engine__calculate_line` for the arithmetic.
+  3. `mcp__p21-connector__lookup_last_po` first on every stock part; if fresh,
+     use that cost. If P21 is disconnected or stale, continue below.
+  4. `mcp__catalog__get_multiplier` with `category` (not `tier`). Hager prices
+     by product category: `locks`, `door_controls`, `exit_devices`,
+     `architectural_hinges`, ...
+  5. `mcp__calc-engine__calculate_line` and `mcp__calc-engine__apply_margin` for
+     the arithmetic - never hand-compute sale_ea or ext_price.
+
+**Allegion distributor lines are always MANUAL.** Von Duprin, LCN, Schlage and
+**IVES** are bought through Banner Solutions or SecLock, not direct from Hager.
+Do not tag them `LIST_X_MULTIPLIER` because IVES pages appear in the Hager book.
 
 If find_pages returns nothing, or the page turns out not to carry the part, that
 is a MANUAL line. Try the next hit before giving up; do not settle for a nearby
@@ -238,17 +264,19 @@ The estimator has approved the quote in {project_dir}/priced/line_items.json.
 
 {how}
 
-  1. `quote-builder`      -> {project_dir}/quotation.html
-  2. `quality-reviewer`   -> {project_dir}/review/review_flags.json,
-                              {project_dir}/review/review_summary.html
-  3. `delivery-agent`     -> {project_dir}/uploads/final/,
+  1. `quality-reviewer`   -> {project_dir}/review/review_flags.json
+  2. `delivery-agent`     -> {project_dir}/uploads/final/,
                               {project_dir}/review/quotation_email_draft.md
 
-The quote-builder must run `python scripts/validate_and_render_quote.py {code}`
-(not hand-written HTML). The quality-reviewer should run
-`python scripts/render_review_summary.py {code}` for the summary page.
+`quotation.html` and `review_summary.html` are rendered by the worker after this
+pass from priced/line_items.json. Do not write HTML and do not run
+`validate_and_render_quote.py` or `render_review_summary.py`. The quality-reviewer
+writes judgment prose only: RFI notes and review flags the deterministic checks
+cannot produce.
 
-Halt at the end and report exactly: "Draft ready for estimator review"
+Only the **delivery-agent** reports the final halt message, and only after
+`uploads/final/`, `review/quotation_email_draft.md`, and a PDF attempt exist.
+Earlier phases must not say "Draft ready for estimator review".
 
 {preamble}"""
 
@@ -288,11 +316,14 @@ of docs/cbc_process_flow.md and stop with a draft. Nobody will confirm anything
 between the phases - this bid is on autopilot - so the estimator reads the result
 at the end and everything uncertain has to be visible there.
 
-**Find the sheets once.** Start with `find_sheets` on each file in uploads/raw/.
-One call returns which sheets carry doors, hardware, partitions and FRP, ranked.
-Hand those page numbers down to every subagent below. Four subagents each
-searching the same set is the same work four times, and on a full run it is the
-difference between finishing and exhausting the budget.
+**Find the sheets once.** Read `{project_dir}/extracted/_sheetmap.json` — ranked
+sheets for every file in uploads/raw/, already built before this prompt. Do not
+re-run `find_sheets` unless that file is missing. Hand those page numbers down to
+every subagent below. Four subagents each searching the same set is the same work
+four times, and on a full run it is the difference between finishing and
+exhausting the budget.
+
+{skip}
 
 **Resume, do not redo.** If a phase's output below already exists in this project,
 that phase ran on an earlier attempt: read the file, tell the next subagent what
@@ -307,12 +338,21 @@ expensive thing you can do here. Ignore this only if told to force a clean run.
   Phase 3b   frp-specialist      -> extracted/frp_takeoff.json  (only if FRP is in scope)
   Phase 4    product-matcher     -> extracted/hardware_sets.json
   Phase 4    pricing-engineer    -> priced/line_items.json, priced/margin_applied.json
-  Phase 4/6  quote-builder       -> quotation.html
-  Phase 5    quality-reviewer    -> review/review_flags.json, review/review_summary.html
+
+**product-matcher** reads `extracted/door_schedule.json` and
+`extracted/scope_summary.json` — not the bid-set PDF. Hardware groups live in
+scope_summary; pdf-tools on uploads/raw/ belong to takeoff-engineer and
+pricing-engineer only.
+
+{match_reuse}
+
+  Phase 5    quality-reviewer    -> review/review_flags.json
   Phase 6    delivery-agent      -> uploads/final/, review/quotation_email_draft.md
 
-Run them in that order. A phase that fails stops the run - do not carry on and
-quote off a take-off that did not finish.
+Run them in that order, **one subagent at a time**. Wait for each phase's
+completion notification before launching the next. Do not read or write that
+phase's output paths while its subagent is still running. A phase that fails
+stops the run - do not carry on and quote off a take-off that did not finish.
 
 **What to do with a line you are unsure of.** Price it, and flag it. Do not guess a
 fire rating, handing, finish, size or price to make a line look complete, and do
@@ -326,7 +366,14 @@ cost_source "MANUAL", a plain-language reason, and - just as important - the
 specified item in `part_number`/`description`, copied from hardware_sets.json. A
 manual line an estimator cannot read is worse than no line.
 
-Halt at the end and report exactly: "Draft ready for estimator review"
+Halt only after **delivery-agent** completes and has written
+`uploads/final/`, `review/quotation_email_draft.md`, and attempted
+`quotation.pdf`. Then report exactly what the delivery-agent reports:
+
+"Draft ready for estimator review"
+
+Do not emit that message after quality-reviewer - only after
+Phase 6 deliverables exist.
 
 {preamble}"""
 
@@ -383,6 +430,39 @@ def preamble_for(project_dir: str, *, delegates: bool = True) -> str:
     )
 
 
+def skip_completed_phases(phase_state: dict[str, Any] | None) -> str:
+    """Prompt block telling a pipeline run not to redo validated phases."""
+    if not phase_state:
+        return ""
+    lines = []
+    labels = {
+        "extraction": (
+            "Skip intake, spec scoping, and take-off (Phase 0–3). "
+            "`extracted/` already passed validation; do not rewrite "
+            "door_schedule.json or re-run find_sheets."
+        ),
+        "pricing": (
+            "Skip product matching and pricing (Phase 4). "
+            "`priced/` already passed validation."
+        ),
+        "proposal": (
+            "Skip quality review and delivery (Phase 5–6). "
+            "Proposal artifacts already passed validation."
+        ),
+    }
+    for name, text in labels.items():
+        entry = phase_state.get(name) or {}
+        if isinstance(entry, dict) and entry.get("passed"):
+            lines.append(f"- {text}")
+    if not lines:
+        return ""
+    return (
+        "**Skip these completed phases** (artifact SHAs still match disk):\n"
+        + "\n".join(lines)
+        + "\n"
+    )
+
+
 def build(
     job: dict[str, Any],
     project: dict[str, Any] | None,
@@ -424,10 +504,22 @@ def build(
             "suspect and rebuild each phase from the bid set. Existing files are "
             "there to be overwritten, not read.",
         )
+    skip = ""
+    if job["type"] == "run_full_pipeline" and not payload.get("force"):
+        skip = skip_completed_phases(job.get("phaseState"))
+    match_reuse = ""
+    if job["type"] in ("match_and_price", "run_full_pipeline") and not payload.get("force"):
+        from cbc.services import matchcache
+
+        match_reuse = matchcache.prompt_block(
+            matchcache.reusable(project["slug"], force=False)
+        )
     return body.format(
         code=project.get("code", project["slug"]),
         project_dir=project_dir,
         how=HOW_DELEGATED if delegates else HOW_SOLO,
+        skip=skip,
+        match_reuse=match_reuse,
         preamble=PREAMBLE.format(
             project_dir=project_dir,
             delegation_rule=(DELEGATION_RULE if delegates else SOLO_RULE).format(
@@ -443,23 +535,33 @@ def pipeline_for(project_dir: str, code: str | None = None, *, delegates: bool =
         code=code or project_dir.rsplit("/", 1)[-1],
         project_dir=project_dir,
         how=HOW_DELEGATED if delegates else HOW_SOLO,
+        skip="",
+        match_reuse="",
         preamble=preamble_for(project_dir, delegates=delegates),
     )
 
 
-if __name__ == "__main__":  # `python -m worker.prompts [--pipeline] <project_dir>`
-    import sys
+if __name__ == "__main__":  # `python -m apps.worker.prompts [--job-type T] [--pipeline] <project_dir>`
+    import argparse
 
-    argv = sys.argv[1:]
-    full = "--pipeline" in argv
-    # The shell entry points need the same solo/delegated split the worker makes
-    # from `provider.supports_subagents`; there is no provider config out here,
-    # so it is passed in.
-    delegates = "--solo" not in argv
-    argv = [a for a in argv if not a.startswith("--")]
-    target = argv[0] if argv else "projects/{project}"
-    print(
-        pipeline_for(target, delegates=delegates)
-        if full
-        else preamble_for(target, delegates=delegates)
-    )
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument("project_dir", nargs="?", default="projects/{project}")
+    parser.add_argument("--pipeline", action="store_true")
+    parser.add_argument("--solo", action="store_true")
+    parser.add_argument("--job-type", dest="job_type")
+    args = parser.parse_args()
+    delegates = not args.solo
+    target = args.project_dir
+    if args.job_type:
+        slug = target.replace("\\", "/").rstrip("/").split("/")[-1]
+        print(
+            build(
+                {"type": args.job_type, "payload": {}},
+                {"slug": slug, "code": slug},
+                delegates=delegates,
+            )
+        )
+    elif args.pipeline:
+        print(pipeline_for(target, delegates=delegates))
+    else:
+        print(preamble_for(target, delegates=delegates))

@@ -6,6 +6,7 @@ import { FetchError } from "@/components/ui/fetch-error";
 import { endpoints } from "@/lib/endpoints";
 import { proxyFetcher } from "@/lib/proxy-fetcher";
 import type { JobMetrics } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 /** How long ago, in words. The exact timestamp is not the point; "20m" is. */
 function ago(iso: string | null): string {
@@ -43,51 +44,44 @@ export function QueueMetricsPanel() {
   const failing = (data?.failed ?? 0) > 0;
 
   return (
-    <section
-      className="rounded-xl"
-      style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-    >
-      <div className="border-b px-4 py-3.5" style={{ borderColor: "var(--app-line)" }}>
-        <h2 className="text-[15px] font-semibold">Job queue</h2>
-        <p className="mt-1 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+    <section className="rounded-xl bg-panel border border-subtle shadow-sm flex flex-col h-full">
+      <div className="border-b border-subtle px-5 py-4">
+        <h2 className="text-[16px] font-bold text-tx-primary tracking-tight">Job queue</h2>
+        <p className="mt-1 text-[13px] font-medium text-tx-secondary">
           Depth now, and throughput over the last {data?.windowHours ?? 24} hours.
         </p>
       </div>
 
-      <div className="px-4 py-3.5">
+      <div className="px-5 py-4 flex-1">
         {error && (
           <FetchError title="Could not read the queue" error={error} onRetry={() => mutate()} />
         )}
         {isLoading && !data && (
-          <p className="text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+          <p className="text-[13px] font-medium text-tx-muted">
             Reading the queue…
           </p>
         )}
 
         {data && (
           <>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               {[
                 ["Queued", String(data.queued), undefined],
                 ["Running", String(data.running), undefined],
                 ["Oldest wait", ago(data.oldestQueuedAt), undefined],
                 [
                   "Failure rate",
-                  // null, not 0%: no news is not good news.
                   data.failureRate === null
                     ? "—"
                     : `${(data.failureRate * 100).toFixed(0)}%`,
-                  failing ? "var(--app-neg)" : undefined,
+                  failing ? "text-status-error" : undefined,
                 ],
-              ].map(([label, value, colour]) => (
-                <div key={label as string}>
-                  <p className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+              ].map(([label, value, colorClass]) => (
+                <div key={label as string} className="bg-background rounded-lg border border-subtle p-3 shadow-sm">
+                  <p className="text-[12px] font-bold uppercase tracking-widest text-tx-muted mb-1">
                     {label}
                   </p>
-                  <p
-                    className="tnum text-[19px] font-semibold"
-                    style={colour ? { color: colour as string } : undefined}
-                  >
+                  <p className={cn("tnum text-[22px] font-bold tracking-tight", colorClass || "text-tx-primary")}>
                     {value}
                   </p>
                 </div>
@@ -95,35 +89,36 @@ export function QueueMetricsPanel() {
             </div>
 
             {types.length > 0 && (
-              <table className="mt-4 w-full text-[12.5px]">
-                <thead>
-                  <tr style={{ color: "var(--app-tx-3)" }}>
-                    <th className="pb-1 text-left font-normal">Job type</th>
-                    <th className="pb-1 text-right font-normal">Done</th>
-                    <th className="pb-1 text-right font-normal">Failed</th>
-                    <th className="pb-1 text-right font-normal">Average</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {types.map(([type, row]) => (
-                    <tr key={type} style={{ borderTop: "1px solid var(--app-line)" }}>
-                      <td className="py-1.5">{type.replace(/_/g, " ")}</td>
-                      <td className="tnum py-1.5 text-right">{row.done}</td>
-                      <td
-                        className="tnum py-1.5 text-right"
-                        style={row.failed > 0 ? { color: "var(--app-neg)" } : undefined}
-                      >
-                        {row.failed}
-                      </td>
-                      <td className="tnum py-1.5 text-right">{seconds(row.avgSeconds)}</td>
+              <div className="mt-6 border border-subtle rounded-xl overflow-hidden shadow-sm">
+                <table className="w-full text-[13px]">
+                  <thead className="bg-panel-muted border-b border-subtle">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-bold uppercase tracking-widest text-tx-muted text-[11px]">Job type</th>
+                      <th className="px-4 py-2 text-right font-bold uppercase tracking-widest text-tx-muted text-[11px]">Done</th>
+                      <th className="px-4 py-2 text-right font-bold uppercase tracking-widest text-tx-muted text-[11px]">Failed</th>
+                      <th className="px-4 py-2 text-right font-bold uppercase tracking-widest text-tx-muted text-[11px]">Average</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-subtle bg-background">
+                    {types.map(([type, row]) => (
+                      <tr key={type} className="hover:bg-panel-muted transition-colors">
+                        <td className="px-4 py-2.5 font-medium text-tx-primary">{type.replace(/_/g, " ")}</td>
+                        <td className="tnum px-4 py-2.5 text-right font-medium text-tx-secondary">{row.done}</td>
+                        <td
+                          className={cn("tnum px-4 py-2.5 text-right font-medium", row.failed > 0 ? "text-status-error font-bold" : "text-tx-secondary")}
+                        >
+                          {row.failed}
+                        </td>
+                        <td className="tnum px-4 py-2.5 text-right font-medium text-tx-secondary">{seconds(row.avgSeconds)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
 
             {types.length === 0 && (
-              <p className="mt-3 text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+              <p className="mt-4 text-[13px] font-medium text-tx-muted bg-panel-muted border border-subtle rounded-lg px-4 py-3">
                 No jobs in the window. Nothing is wrong; nothing has run.
               </p>
             )}

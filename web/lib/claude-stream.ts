@@ -26,6 +26,10 @@ export interface ParseResult {
   remainder: string;
 }
 
+interface ParseContext {
+  sessionInits: number;
+}
+
 export type LogFilter =
   | "all"
   | "agent"
@@ -43,6 +47,8 @@ export interface SessionEntry extends BaseEntry {
   model: string;
   toolCount: number;
   mcpServers: { name: string; status: string }[];
+  sessionRole?: "orchestrator" | "subagent" | "retry";
+  attempt?: number;
 }
 
 export interface WarningEntry extends BaseEntry {
@@ -200,13 +206,17 @@ function parseWarningLine(line: string): LogEntry | null {
   };
 }
 
-function parseEvent(event: Record<string, unknown>): LogEntry[] {
+function parseEvent(
+  event: Record<string, unknown>,
+  ctx: { sessionInits: number },
+): LogEntry[] {
   const time = formatEventTime(event);
   const out: LogEntry[] = [];
 
   switch (event.type) {
     case "system": {
       if (event.subtype === "init") {
+        ctx.sessionInits += 1;
         const tools = Array.isArray(event.tools) ? event.tools.length : 0;
         const mcpServers = Array.isArray(event.mcp_servers)
           ? (event.mcp_servers as { name?: string; status?: string }[]).map((s) => ({
@@ -221,6 +231,7 @@ function parseEvent(event: Record<string, unknown>): LogEntry[] {
           model: String(event.model ?? "?"),
           toolCount: tools,
           mcpServers,
+          sessionRole: ctx.sessionInits === 1 ? "orchestrator" : "subagent",
         });
       } else if (event.subtype === "error") {
         out.push({
@@ -365,7 +376,11 @@ export function mergeEntries(existing: LogEntry[], incoming: LogEntry[]): LogEnt
 }
 
 /** Parse complete JSON lines into structured log entries. */
-export function parseStream(chunk: string, carried = ""): ParseResult {
+export function parseStream(
+  chunk: string,
+  carried = "",
+  ctx: ParseContext = { sessionInits: 0 },
+): ParseResult {
   const buffered = carried + chunk;
   const pieces = buffered.split("\n");
   const remainder = pieces.pop() ?? "";
@@ -374,6 +389,22 @@ export function parseStream(chunk: string, carried = ""): ParseResult {
   for (const piece of pieces) {
     const trimmed = piece.trim();
     if (!trimmed) continue;
+
+    const retryMatch = trimmed.match(/^=== RETRY attempt (\d+) ===$/);
+    if (retryMatch) {
+      ctx.sessionInits = 0;
+      entries.push({
+        id: nextId(),
+        kind: "session",
+        time: formatEventTime(),
+        model: "retry",
+        toolCount: 0,
+        mcpServers: [],
+        sessionRole: "retry",
+        attempt: Number(retryMatch[1]),
+      });
+      continue;
+    }
 
     if (!trimmed.startsWith("{")) {
       const warning = parseWarningLine(trimmed);
@@ -391,7 +422,7 @@ export function parseStream(chunk: string, carried = ""): ParseResult {
     }
 
     try {
-      entries.push(...parseEvent(JSON.parse(trimmed) as Record<string, unknown>));
+      entries.push(...parseEvent(JSON.parse(trimmed) as Record<string, unknown>, ctx));
     } catch {
       entries.push({
         id: nextId(),
@@ -444,6 +475,65 @@ export function countByFilter(entries: LogEntry[]): Record<LogFilter, number> {
         : entries.filter((entry) => entryMatchesFilter(entry, filter)).length;
   }
   return counts;
+}
+
+function copyPrefix(time: string): string {
+  return `[${time}]`;
+}
+
+/** Plain-text serialization of one log entry for clipboard export. */
+export function formatEntryForCopy(entry: LogEntry): string {
+  switch (entry.kind) {
+    case "session": {
+      const servers = entry.mcpServers.map((s) => `${s.name}:${s.status}`).join(", ");
+      const mcp = servers ? ` mcp=[${servers}]` : "";
+      const role =
+        entry.sessionRole === "retry"
+          ? `RETRY attempt ${entry.attempt ?? "?"}`
+          : entry.sessionRole === "subagent"
+            ? "SUBAGENT SESSION"
+            : entry.sessionRole === "orchestrator"
+              ? "ORCHESTRATOR SESSION"
+              : "SESSION";
+      return `${copyPrefix(entry.time)} ${role} model=${entry.model} tools=${entry.toolCount}${mcp}`;
+    }
+    case "warning":
+      return `${copyPrefix(entry.time)} WARNING ${entry.message}`;
+    case "api_retry":
+      return `${copyPrefix(entry.time)} API RETRY ${entry.attempt}/${entry.maxRetries}: ${entry.error}`;
+    case "agent_text":
+      return `${copyPrefix(entry.time)} AGENT\n${entry.text}`;
+    case "tool_call": {
+      let line = `${copyPrefix(entry.time)} CALL ${entry.name}`;
+      if (entry.summary) line += ` ${entry.summary}`;
+      line += `\n  Input: ${JSON.stringify(entry.input)}`;
+      if (entry.result) {
+        const status = entry.result.isError ? "FAILED" : "OK";
+        line += `\n  Result (${status}, ${entry.result.size} chars):\n${entry.result.body}`;
+      } else {
+        line += "\n  Result: pending";
+      }
+      return line;
+    }
+    case "error":
+      return `${copyPrefix(entry.time)} ERROR ${entry.message}`;
+    case "done": {
+      const cost = entry.costUsd != null ? ` $${entry.costUsd.toFixed(3)}` : "";
+      const err = entry.isError ? " (error)" : "";
+      return `${copyPrefix(entry.time)} DONE ${entry.turns} turns in ${entry.seconds}s${cost}${err}`;
+    }
+    case "rate_limit":
+      return `${copyPrefix(entry.time)} RATE LIMIT ${entry.subtype}`;
+    case "plain":
+      return `${copyPrefix(entry.time)} ${entry.text}`;
+    default:
+      return "";
+  }
+}
+
+/** Full run transcript as plain text (all entries, not filter-scoped). */
+export function formatEntriesForCopy(entries: LogEntry[]): string {
+  return entries.map(formatEntryForCopy).filter(Boolean).join("\n\n");
 }
 
 function renderEvent(event: Record<string, unknown>): string[] {

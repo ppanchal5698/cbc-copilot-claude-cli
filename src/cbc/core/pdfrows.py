@@ -32,6 +32,9 @@ _CONTROL_THRESHOLD = 0.05  # below this the text is already sound; leave it alon
 _MAX_SHIFT = 64
 _SHIFT_CACHE: dict[tuple[str, float], int] = {}
 
+# Bump when clustering, glyph repair, or OCR fallback changes so C-02 misses.
+EXTRACTOR_VERSION = "1"
+
 # Words a set of architectural drawings or a vendor price book is near-certain to
 # contain. Scoring on letter count alone picks a shift that turns everything into
 # lowercase gibberish, because gibberish has more letters than real text has.
@@ -176,7 +179,6 @@ def rows_from_words(
                 "bbox": union_bbox(line),
                 "cells": [" ".join(w[4] for w in cell) for cell in cells],
                 "cell_boxes": [union_bbox(cell) for cell in cells],
-                "text": " | ".join(" ".join(w[4] for w in cell) for cell in cells),
             }
         )
     return rows
@@ -270,7 +272,7 @@ def attach_measured_bboxes(
             for row in rows
             if row["cells"]
             and row["cells"][0].strip() == number
-            and sum(1 for value in corroborants if value in row["text"]) >= 2
+            and sum(1 for value in corroborants if value in " | ".join(row["cells"])) >= 2
             and not others.intersection(cell.strip() for cell in row["cells"][1:])
         ]
         if len(hits) == 1:

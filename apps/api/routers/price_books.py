@@ -18,7 +18,7 @@ from cbc.db import db, oid, serialise
 from apps.api.deps import Actor, AdminActor
 from cbc.schemas import PriceBookCreate, PriceBookUpdate
 from cbc.services import audit, jobs, storage
-from cbc.pageindex import basis
+from cbc.pageindex import basis, store as catalog_store
 from cbc.services.reference_library import sync_vendor_categories
 
 router = APIRouter(prefix="/api/price-books", tags=["price-books"])
@@ -131,7 +131,11 @@ async def upload_price_book_file(
     # minutes and tokens per book to do what parsing does in seconds.
     job = await jobs.enqueue(
         "index_catalog",
-        payload={"priceBookId": str(book["_id"]), "filename": target.name},
+        payload={
+            "priceBookId": str(book["_id"]),
+            "filename": target.name,
+            "fileSha": catalog_store.file_hash(target),
+        },
         actor=actor,
     )
 

@@ -8,7 +8,7 @@ schemas plus a name-to-function map - so it lives here once instead of five time
 Each server.py stays pure domain logic and calls:
 
     from _runtime import serve
-    serve("pricebook", TOOLS, HANDLERS)
+    serve("catalog", TOOLS, HANDLERS)
 """
 from __future__ import annotations
 
@@ -28,6 +28,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 Handler = Callable[..., Any]
+
+
+def dump_payload(payload: Any) -> str:
+    """Serialise a tool result for the model. Compact on purpose: indent is tokens."""
+    return json.dumps(payload, separators=(",", ":"), default=str)
 
 
 def load_server(name: str) -> ModuleType:
@@ -88,12 +93,12 @@ def build_server(name: str, tools: list[dict[str, Any]], handlers: dict[str, Han
             is_error = True
         else:
             try:
-                payload = handler(**arguments)
+                payload = await asyncio.to_thread(handler, **arguments)
                 is_error = False
             except Exception as exc:  # surfaced to the agent, never swallowed
                 payload = {"error": str(exc), "tool": params.name, "arguments": arguments}
                 is_error = True
-        text = json.dumps(payload, indent=2, default=str)
+        text = dump_payload(payload)
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=text)],
             is_error=is_error,

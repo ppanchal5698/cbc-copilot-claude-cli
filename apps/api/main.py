@@ -8,6 +8,7 @@ server so the numbers on a customer proposal have exactly one implementation.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -15,8 +16,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from cbc.core import envfile, logs
+from cbc.services.provider import MANAGED
+
+envfile.apply_to_environ(skip=MANAGED)
+
 from cbc.config import settings
-from cbc.core import logs
 from cbc.db import ensure_indexes, ensure_readonly_user
 from cbc.pageindex import store as pageindex_store
 from apps.api.deps import InternalAuthMiddleware
@@ -57,7 +62,27 @@ async def lifespan(app: FastAPI):
             "the page index rather than fall back to the writable connection"
         )
     log.info("indexes ready; storage at %s", settings.storage_root)
-    yield
+
+    from apps.api.routers import settings as settings_router
+
+    async def _oauth_sweep_loop() -> None:
+        while True:
+            try:
+                await settings_router.sweep_oauth_sessions()
+            except Exception:
+                log.exception("oauth session sweep failed")
+            await asyncio.sleep(60)
+
+    sweep_task = asyncio.create_task(_oauth_sweep_loop())
+    try:
+        yield
+    finally:
+        sweep_task.cancel()
+        try:
+            await sweep_task
+        except asyncio.CancelledError:
+            pass
+        await settings_router.sweep_oauth_sessions()
 
 
 app = FastAPI(
@@ -108,11 +133,13 @@ for router in (
 
 @app.get("/api/health")
 async def health() -> dict:
+    import asyncio
+
     from cbc.db import db
     from cbc.services import catalog_search
 
     try:
-        await db.projects.database.command("ping")
+        await asyncio.wait_for(db.projects.database.command("ping"), timeout=3.0)
         database = "up"
     except Exception as exc:  # surfaced, not swallowed - the UI shows this
         database = f"down: {exc}"

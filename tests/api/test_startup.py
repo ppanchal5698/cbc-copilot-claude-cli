@@ -103,6 +103,10 @@ def test_production_starts_on_real_secrets(monkeypatch) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "a-real-secret-from-secrets-manager")
     monkeypatch.setenv("INTERNAL_API_TOKEN", "another-real-secret")
     monkeypatch.setenv("MONGODB_URI", "mongodb://cbc:s3cr3t@mongo:27017/cbc_opshub")
+    # The catalog server's read-only credential is checked too, and a production
+    # deployment that leaves it at the repo default is exactly what that check is
+    # for. Without it here the test asserted the opposite of what it says.
+    monkeypatch.setenv("MONGODB_READONLY_PASSWORD", "a-real-readonly-secret")
 
     assert Settings().app_env == "production"
 

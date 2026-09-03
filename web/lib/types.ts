@@ -336,7 +336,7 @@ export interface ProviderField {
 }
 
 export interface ClaudeSettings {
-  mode: "subscription" | "anthropic_api" | "bedrock" | "gateway" | "ollama";
+  mode: "subscription" | "anthropic_api" | "bedrock" | "cloudflare" | "gateway" | "ollama";
   modes: string[];
   fields: Record<string, ProviderField>;
   /** Field shape for every mode, so an unsaved provider still renders a form. */
@@ -356,6 +356,7 @@ export interface ProviderTest {
     baseUrl: string | null;
     region: string | null;
     credentialSource: Record<string, string>;
+    warnings?: string[];
   };
 }
 
@@ -629,6 +630,7 @@ export interface IntegrationStatus {
   title: string;
   summary: string;
   note: string;
+  adminNote?: string | null;
   fallbacks?: string[];
 }
 

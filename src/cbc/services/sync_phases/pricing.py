@@ -5,9 +5,12 @@ next pass reconciles against it rather than overwriting it.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
+
+from pymongo import InsertOne, UpdateOne
 
 from cbc.db import db
 from cbc.services import storage
@@ -63,16 +66,14 @@ async def export_line_items(project: dict[str, Any]) -> Path:
         )
 
     path = storage.project_dir(slug) / "extracted" / "door_schedule.json"
-    _write_json(
-        path,
-        {
-            "project": slug,
-            "project_code": project.get("code"),
-            "exported_at": _now().isoformat(),
-            "source": "estimator-confirmed via Ops-Hub",
-            "openings": openings,
-        },
-    )
+    payload = {
+        "project": slug,
+        "project_code": project.get("code"),
+        "exported_at": _now().isoformat(),
+        "source": "estimator-confirmed via Ops-Hub",
+        "openings": openings,
+    }
+    await asyncio.to_thread(_write_json, path, payload)
     return path
 async def import_quote_lines(project: dict[str, Any]) -> dict[str, int]:
     """Load `priced/line_items.json` into `quoteLines`."""
@@ -94,6 +95,7 @@ async def import_quote_lines(project: dict[str, Any]) -> dict[str, int]:
     # re-priced quote gave every line a new key and duplicated the lot.
     priced_lines = _lines_in(payload, "priced/line_items.json", "lines")
     inserted = updated = skipped = 0
+    bulk: list[InsertOne | UpdateOne] = []
     for key, line in zip(_distinct_keys(priced_lines, _content_key), priced_lines):
         cost, flags = _sane_cost(line)
         fields = {
@@ -122,40 +124,46 @@ async def import_quote_lines(project: dict[str, Any]) -> dict[str, int]:
 
         current = existing.get(key)
         if current is None:
-            await db.quote_lines.insert_one(
-                {
-                    "projectId": project_id,
-                    "addedByHand": False,
-                    "marginOverridden": False,
-                    "createdAt": _now(),
-                    **fields,
-                }
+            bulk.append(
+                InsertOne(
+                    {
+                        "projectId": project_id,
+                        "addedByHand": False,
+                        "marginOverridden": False,
+                        "createdAt": _now(),
+                        **fields,
+                    }
+                )
             )
             inserted += 1
         elif current.get("marginOverridden") or current.get("addedByHand"):
-            # Keep the estimator's price; refresh only the provenance around it.
-            await db.quote_lines.update_one(
-                {"_id": current["_id"]},
-                {
-                    "$set": {
-                        key_: fields[key_]
-                        for key_ in (
-                            "costSource",
-                            "costSourceDetail",
-                            "multiplier",
-                            "multiplierTier",
-                            "multiplierEffectiveDate",
-                            "priceBookVersion",
-                            "sourcePage",
-                            "updatedAt",
-                        )
-                    }
-                },
+            bulk.append(
+                UpdateOne(
+                    {"_id": current["_id"]},
+                    {
+                        "$set": {
+                            key_: fields[key_]
+                            for key_ in (
+                                "costSource",
+                                "costSourceDetail",
+                                "multiplier",
+                                "multiplierTier",
+                                "multiplierEffectiveDate",
+                                "priceBookVersion",
+                                "sourcePage",
+                                "updatedAt",
+                            )
+                        }
+                    },
+                )
             )
             skipped += 1
         else:
-            await db.quote_lines.update_one({"_id": current["_id"]}, {"$set": fields})
+            bulk.append(UpdateOne({"_id": current["_id"]}, {"$set": fields}))
             updated += 1
+
+    if bulk:
+        await db.quote_lines.bulk_write(bulk, ordered=False)
 
     return {"inserted": inserted, "updated": updated, "skipped": skipped}
 async def export_quote_lines(project: dict[str, Any]) -> Path:
@@ -191,21 +199,19 @@ async def export_quote_lines(project: dict[str, Any]) -> Path:
 
     quote = await db.quotes.find_one({"projectId": project_id}) or {}
     path = storage.project_dir(slug) / "priced" / "line_items.json"
-    _write_json(
-        path,
-        {
-            "generated_by": "estimator-approved via Ops-Hub",
-            "quote_number": quote.get("quoteNumber") or f"Q-{project.get('code', '')}",
-            "quote_date": _now().date().isoformat(),
-            "project": {
-                "name": project.get("name"),
-                "location": project.get("location"),
-                "state": project.get("state"),
-                "architect": project.get("architect"),
-            },
-            "customer": {"gc": project.get("gc"), "initiator": project.get("initiator")},
-            "estimator": {"name": quote.get("estimatorName")},
-            "lines": lines,
+    payload = {
+        "generated_by": "estimator-approved via Ops-Hub",
+        "quote_number": quote.get("quoteNumber") or f"Q-{project.get('code', '')}",
+        "quote_date": _now().date().isoformat(),
+        "project": {
+            "name": project.get("name"),
+            "location": project.get("location"),
+            "state": project.get("state"),
+            "architect": project.get("architect"),
         },
-    )
+        "customer": {"gc": project.get("gc"), "initiator": project.get("initiator")},
+        "estimator": {"name": quote.get("estimatorName")},
+        "lines": lines,
+    }
+    await asyncio.to_thread(_write_json, path, payload)
     return path

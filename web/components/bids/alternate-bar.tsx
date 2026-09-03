@@ -55,10 +55,9 @@ export function AlternateBar({
     return (
       <button
         onClick={() => setAdding(true)}
-        className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11.5px]"
-        style={{ border: "1px dashed var(--app-line)", color: "var(--app-tx-3)" }}
+        className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[12px] font-bold border border-dashed border-subtle text-tx-muted hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm"
       >
-        <Plus size={12} weight="bold" />
+        <Plus size={14} weight="bold" />
         Add an alternate
       </button>
     );
@@ -80,25 +79,18 @@ export function AlternateBar({
   }
 
   return (
-    <div
-      className="flex flex-wrap items-center gap-1.5 rounded-xl px-3 py-2"
-      style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-    >
-      <span
-        className="mr-1 text-[10.5px] uppercase tracking-[0.07em]"
-        style={{ color: "var(--app-tx-3)" }}
-      >
+    <div className="flex flex-wrap items-center gap-2 rounded-xl px-4 py-2.5 bg-panel border border-subtle shadow-sm">
+      <span className="mr-2 text-[11px] font-bold uppercase tracking-widest text-tx-muted">
         Groups
       </span>
 
       <button
         onClick={() => onChange(undefined)}
-        className="rounded-md px-2.5 py-1 text-[12px]"
-        style={{
-          background: active === undefined ? "var(--app-panel-2)" : "transparent",
-          border: `1px solid ${active === undefined ? "var(--app-line)" : "transparent"}`,
-          color: active === undefined ? "var(--app-tx)" : "var(--app-tx-2)",
-        }}
+        className={`rounded-lg px-3 py-1.5 text-[12.5px] font-bold transition-all shadow-sm ${
+          active === undefined
+            ? "bg-brand-primary/10 border border-brand-primary/20 text-brand-primary"
+            : "bg-transparent text-tx-secondary hover:bg-panel-muted hover:text-tx-primary"
+        }`}
       >
         All
       </button>
@@ -109,20 +101,19 @@ export function AlternateBar({
           <button
             key={alternate.label}
             onClick={() => onChange(alternate.name)}
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px]"
-            style={{
-              background: on ? "var(--app-accent-soft)" : "transparent",
-              border: `1px solid ${on ? "var(--app-accent-line)" : "var(--app-line)"}`,
-              color: on ? "var(--app-accent)" : "var(--app-tx-2)",
-            }}
+            className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-[12.5px] font-bold transition-all shadow-sm ${
+              on
+                ? "bg-brand-primary/10 border border-brand-primary/20 text-brand-primary"
+                : "bg-transparent border border-subtle text-tx-secondary hover:bg-panel-muted hover:text-tx-primary"
+            }`}
           >
             {alternate.label}
             {showTotals ? (
-              <span className="tnum" style={{ color: "var(--app-tx-3)" }}>
+              <span className={`tnum ${on ? "text-brand-primary/80" : "text-tx-muted"}`}>
                 {alternate.grandTotal ? formatMoneyShort(alternate.grandTotal) : "—"}
               </span>
             ) : (
-              <span className="tnum" style={{ color: "var(--app-tx-3)" }}>
+              <span className={`tnum ${on ? "text-brand-primary/80" : "text-tx-muted"}`}>
                 {alternate.lineItemCount}
               </span>
             )}
@@ -147,32 +138,25 @@ export function AlternateBar({
               if (event.key === "Escape") setAdding(false);
             }}
             onBlur={() => setAdding(false)}
-            className="w-[120px] rounded-md px-2 py-1 text-[12px] outline-none"
-            style={{
-              background: "var(--app-panel-2)",
-              border: "1px solid var(--app-accent-line)",
-              color: "var(--app-tx)",
-            }}
+            className="w-[140px] rounded-lg px-3 py-1.5 text-[12.5px] font-medium outline-none bg-panel-muted border border-brand-primary/30 text-tx-primary focus:ring-2 focus:ring-brand-border shadow-sm transition-all"
           />
         </form>
       ) : (
         <button
           onClick={() => setAdding(true)}
-          className="rounded-md px-2 py-1 text-[12px]"
-          style={{ border: "1px dashed var(--app-line)", color: "var(--app-tx-3)" }}
+          className="rounded-lg px-2.5 py-1.5 text-[12px] border border-dashed border-subtle text-tx-muted hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm"
         >
-          <Plus size={12} weight="bold" />
+          <Plus size={14} weight="bold" />
         </button>
       )}
 
       <span className="flex-1" />
 
       <span
-        className="flex items-center gap-1.5 text-[10.5px]"
-        style={{ color: "var(--app-warn)" }}
+        className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-widest text-status-warning bg-status-warning-soft px-2.5 py-1 rounded-full shadow-sm"
         title={data?.pending}
       >
-        <Warning size={12} weight="duotone" />
+        <Warning size={14} weight="fill" />
         Reconciliation rules pending
       </span>
     </div>

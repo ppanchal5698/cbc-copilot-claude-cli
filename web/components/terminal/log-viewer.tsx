@@ -62,11 +62,8 @@ export function LogViewer({
   };
 
   return (
-    <div className="terminal-log flex h-full min-h-0 flex-col">
-      <div
-        className="flex flex-wrap items-center gap-1 px-3 py-1.5"
-        style={{ borderBottom: "1px solid var(--app-line)" }}
-      >
+    <div className="terminal-log flex h-full min-h-0 flex-col bg-background">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-subtle bg-panel-muted/30">
         {FILTERS.map((chip) => {
           const on = filter === chip.id;
           const count = counts[chip.id];
@@ -75,12 +72,11 @@ export function LogViewer({
               key={chip.id}
               type="button"
               onClick={() => setFilter(chip.id)}
-              className="rounded px-2 py-0.5 text-[11px]"
-              style={{
-                background: on ? "var(--app-accent-soft)" : "transparent",
-                border: `1px solid ${on ? "var(--app-accent-line)" : "var(--app-line)"}`,
-                color: on ? "var(--app-accent)" : "var(--app-tx-3)",
-              }}
+              className={`rounded-lg px-3 py-1 text-[11px] font-bold transition-colors shadow-sm ${
+                on
+                  ? "bg-brand-primary/10 border border-brand-primary/20 text-brand-primary"
+                  : "border border-subtle text-tx-muted hover:bg-panel-muted hover:text-tx-primary"
+              }`}
             >
               {chip.label}
               {chip.id !== "all" && count > 0 ? ` (${count})` : ""}
@@ -88,7 +84,7 @@ export function LogViewer({
           );
         })}
         <span className="flex-1" />
-        <span className="text-[10px]" style={{ color: "var(--app-tx-3)" }}>
+        <span className="text-[11px] font-bold uppercase tracking-widest text-tx-muted">
           {visible.length} events
         </span>
       </div>
@@ -97,10 +93,10 @@ export function LogViewer({
         <div
           ref={scrollRef}
           onScroll={onScroll}
-          className="terminal-log-scroll h-full overflow-y-auto py-1"
+          className="terminal-log-scroll h-full overflow-y-auto py-2"
         >
           {visible.length === 0 ? (
-            <div className="px-3 py-6 text-center text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+            <div className="px-4 py-8 text-center text-[13px] font-medium text-tx-muted">
               {state === "connecting"
                 ? "Connecting to run recording…"
                 : "No events match this filter yet."}
@@ -114,12 +110,7 @@ export function LogViewer({
           <button
             type="button"
             onClick={jumpToBottom}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full px-3 py-1 text-[11px] shadow-app-2"
-            style={{
-              background: "var(--app-panel)",
-              border: "1px solid var(--app-accent-line)",
-              color: "var(--app-accent)",
-            }}
+            className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full px-4 py-1.5 text-[12px] font-bold shadow-lg bg-panel border border-brand-primary/30 text-brand-primary hover:bg-brand-primary/10 transition-colors"
           >
             ↓ New output
           </button>

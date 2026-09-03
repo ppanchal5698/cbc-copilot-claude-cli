@@ -6,6 +6,8 @@ web request should hold open, and a dropped connection must not lose the job.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -19,14 +21,53 @@ from cbc.services import audit
 EXCLUSIVE = set(EXCLUSIVE_JOB_TYPES)
 
 
+class PipelineJobActive(Exception):
+    """Another pipeline job is already queued or running on this bid."""
+
+    def __init__(self, active: dict[str, Any]) -> None:
+        self.active = active
+        super().__init__(active.get("type", "pipeline"))
+
+
 def _due(delay_seconds: int) -> datetime:
     return datetime.now(timezone.utc) + timedelta(seconds=delay_seconds)
 
 
 # Project-less job types, and the payload field that identifies the same work.
 # Indexing is idempotent on the file hash, so a second pass over an unchanged
-# sheet is pure waste - and two at once are a write race.
-COALESCE_BY_PAYLOAD = {"index_catalog": "filename"}
+# sheet is pure waste - and two at once are a write race. Filename is the
+# fallback for jobs enqueued before fileSha existed.
+COALESCE_BY_PAYLOAD = {"index_catalog": "fileSha"}
+COALESCE_FALLBACK = {"index_catalog": "filename"}
+
+
+def _idempotency_key(
+    job_type: str, project_id: ObjectId | None, payload: dict[str, Any] | None
+) -> str:
+    blob = json.dumps(
+        {
+            "type": job_type,
+            "projectId": str(project_id) if project_id else "",
+            "payload": payload or {},
+        },
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _coalesce_lookup(
+    job_type: str, payload: dict[str, Any] | None
+) -> tuple[str, Any] | None:
+    payload = payload or {}
+    primary = COALESCE_BY_PAYLOAD.get(job_type)
+    if primary and payload.get(primary):
+        return f"payload.{primary}", payload[primary]
+    fallback = COALESCE_FALLBACK.get(job_type)
+    if fallback and payload.get(fallback):
+        return f"payload.{fallback}", payload[fallback]
+    return None
 
 
 async def enqueue(
@@ -46,30 +87,28 @@ async def enqueue(
     # see them. Re-uploading the same sheet twice in a minute - which the
     # price-books screen makes easy - queued two indexing passes that raced to
     # write the same pageIndex document.
-    coalesce_key = COALESCE_BY_PAYLOAD.get(job_type)
-    if coalesce_key and project_id is None:
-        value = (payload or {}).get(coalesce_key)
-        if value:
-            running = await db.jobs.find_one(
-                {
-                    "type": job_type,
-                    f"payload.{coalesce_key}": value,
-                    "status": {"$in": ["queued", "running"]},
-                }
-            )
-            if running:
-                return running
-
-    if job_type in EXCLUSIVE and project_id is not None:
+    coalesce = _coalesce_lookup(job_type, payload)
+    if coalesce and project_id is None:
+        field, value = coalesce
         running = await db.jobs.find_one(
             {
-                "projectId": project_id,
                 "type": job_type,
+                field: value,
                 "status": {"$in": ["queued", "running"]},
             }
         )
         if running:
-            if delay_seconds and running["status"] == "queued":
+            return running
+
+    if job_type in EXCLUSIVE and project_id is not None:
+        running = await active_pipeline_job(project_id)
+        if running:
+            # Deliberately permissive: this returns whatever pipeline job is
+            # already active, of any type, and `test_only_one_active_pipeline_job_
+            # _per_project` pins that. `enqueue_exclusive` is the strict variant
+            # that raises PipelineJobActive instead, and every API route that can
+            # be given a mismatched type goes through it.
+            if running["type"] == job_type and delay_seconds and running["status"] == "queued":
                 # Still waiting: another file arrived, so give it time to land too.
                 await db.jobs.update_one(
                     {"_id": running["_id"], "status": "queued"},
@@ -90,14 +129,18 @@ async def enqueue(
         "startedAt": None,
         "finishedAt": None,
         "nextAttemptAt": _due(delay_seconds) if delay_seconds else None,
+        "idempotencyKey": _idempotency_key(job_type, project_id, payload),
     }
     try:
         result = await db.jobs.insert_one(job)
     except DuplicateKeyError:
+        if project_id is not None:
+            existing = await active_pipeline_job(project_id)
+            if existing:
+                return existing
         existing = await db.jobs.find_one(
             {
-                "projectId": project_id,
-                "type": job_type,
+                "idempotencyKey": job["idempotencyKey"],
                 "status": {"$in": ["queued", "running"]},
             }
         )
@@ -116,6 +159,32 @@ async def enqueue(
 
 async def latest_for_project(project_id: ObjectId) -> dict[str, Any] | None:
     return await db.jobs.find_one({"projectId": project_id}, sort=[("createdAt", -1)])
+
+
+async def active_pipeline_job(project_id: ObjectId) -> dict[str, Any] | None:
+    """Newest queued or running pipeline job on this bid (one session per bid)."""
+    return await db.jobs.find_one(
+        {
+            "projectId": project_id,
+            "type": {"$in": list(EXCLUSIVE_JOB_TYPES)},
+            "status": {"$in": ["queued", "running"]},
+        },
+        sort=[("createdAt", -1)],
+    )
+
+
+async def enqueue_exclusive(
+    job_type: str,
+    project_id: ObjectId,
+    payload: dict[str, Any] | None = None,
+    actor: str = "estimator",
+    delay_seconds: int = 0,
+) -> dict[str, Any]:
+    """Queue a pipeline job unless another pipeline type is already active."""
+    active = await active_pipeline_job(project_id)
+    if active and active["type"] != job_type:
+        raise PipelineJobActive(active)
+    return await enqueue(job_type, project_id, payload, actor, delay_seconds)
 
 
 async def active_for_project(project_id: ObjectId) -> dict[str, Any] | None:

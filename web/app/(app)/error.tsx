@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 import { ArrowClockwise, WarningOctagon } from "@phosphor-icons/react/dist/ssr";
 
 /**
@@ -26,48 +27,43 @@ export default function AppError({
   }, [error]);
 
   return (
-    <main className="grid flex-1 place-items-center p-6">
+    <main className="grid flex-1 place-items-center p-6 bg-background">
       <div className="grid max-w-[520px] justify-items-center gap-3 text-center">
-        <span
-          className="grid h-11 w-11 place-items-center rounded-xl"
-          style={{ background: "var(--app-neg-soft)", color: "var(--app-neg)" }}
-        >
+        <span className="grid h-11 w-11 place-items-center rounded-xl bg-status-error-soft text-status-error shadow-sm">
           <WarningOctagon size={22} weight="duotone" />
         </span>
 
-        <h1 className="text-[17px] font-semibold">This screen could not be loaded</h1>
+        <h1 className="text-[17px] font-semibold text-tx-primary">This screen could not be loaded</h1>
 
-        <p className="text-[12.5px] leading-relaxed" style={{ color: "var(--app-tx-2)" }}>
+        <p className="text-[13px] leading-relaxed text-tx-secondary font-medium">
           {/* The API's own message, which is usually the actionable part - it
               names the host when the service is simply not running. */}
           {error.message || "Something went wrong while reading this bid."}
         </p>
 
-        <div className="mt-1 flex flex-wrap justify-center gap-2">
+        <div className="mt-2 flex flex-wrap justify-center gap-2">
           <button
             onClick={retry}
-            className="flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[12.5px] font-semibold"
-            style={{ background: "var(--app-accent)", color: "#fff" }}
+            className="flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[12.5px] font-semibold bg-brand-primary text-white shadow-sm hover:bg-brand-primary/90 transition-colors"
           >
             <ArrowClockwise size={14} weight="bold" />
             Try again
           </button>
-          <a
+          <Link
             href="/dashboard"
-            className="rounded-md px-3.5 py-2 text-[12.5px] no-underline"
-            style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+            className="rounded-md px-3.5 py-2 text-[12.5px] font-medium no-underline border border-subtle bg-panel text-tx-secondary hover:text-tx-primary hover:bg-panel-muted transition-colors shadow-sm"
           >
             Back to the dashboard
-          </a>
+          </Link>
         </div>
 
         {error.digest && (
-          <p className="mt-1 text-[10.5px]" style={{ color: "var(--app-tx-3)" }}>
-            Reference {error.digest} — quote this if you report it.
+          <p className="mt-2 text-[11px] text-tx-muted font-medium">
+            Reference <span className="font-mono bg-panel-muted px-1 py-0.5 rounded border border-subtle">{error.digest}</span> — quote this if you report it.
           </p>
         )}
 
-        <p className="mt-2 text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+        <p className="mt-1 text-[11.5px] text-tx-muted">
           Nothing was sent and nothing was lost. Work already saved against this bid is untouched.
         </p>
       </div>

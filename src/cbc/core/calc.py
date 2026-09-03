@@ -303,3 +303,68 @@ def cost_from_list(
         "cost": _money(list_total * Decimal(str(multiplier))),
         "formula": "cost = (list + adders) x multiplier",
     }
+
+
+LITE_KIT_FILE = ROOT / "reference-library" / "adders" / "lite_kit_prices.json"
+
+
+@lru_cache(maxsize=4)
+def _lite_kit_data_at(_signature: tuple[int, int]) -> dict[str, Any]:
+    return json.loads(LITE_KIT_FILE.read_text(encoding="utf-8"))
+
+
+def _ceil_to_grid(value: float, keys: list[int]) -> int | None:
+    """Next-largest even inch per NGP lite-kit sizing rule."""
+    if not keys or value <= 0:
+        return None
+    target = int(math.ceil(value))
+    if target % 2 == 1:
+        target += 1
+    for key in sorted(keys):
+        if key >= target:
+            return key
+    return max(keys)
+
+
+def lookup_lite_kit_list_price(
+    width_in: float,
+    height_in: float,
+    pdf_page: int | None = None,
+) -> dict[str, Any]:
+    """NR-1: list price from lite_kit_prices.json for a width x height opening."""
+    if not LITE_KIT_FILE.exists():
+        return {"list_price": None, "note": "lite_kit_prices.json not found"}
+    if width_in <= 0 or height_in <= 0:
+        raise ValueError("width_in and height_in must be positive")
+
+    data = _lite_kit_data_at(_file_signature(LITE_KIT_FILE))
+    tables = data.get("tables") or []
+    if pdf_page is not None:
+        tables = [t for t in tables if t.get("pdf_page") == pdf_page] or tables
+
+    for table in tables:
+        widths = [int(w) for w in table.get("widths") or []]
+        prices = table.get("prices") or {}
+        height_key = _ceil_to_grid(height_in, sorted(int(h) for h in prices))
+        width_key = _ceil_to_grid(width_in, widths)
+        if height_key is None or width_key is None:
+            continue
+        row = prices.get(str(height_key), {})
+        list_price = row.get(str(width_key))
+        if list_price is None:
+            continue
+        return {
+            "list_price": float(list_price),
+            "width_used": width_key,
+            "height_used": height_key,
+            "pdf_page": table.get("pdf_page"),
+            "source": str(LITE_KIT_FILE.relative_to(ROOT)).replace("\\", "/"),
+            "note": "Apply vendor multiplier via cost_from_list; outside table range → vendor RFQ.",
+        }
+
+    return {
+        "list_price": None,
+        "width_in": width_in,
+        "height_in": height_in,
+        "note": "Outside printed lite-kit table range — mark VENDOR_RFQ (NR-8).",
+    }

@@ -106,9 +106,8 @@ async def search(
         "note": (
             None
             if indexed
-            else "No catalog has been indexed yet, so only hand-added parts are "
-                 "searchable. Build the page index with "
-                 "`python -m cbc.pageindex.build --all`."
+            else "The catalog index has not been built yet — only hand-added parts appear. "
+                 "Your administrator can rebuild it from Settings."
         ),
         "pagesNote": (
             "These are pages in the vendor price books, not priced lines. Open one "

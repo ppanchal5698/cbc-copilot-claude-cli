@@ -230,6 +230,15 @@ def _lite_kits():
     return json.load(path.open(encoding="utf-8"))
 
 
+def test_lite_kit_lookup_matches_known_cell():
+    from cbc.core.calc import lookup_lite_kit_list_price
+
+    result = lookup_lite_kit_list_price(12, 12, pdf_page=30)
+    assert result["list_price"] == 78
+    assert result["width_used"] == 12
+    assert result["height_used"] == 12
+
+
 def test_the_lite_kit_grid_matches_the_printed_page():
     """Cells read by hand off page 30 of the National Guard list (NR-8).
 

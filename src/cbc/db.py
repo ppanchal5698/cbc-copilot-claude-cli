@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime
 from typing import Any
 
 from urllib.parse import quote_plus, urlsplit
@@ -33,7 +34,14 @@ _client: AsyncIOMotorClient | None = None
 def client() -> AsyncIOMotorClient:
     global _client
     if _client is None:
-        _client = AsyncIOMotorClient(settings.mongodb_uri, tz_aware=True)
+        _client = AsyncIOMotorClient(
+            settings.mongodb_uri,
+            tz_aware=True,
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=30000,
+            maxPoolSize=50,
+        )
     return _client
 
 
@@ -111,6 +119,16 @@ class Collections:
         """One document per sign-in attempt, expired by a TTL index."""
         return database()["authAttempts"]
 
+    @property
+    def oauth_sessions(self):
+        """In-flight Claude OAuth browser sign-ins, expired by a TTL index."""
+        return database()["oauthSessions"]
+
+    @property
+    def run_metrics(self):
+        """Per-Claude-run cost and provenance, parsed from `.runs/*.log`."""
+        return database()["runMetrics"]
+
 
 db = Collections()
 
@@ -179,14 +197,23 @@ async def ensure_indexes() -> None:
     await _replace_index(
         db.jobs,
         "exclusive_active_job",
-        [("projectId", ASCENDING), ("type", ASCENDING)],
+        [("projectId", ASCENDING)],
         unique=True,
         partialFilterExpression={
             "status": {"$in": ["queued", "running"]},
-            # Without this the index also covered `ingest_pricebook`, which carries
-            # no project - so two pending uploads shared the key (null, type) and
-            # the second was silently dropped in favour of the first.
+            # One Claude session per bid: at most one active pipeline job per
+            # project, regardless of type (autopilot must not overlap pricing).
             "type": {"$in": list(EXCLUSIVE_JOB_TYPES)},
+        },
+    )
+    await _replace_index(
+        db.jobs,
+        "idempotency_active_job",
+        [("idempotencyKey", ASCENDING)],
+        unique=True,
+        partialFilterExpression={
+            "status": {"$in": ["queued", "running"]},
+            "idempotencyKey": {"$exists": True, "$type": "string"},
         },
     )
     await db.jobs.create_index([("status", ASCENDING), ("heartbeatAt", ASCENDING)])
@@ -209,6 +236,15 @@ async def ensure_indexes() -> None:
         [("at", ASCENDING)], name="attempt_ttl", expireAfterSeconds=AUTH_ATTEMPT_TTL
     )
     await db.auth_attempts.create_index([("email", ASCENDING), ("at", DESCENDING)])
+    await db.oauth_sessions.create_index(
+        [("expiresAt", ASCENDING)], name="oauth_session_ttl", expireAfterSeconds=0
+    )
+    await db.run_metrics.create_index([("jobType", ASCENDING), ("startedAt", DESCENDING)])
+    await db.run_metrics.create_index([("projectId", ASCENDING), ("startedAt", DESCENDING)])
+    await db.run_metrics.create_index([("contextHashes.prompt", ASCENDING)])
+    await db.run_metrics.create_index(
+        [("outcome.errorCode", ASCENDING), ("startedAt", DESCENDING)]
+    )
 
 
 def oid(value: str | ObjectId) -> ObjectId:
@@ -222,7 +258,7 @@ def oid(value: str | ObjectId) -> ObjectId:
 
 
 def serialise(document: Any) -> Any:
-    """Recursively turn ObjectId into str so a document is JSON-safe."""
+    """Recursively turn ObjectId and datetime into JSON-safe values."""
     if isinstance(document, list):
         return [serialise(item) for item in document]
     if isinstance(document, dict):
@@ -231,6 +267,8 @@ def serialise(document: Any) -> Any:
         }
     if isinstance(document, ObjectId):
         return str(document)
+    if isinstance(document, datetime):
+        return document.isoformat()
     return document
 
 

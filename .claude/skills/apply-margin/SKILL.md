@@ -11,16 +11,10 @@ description: >
 
 ## The bands
 
-| Product type | Key | Margin | Divisor |
-|---|---|---|---|
-| Commodity | `commodity` | 27% | 0.73 |
-| Restroom partitions | `restroom_partitions` | 35% | 0.65 |
-| Specialty (laminated doors) | `specialty` | 40% | 0.60 |
-| Custom-built via outside fabricator | `custom_built` | 25% | 0.75 |
-| Restroom accessories | `accessories` | 56% (derived) | 0.44 |
+Read `reference-library/margins/margin_framework.json`. That file is the source
+of truth for every product-type band and divisor — do not copy the numbers here.
 
-Stable for about 14 years. Source of truth:
-`reference-library/margins/margin_framework.json`.
+Stable for about 14 years.
 
 ## The formula
 
@@ -72,10 +66,6 @@ is exactly what the governance flag is for.
 fail is written to `review/review_flags.json` at severity `medium`. Nothing is
 routed for approval - NFR-8 is deferred, because there is no margin deviation
 today and approval routing only matters with more estimators.
-
-## Rules
-
-- @.claude/rules/margin-governance.md
 
 ## Reference data
 

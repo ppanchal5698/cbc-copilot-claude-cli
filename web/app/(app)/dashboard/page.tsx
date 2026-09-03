@@ -18,6 +18,7 @@ import { StatusBadge, type StatusBadgeVariant } from "@/components/ui/status-bad
 import { api } from "@/lib/api";
 import { formatMoneyShort } from "@/lib/format";
 import type { Project } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -35,21 +36,21 @@ function greeting(name: string): string {
 }
 
 /** What this bid is actually waiting on, in the estimator's words. */
-function waitingOn(project: Project): { tag: string; colour: string; soft: string; variant: StatusBadgeVariant } {
+function waitingOn(project: Project): { tag: string; colourClass: string; softClass: string; variant: StatusBadgeVariant } {
   if (project.activeJob)
-    return { tag: "Claude is reading", colour: "var(--app-warn)", soft: "var(--app-warn-soft)", variant: "progress" };
+    return { tag: "Claude is reading", colourClass: "text-status-warning", softClass: "bg-status-warning-soft", variant: "progress" };
   if (project.counts.needsLook > 0)
     return {
       tag: `${project.counts.needsLook} to check`,
-      colour: "var(--app-neg)",
-      soft: "var(--app-neg-soft)",
+      colourClass: "text-status-error",
+      softClass: "bg-status-error-soft",
       variant: "review",
     };
   if (project.documentCount === 0)
-    return { tag: "Needs documents", colour: "var(--app-tx-3)", soft: "var(--app-panel-2)", variant: "neutral" };
+    return { tag: "Needs documents", colourClass: "text-tx-muted", softClass: "bg-panel-muted", variant: "neutral" };
   if (project.stage === "proposal")
-    return { tag: "Ready to hand off", colour: "var(--app-pos)", soft: "var(--app-pos-soft)", variant: "ok" };
-  return { tag: "Ready to price", colour: "var(--app-accent)", soft: "var(--app-accent-soft)", variant: "action" };
+    return { tag: "Ready to hand off", colourClass: "text-status-success", softClass: "bg-status-success-soft", variant: "ok" };
+  return { tag: "Ready to price", colourClass: "text-brand-primary", softClass: "bg-brand-soft", variant: "action" };
 }
 
 export default async function DashboardPage() {
@@ -80,13 +81,13 @@ export default async function DashboardPage() {
     <>
       <PageHeader crumbs={[{ label: "Workspace" }, { label: "Dashboard" }]} reviewCount={needsLook} />
 
-      <main id="main-content" className="min-h-0 flex-1 overflow-auto p-6">
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+      <main id="main-content" className="min-h-0 flex-1 overflow-auto p-8 bg-background">
+        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="flex items-center gap-2 text-[24px] font-semibold">
-              {greeting(name)} <span>👋</span>
+            <h1 className="flex items-center gap-2 text-[26px] font-bold text-tx-primary tracking-tight">
+              {greeting(name)} <span className="animate-fade-in">👋</span>
             </h1>
-            <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+            <p className="mt-1.5 text-[14px] text-tx-secondary font-medium max-w-[600px] leading-relaxed">
               {needsLook > 0
                 ? `${needsLook} line${needsLook === 1 ? "" : "s"} are waiting on you across ${projects.length} bid${projects.length === 1 ? "" : "s"}.`
                 : "Nothing is flagged. Bid documents in, priced proposal out."}
@@ -94,168 +95,152 @@ export default async function DashboardPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            <div
-              className="hidden items-center gap-2.5 rounded-lg px-3 py-2 sm:flex"
-              style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-            >
-              <Buildings size={16} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
+            <div className="hidden items-center gap-3 rounded-lg border border-subtle bg-panel px-4 py-2 sm:flex shadow-sm">
+              <Buildings size={18} weight="duotone" className="text-tx-muted" />
               <span className="flex flex-col leading-tight">
-                <span className="text-[10px] uppercase tracking-[0.07em]" style={{ color: "var(--app-tx-3)" }}>
+                <span className="text-[10px] uppercase tracking-widest text-tx-muted font-bold">
                   Current workspace
                 </span>
-                <span className="text-[12.5px] font-semibold">Hamilton Parker · CBC</span>
+                <span className="text-[13px] font-semibold text-tx-primary">Hamilton Parker · CBC</span>
               </span>
             </div>
             <NewBidDialog />
           </div>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[1fr_300px]">
-          <section
-            className="overflow-hidden rounded-xl"
-            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-          >
-            <div
-              className="flex items-center gap-2.5 border-b px-4 py-3.5"
-              style={{ borderColor: "var(--app-line)" }}
-            >
-              <ListChecks size={17} weight="duotone" style={{ color: "var(--app-accent)" }} />
-              <span className="text-[15px] font-semibold">Your queue</span>
+        <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+          <section className="overflow-hidden rounded-xl border border-subtle bg-panel shadow-sm flex flex-col">
+            <div className="flex items-center gap-3 border-b border-subtle px-5 py-4 bg-background">
+              <ListChecks size={18} weight="duotone" className="text-brand-primary" />
+              <span className="text-[15px] font-semibold text-tx-primary tracking-tight">Your queue</span>
               <span className="flex-1" />
               <Link
                 href="/bids"
-                className="text-[12px] no-underline"
-                style={{ color: "var(--app-tx-2)" }}
+                className="text-[13px] font-medium text-brand-primary no-underline hover:text-brand-primary/80 transition-colors"
               >
-                Open the bid board →
+                Open the bid board &rarr;
               </Link>
             </div>
 
             {queue.length === 0 ? (
-              <div className="grid place-items-center gap-1.5 px-6 py-16 text-center">
-                <span className="text-[13.5px] font-semibold">Nothing in the queue</span>
-                <span className="max-w-[380px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
-                  Create a bid and drop the plan set in to get started.
+              <div className="grid place-items-center gap-3 px-6 py-24 text-center">
+                <div className="w-16 h-16 rounded-full bg-brand-soft flex items-center justify-center mb-2 shadow-sm border border-brand-border">
+                  <Tray size={28} weight="duotone" className="text-brand-primary" />
+                </div>
+                <span className="text-[16px] font-semibold text-tx-primary">Nothing in the queue</span>
+                <span className="max-w-[380px] text-[13.5px] text-tx-secondary leading-relaxed">
+                  Create a bid and drop the plan set in to get started. Everything is clear for now.
                 </span>
               </div>
             ) : (
-              queue.map((project) => {
-                const Icon = STAGE_ICON[project.stage];
-                const state = waitingOn(project);
-                return (
-                  <Link
-                    key={project.id}
-                    href={`/bids/${project.code}/${project.stage}`}
-                    className="flex items-center gap-3 border-b px-4 py-3 no-underline last:border-b-0 hover:bg-[var(--app-panel-2)]"
-                    style={{ borderColor: "var(--app-line)" }}
-                  >
-                    <span
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg"
-                      style={{ background: state.soft, color: state.colour }}
+              <div className="flex-1 overflow-auto">
+                {queue.map((project) => {
+                  const Icon = STAGE_ICON[project.stage];
+                  const state = waitingOn(project);
+                  return (
+                    <Link
+                      key={project.id}
+                      href={`/bids/${project.code}/${project.stage}`}
+                      className="group flex items-center gap-4 border-b border-subtle px-5 py-3.5 no-underline last:border-b-0 hover:bg-panel-muted transition-colors"
                     >
-                      <Icon size={16} weight="duotone" />
-                    </span>
-                    <span className="flex min-w-0 flex-1 flex-col leading-tight">
-                      <span className="truncate text-[13px] font-semibold">{project.name}</span>
-                      <span className="truncate text-[11px]" style={{ color: "var(--app-tx-3)" }}>
-                        {project.code}
-                        {project.gc ? ` · ${project.gc}` : ""}
-                        {project.location ? ` · ${project.location}` : ""}
+                      <span className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-lg shadow-sm border border-subtle/50", state.softClass, state.colourClass)}>
+                        <Icon size={18} weight="duotone" />
                       </span>
-                    </span>
-                    <StatusBadge variant={state.variant}>{state.tag}</StatusBadge>
-                    <span
-                      className="tnum hidden w-[92px] shrink-0 text-right text-[11.5px] sm:block"
-                      style={{ color: "var(--app-tx-3)" }}
-                    >
-                      {project.bidDue
-                        ? `due ${new Date(project.bidDue).toLocaleDateString()}`
-                        : "no due date"}
-                    </span>
-                    <CaretRight size={13} weight="bold" style={{ color: "var(--app-tx-3)" }} />
-                  </Link>
-                );
-              })
+                      <span className="flex min-w-0 flex-1 flex-col leading-tight">
+                        <span className="truncate text-[14px] font-semibold text-tx-primary group-hover:text-brand-primary transition-colors">{project.name}</span>
+                        <span className="truncate text-[12px] font-medium text-tx-muted mt-0.5">
+                          {project.code}
+                          {project.gc ? ` · ${project.gc}` : ""}
+                          {project.location ? ` · ${project.location}` : ""}
+                        </span>
+                      </span>
+                      <StatusBadge variant={state.variant}>{state.tag}</StatusBadge>
+                      <span className="tnum hidden w-[92px] shrink-0 text-right text-[12px] font-medium text-tx-muted sm:block">
+                        {project.bidDue
+                          ? `due ${new Date(project.bidDue).toLocaleDateString()}`
+                          : "no due date"}
+                      </span>
+                      <CaretRight size={14} weight="bold" className="text-tx-muted group-hover:text-tx-primary transition-colors ml-2" />
+                    </Link>
+                  );
+                })}
+              </div>
             )}
           </section>
 
-          <aside className="flex flex-col gap-3">
-            <div
-              className="rounded-xl p-4"
-              style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-            >
-              <div className="flex items-center gap-2">
-                <Timer size={15} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
-                <span className="text-[13px] font-semibold">Focus</span>
+          <aside className="flex flex-col gap-6">
+            <div className="rounded-xl border border-subtle bg-panel p-5 shadow-sm">
+              <div className="flex items-center gap-2 mb-6">
+                <Timer size={16} weight="duotone" className="text-brand-primary" />
+                <span className="text-[14px] font-semibold text-tx-primary tracking-tight">Focus</span>
               </div>
 
-              <div className="mt-4 grid place-items-center">
+              <div className="grid place-items-center relative">
                 <div
-                  className="grid h-[110px] w-[110px] place-items-center rounded-full"
+                  className="grid h-[120px] w-[120px] place-items-center rounded-full shadow-sm"
                   style={{
-                    background: `conic-gradient(var(--app-accent) ${focusPct * 3.6}deg, var(--app-panel-2) 0deg)`,
+                    background: `conic-gradient(var(--brand-primary) ${focusPct * 3.6}deg, var(--panel-muted) 0deg)`,
                   }}
                 >
-                  <div
-                    className="grid h-[86px] w-[86px] place-items-center rounded-full"
-                    style={{ background: "var(--app-panel)" }}
-                  >
+                  <div className="grid h-[92px] w-[92px] place-items-center rounded-full bg-panel shadow-sm">
                     <span className="flex flex-col items-center leading-tight">
-                      <span className="tnum text-[22px] font-bold">{focusPct}%</span>
-                      <span className="text-[10px]" style={{ color: "var(--app-tx-3)" }}>
-                        lines cleared
+                      <span className="tnum text-[26px] font-bold text-tx-primary">{focusPct}%</span>
+                      <span className="text-[11px] font-medium text-tx-muted mt-0.5 uppercase tracking-wider">
+                        cleared
                       </span>
                     </span>
                   </div>
                 </div>
               </div>
 
-              <p className="mt-4 text-[12.5px] font-semibold">
-                {needsLook > 0 ? `${needsLook} still need a look` : "Everything is checked"}
-              </p>
-              <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--app-tx-2)" }}>
-                {cleared} of {total} extracted lines confirmed across every open bid.
-              </p>
+              <div className="mt-6 text-center">
+                <p className="text-[14px] font-semibold text-tx-primary">
+                  {needsLook > 0 ? `${needsLook} still need a look` : "Everything is checked"}
+                </p>
+                <p className="mt-1 text-[12.5px] font-medium text-tx-secondary leading-relaxed">
+                  {cleared} of {total} extracted lines confirmed across every open bid.
+                </p>
+              </div>
             </div>
 
-            <div
-              className="rounded-xl p-4"
-              style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-            >
-              {[
-                { label: "Open bids", value: String(projects.length), Icon: Buildings },
-                {
-                  label: "Claude running",
-                  value: String(running),
-                  Icon: Lightning,
-                  tone: running ? "var(--app-warn)" : undefined,
-                },
-                {
-                  label: "Lines to check",
-                  value: String(needsLook),
-                  Icon: WarningCircle,
-                  tone: needsLook ? "var(--app-neg)" : undefined,
-                },
-                { label: "Handed to sales", value: String(handedOff), Icon: FileText },
-                { label: "Quoted value", value: formatMoneyShort(openValue), Icon: Table },
-              ].map((tile) => (
-                <div
-                  key={tile.label}
-                  className="flex items-center gap-2.5 border-b py-2.5 last:border-b-0"
-                  style={{ borderColor: "var(--app-line)" }}
-                >
-                  <tile.Icon size={14} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
-                  <span className="flex-1 text-[12px]" style={{ color: "var(--app-tx-2)" }}>
-                    {tile.label}
-                  </span>
-                  <span
-                    className="tnum text-[14px] font-semibold"
-                    style={{ color: tile.tone ?? "var(--app-tx)" }}
+            <div className="rounded-xl border border-subtle bg-panel p-5 shadow-sm">
+              <div className="mb-4">
+                <span className="text-[14px] font-semibold text-tx-primary tracking-tight">Overview</span>
+              </div>
+              <div className="flex flex-col gap-1">
+                {[
+                  { label: "Open bids", value: String(projects.length), Icon: Buildings },
+                  {
+                    label: "Claude running",
+                    value: String(running),
+                    Icon: Lightning,
+                    toneClass: running ? "text-status-warning" : "text-tx-primary",
+                  },
+                  {
+                    label: "Lines to check",
+                    value: String(needsLook),
+                    Icon: WarningCircle,
+                    toneClass: needsLook ? "text-status-error" : "text-tx-primary",
+                  },
+                  { label: "Handed to sales", value: String(handedOff), Icon: FileText, toneClass: "text-tx-primary" },
+                  { label: "Quoted value", value: formatMoneyShort(openValue), Icon: Table, toneClass: "text-brand-primary" },
+                ].map((tile) => (
+                  <div
+                    key={tile.label}
+                    className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-panel-muted transition-colors"
                   >
-                    {tile.value}
-                  </span>
-                </div>
-              ))}
+                    <div className="flex h-7 w-7 items-center justify-center rounded-md border border-subtle bg-background shadow-sm">
+                      <tile.Icon size={14} weight="duotone" className="text-tx-muted" />
+                    </div>
+                    <span className="flex-1 text-[13px] font-medium text-tx-secondary">
+                      {tile.label}
+                    </span>
+                    <span className={cn("tnum text-[14px] font-bold", tile.toneClass || "text-tx-primary")}>
+                      {tile.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </aside>
         </div>

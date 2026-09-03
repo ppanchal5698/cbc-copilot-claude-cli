@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { UserFocus, Plus, Trash, Warning } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
 
+import { StatusBadge } from "@/components/ui/status-badge";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 import type { SpecialMargins } from "@/lib/types";
 
@@ -99,46 +100,40 @@ export function SpecialMarginsPanel() {
   const customers = data?.customers ?? [];
 
   return (
-    <section
-      className="rounded-xl"
-      style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-    >
-      <div className="border-b px-4 py-3.5" style={{ borderColor: "var(--app-line)" }}>
-        <div className="flex items-center gap-2">
-          <UserFocus size={16} weight="duotone" style={{ color: "var(--app-accent)" }} />
-          <h2 className="text-[15px] font-semibold">Special-customer margins</h2>
+    <section className="rounded-xl bg-panel border border-subtle shadow-sm flex flex-col h-full">
+      <div className="border-b border-subtle px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <UserFocus size={18} weight="bold" className="text-brand-primary" />
+          <h2 className="text-[16px] font-bold text-tx-primary tracking-tight">Special-customer margins</h2>
         </div>
-        <p className="mt-1 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+        <p className="mt-1.5 text-[13px] font-medium text-tx-secondary">
           A sourcing-driven margin override for a named account, with its reason recorded. Applied by
           the pricing pass; below-band lines are still flagged, not blocked. Administrators only.
         </p>
       </div>
 
       {error && (
-        <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-neg)" }}>
+        <p className="px-5 py-6 text-[13px] font-medium text-status-error">
           Could not read the special margins: {errorMessage(error)}
         </p>
       )}
       {isLoading && !data && (
-        <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+        <p className="px-5 py-6 text-[13px] font-medium text-tx-muted">
           Loading…
         </p>
       )}
 
       {data && (
-        <div className="divide-y" style={{ borderColor: "var(--app-line)" }}>
+        <div className="divide-y divide-subtle flex-1 overflow-y-auto">
           {customers.map((customer) => (
-            <div key={customer.name} className="px-4 py-3" style={{ borderColor: "var(--app-line)" }}>
-              <div className="flex items-center gap-3">
-                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">
+            <div key={customer.name} className="px-5 py-4 hover:bg-panel-muted transition-colors">
+              <div className="flex items-center gap-4">
+                <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-tx-primary">
                   {customer.name}
                 </span>
-                <span
-                  className="tnum shrink-0 text-[11.5px]"
-                  style={{ color: customer.margin === null ? "var(--app-warn, var(--app-neg))" : "var(--app-tx-3)", width: "72px", textAlign: "right" }}
-                >
-                  {customer.margin === null ? "PENDING" : `= ${asPercent(customer.margin)}`}
-                </span>
+                <StatusBadge variant={customer.margin === null ? "caution" : "neutral"}>
+                  {customer.margin === null ? "Not set" : `= ${asPercent(customer.margin)}`}
+                </StatusBadge>
                 <input
                   key={`${customer.name}-${customer.margin}`}
                   type="number"
@@ -150,22 +145,16 @@ export function SpecialMarginsPanel() {
                   placeholder="unset"
                   aria-label={`${customer.name} margin fraction`}
                   onBlur={(event) => commitMargin(customer.name, event.target.value, customer.margin)}
-                  className="tnum w-23 shrink-0 rounded-md px-2.5 py-1.5 text-right text-[12.5px] outline-none focus:ring-2"
-                  style={{
-                    background: "var(--app-panel-2)",
-                    border: "1px solid var(--app-line)",
-                    color: "var(--app-tx)",
-                  }}
+                  className="tnum w-24 shrink-0 rounded-md px-3 py-1.5 text-right text-[13px] outline-none border border-subtle bg-background text-tx-primary focus:ring-1 focus:ring-brand-border transition-colors shadow-sm"
                 />
                 <button
                   type="button"
                   onClick={() => remove(customer.name)}
                   disabled={busy}
                   aria-label={`Remove ${customer.name}`}
-                  className="shrink-0 rounded-md p-1.5"
-                  style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-3)" }}
+                  className="shrink-0 rounded-md p-2 text-tx-muted hover:text-status-error hover:bg-status-error-soft transition-colors focus:ring-2 focus:ring-status-error"
                 >
-                  <Trash size={14} />
+                  <Trash size={16} />
                 </button>
               </div>
               <input
@@ -175,12 +164,7 @@ export function SpecialMarginsPanel() {
                 placeholder="Reason for the override (recorded)"
                 aria-label={`${customer.name} override reason`}
                 onBlur={(event) => commitNote(customer.name, event.target.value, customer.note ?? "")}
-                className="mt-2 w-full rounded-md px-2.5 py-1.5 text-[11.5px] outline-none focus:ring-2"
-                style={{
-                  background: "var(--app-panel-2)",
-                  border: "1px solid var(--app-line)",
-                  color: "var(--app-tx-2)",
-                }}
+                className="mt-3 w-full rounded-md px-3 py-2 text-[12.5px] font-medium outline-none border border-subtle bg-background text-tx-secondary placeholder:text-tx-muted focus:ring-1 focus:ring-brand-border transition-colors shadow-sm"
               />
             </div>
           ))}
@@ -190,12 +174,11 @@ export function SpecialMarginsPanel() {
       {data && (
         <form
           onSubmit={add}
-          className="flex flex-col gap-2 border-t px-4 py-3"
-          style={{ borderColor: "var(--app-line)" }}
+          className="flex flex-col gap-3 border-t border-subtle bg-panel-muted px-5 py-4 rounded-b-xl"
         >
-          <div className="flex items-end gap-2">
-            <label className="flex min-w-0 flex-1 flex-col">
-              <span className="text-[10.5px] uppercase tracking-[0.07em]" style={{ color: "var(--app-tx-3)" }}>
+          <div className="flex items-end gap-3">
+            <label className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-widest text-tx-muted">
                 Customer
               </span>
               <input
@@ -203,16 +186,11 @@ export function SpecialMarginsPanel() {
                 onChange={(event) => setNewName(event.target.value)}
                 placeholder="e.g. Wendys"
                 aria-label="New customer name"
-                className="mt-0.5 rounded-md px-2.5 py-1.5 text-[12.5px] outline-none focus:ring-2"
-                style={{
-                  background: "var(--app-panel-2)",
-                  border: "1px solid var(--app-line)",
-                  color: "var(--app-tx)",
-                }}
+                className="rounded-md px-3 py-2 text-[13px] outline-none border border-subtle bg-background text-tx-primary focus:ring-1 focus:ring-brand-border transition-colors shadow-sm"
               />
             </label>
-            <label className="flex flex-col">
-              <span className="text-[10.5px] uppercase tracking-[0.07em]" style={{ color: "var(--app-tx-3)" }}>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-bold uppercase tracking-widest text-tx-muted">
                 Margin
               </span>
               <input
@@ -224,21 +202,15 @@ export function SpecialMarginsPanel() {
                 max="0.99"
                 placeholder="optional"
                 aria-label="New customer margin"
-                className="tnum mt-0.5 w-24 rounded-md px-2.5 py-1.5 text-right text-[12.5px] outline-none focus:ring-2"
-                style={{
-                  background: "var(--app-panel-2)",
-                  border: "1px solid var(--app-line)",
-                  color: "var(--app-tx)",
-                }}
+                className="tnum w-24 rounded-md px-3 py-2 text-right text-[13px] outline-none border border-subtle bg-background text-tx-primary focus:ring-1 focus:ring-brand-border transition-colors shadow-sm"
               />
             </label>
             <button
               type="submit"
               disabled={busy}
-              className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] font-semibold"
-              style={{ background: "var(--app-accent)", color: "#fff" }}
+              className="flex items-center justify-center gap-1.5 rounded-md px-4 py-2 text-[13px] font-semibold bg-brand-primary text-white shadow-sm hover:bg-brand-primary/90 transition-colors disabled:opacity-50 h-[38px]"
             >
-              <Plus size={13} weight="bold" />
+              <Plus size={16} weight="bold" />
               Add
             </button>
           </div>
@@ -247,22 +219,14 @@ export function SpecialMarginsPanel() {
             onChange={(event) => setNewNote(event.target.value)}
             placeholder="Reason for the override (recorded)"
             aria-label="New customer override reason"
-            className="rounded-md px-2.5 py-1.5 text-[11.5px] outline-none focus:ring-2"
-            style={{
-              background: "var(--app-panel-2)",
-              border: "1px solid var(--app-line)",
-              color: "var(--app-tx-2)",
-            }}
+            className="rounded-md px-3 py-2 text-[12.5px] font-medium outline-none border border-subtle bg-background text-tx-secondary placeholder:text-tx-muted focus:ring-1 focus:ring-brand-border transition-colors shadow-sm"
           />
         </form>
       )}
 
       {data?.rule && (
-        <p
-          className="flex items-start gap-1.5 border-t px-4 py-2.5 text-[11px]"
-          style={{ borderColor: "var(--app-line)", color: "var(--app-tx-3)" }}
-        >
-          <Warning size={13} weight="fill" style={{ color: "var(--app-warn, var(--app-neg))", marginTop: 1, flexShrink: 0 }} />
+        <p className="flex items-start gap-2.5 bg-status-warning-soft px-5 py-4 text-[12.5px] font-medium text-status-warning rounded-b-xl border-t border-status-warning/30">
+          <Warning size={16} weight="duotone" className="mt-0.5 shrink-0" />
           {data.rule}
         </p>
       )}

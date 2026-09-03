@@ -18,12 +18,13 @@ while PDFs stay on disk for the MCP tools.
 ```
 cbc-copilot-claude-cli/
 ├── CLAUDE.md                 # Project index
-├── .mcp.json                 # MCP server registration (6 servers)
+├── .mcp.json                 # MCP server registration (5 servers)
 ├── .claude/                  # Agents, skills, rules, hooks, memory
-├── api/                      # FastAPI — MongoDB, jobs, business rules
+├── apps/api/                 # FastAPI — routing, request/response, auth
 ├── web/                      # Next.js 15 UI
-├── worker/                   # Job runner (claude --print + disk sync)
-├── mcp-servers/              # 6 stdio MCP tool providers
+├── apps/worker/              # Job runner (claude --print + disk sync)
+├── src/cbc/                  # Domain: config, Mongo, schemas, business rules
+├── mcp-servers/              # 5 stdio MCP tool providers
 ├── workflows/                # Headless phase scripts
 ├── docker/                   # Container entrypoint, LiteLLM config
 ├── docs/                     # Human documentation + docs/bootstrap/
@@ -43,7 +44,7 @@ cbc-copilot-claude-cli/
 
 ```
                       CLAUDE CODE CLI
-            (headless workflows/  OR  Ops-Hub worker/)
+            (headless workflows/  OR  Ops-Hub apps/worker/)
 
    WORKFLOWS ──────▶ AGENTS ──────▶ SKILLS
    (orchestrate)     (10 roles)     (9 tasks)
@@ -51,7 +52,7 @@ cbc-copilot-claude-cli/
         ┌───────────────────────────────┘
         ▼
    MCP SERVERS       MEMORY          RULES
-   (6 providers)     (13 files)      (8 constraints)
+   (5 providers)     (13 files)      (8 constraints)
         │
         ▼
    GUARDRAILS  ◀── hooks fire on every tool call
@@ -62,7 +63,7 @@ cbc-copilot-claude-cli/
         │
         ▼
    PROJECTS/          PRICEBOOKS/        REFERENCE-LIBRARY/
-   (per-bid data)     (26 vendor files)  (structured JSON)
+   (per-bid data)     (16 vendor files)  (structured JSON)
 ```
 
 | Layer | Path | Count | Role |
@@ -72,16 +73,16 @@ cbc-copilot-claude-cli/
 | Rules | `.claude/rules/` | 8 | Auto-loaded constraints that shape every session |
 | Guardrails | `.claude/hooks/` | 5 | Executable hooks that block or log tool calls |
 | Memory | `.claude/memory/` | 13 | Persistent reference data and business rules |
-| MCP servers | `mcp-servers/` | 6 | External tool providers over stdio |
+| MCP servers | `mcp-servers/` | 5 | External tool providers over stdio |
 | Workflows | `workflows/` | 9 scripts | Headless orchestration |
 
 ## Ops-Hub stack
 
 | Component | Path | Role |
 |---|---|---|
-| API | `api/` | FastAPI. Owns MongoDB, jobs, quote rules. Delegates arithmetic to `calc-engine`. |
+| API | `apps/api/` | FastAPI. Routing and auth. Domain rules live in `src/cbc/`. |
 | Web | `web/` | Next.js UI — dashboard, bid board, catalog, price books, settings. |
-| Worker | `worker/` | Claims queued jobs, runs `claude --print`, syncs disk → MongoDB. |
+| Worker | `apps/worker/` | Claims queued jobs, runs `claude --print`, syncs disk → MongoDB. |
 | Docker | `docker/`, root `Dockerfile`, `docker-compose.yml` | Five containers: web, api, worker, mongo, litellm. |
 
 Setup: `docs/opshub_setup.md`
@@ -95,11 +96,11 @@ flowchart LR
     C1 --> FS[projects/slug/]
   end
   subgraph opshub [Ops-Hub]
-    UI[web/] --> API[api/ jobs]
-    API --> WRK[worker/]
+    UI[web/] --> API[apps/api jobs]
+    API --> WRK[apps/worker]
     WRK --> C2[claude --print]
     C2 --> FS
-    WRK --> SYNC[api/services/sync.py]
+    WRK --> SYNC[src/cbc/services/sync.py]
     SYNC --> MONGO[(MongoDB)]
     API --> MONGO
   end
@@ -124,12 +125,12 @@ product-matcher ──▶ extracted/hardware_sets.json
     │
     ▼
 pricing-engineer ──▶ priced/line_items.json + priced/margin_applied.json
-    │                (reads pricebook, catalog, p21-connector, calc-engine)
+    │                (reads catalog, p21-connector, calc-engine, pdf-tools)
     ▼
-quote-builder ──▶ quotation.html
+worker render ──▶ quotation.html + review_summary.html
     │
     ▼
-quality-reviewer ──▶ review/review_flags.json + review/review_summary.html
+quality-reviewer ──▶ review/review_flags.json
     │
     ▼
 delivery-agent ──▶ quotation.pdf + uploads/final/
@@ -148,12 +149,12 @@ delivery-agent ──▶ quotation.pdf + uploads/final/
 | 2 Spec scoping | spec-scope-analyst | extract-door-schedule | pdf-tools | auditability, scope-boundaries |
 | 3 Take-offs | takeoff-engineer | extract-door-schedule, validate-extraction | pdf-tools | accuracy-trust |
 | 3b FRP | frp-specialist | frp-takeoff | pdf-tools | accuracy-trust |
-| 4 Matching | product-matcher | match-hardware-sets, scan-product-catalog | pricebook, catalog | accuracy-trust |
-| 4 Pricing | pricing-engineer | price-line-item, apply-margin | pricebook, catalog, p21-connector, calc-engine | p21-read-only, margin-governance |
-| 4/6 Quote build | quote-builder | generate-quotation | calc-engine, artifact-storage | auditability |
+| 4 Matching | product-matcher | match-hardware-sets, scan-product-catalog | catalog | accuracy-trust |
+| 4 Pricing | pricing-engineer | price-line-item, apply-margin | catalog, pdf-tools, p21-connector, calc-engine | p21-read-only, margin-governance |
+| 4/6 Quote build | (worker render) | generate-quotation | — | auditability |
 | 5 Review | quality-reviewer | validate-extraction, reuse-prior-quote | - | human-in-the-loop |
 | 6 Deliver | delivery-agent | generate-quotation | artifact-storage | human-in-the-loop |
-| *(Ops-Hub)* Price book ingest | pricebook-ingestor | scan-product-catalog | pricebook, catalog | file-safety |
+| *(Ops-Hub)* Price book ingest | pricebook-ingestor | scan-product-catalog | catalog, pdf-tools | file-safety |
 
 ## Hook execution lifecycle
 
@@ -188,7 +189,7 @@ the extra dependency did not earn its place.
 **One arithmetic implementation.** All quote math lives in `calc-engine`. Nothing
 else totals, applies a margin, or computes tax.
 
-**`_runtime.py` holds the MCP protocol wiring** shared by all six servers, so each
+**`_runtime.py` holds the MCP protocol wiring** shared by all five servers, so each
 `server.py` is domain logic plus a `TOOLS` list and a `HANDLERS` map.
 
 **OCR is optional and lazy.** `pytesseract` is imported only when a page has no

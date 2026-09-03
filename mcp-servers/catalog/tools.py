@@ -46,17 +46,8 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "find_pages",
         "description": (
-            "Which pages to open for a part number, series or description. "
-            "Returns ranked pages with a two-line description of each, the part "
-            "families on it, whether it carries prices, and why it matched.\n\n"
-            "This does NOT return a price. Each hit carries `file_path` and "
-            "`pdf_page` - pass BOTH to mcp__pdf-tools__extract_tables exactly as "
-            "given, then quote what the sheet says. Do not build the path "
-            "yourself: the books are not under the project's uploads, and a run "
-            "that guessed there could not open the page it had correctly found.\n\n"
-            "Cite the `locator` verbatim - it carries both the PDF page and the "
-            "number printed on it, and they differ on most pages because section "
-            "numbering restarts."
+            "Ranked catalog pages for a part number, series or description. "
+            "Returns file_path and pdf_page — open with pdf-tools to read list prices."
         ),
         "inputSchema": {
             "type": "object",
@@ -102,9 +93,9 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "vendor": {"type": "string"},
-                "tier": {
+                "category": {
                     "type": "string",
-                    "description": "Optional product category or named tier, e.g. 'locks', 'L3'",
+                    "description": "Product category for vendors that price by category (Hager), e.g. 'locks', 'door_controls', 'exit_devices', 'architectural_hinges'",
                 },
             },
             "required": ["vendor"],

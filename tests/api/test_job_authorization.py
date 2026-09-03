@@ -4,6 +4,36 @@ from __future__ import annotations
 import pytest
 
 from cbc.schemas.common import ESTIMATOR_JOB_TYPES
+from tests.shared import TEST_ACTOR, opshub_client
+
+TEST_DB = "cbc_opshub_test_job_authz"
+
+
+# `client` and `as_role` are declared per-file across tests/api/ rather than in a
+# conftest. This file asked for both and defined neither, so every test in it
+# errored in setup with "fixture 'client' not found" - it had never once run.
+@pytest.fixture(scope="module")
+def client():
+    with opshub_client(TEST_DB, role="admin") as test_client:
+        yield test_client
+
+
+@pytest.fixture()
+def as_role(client):
+    from pymongo import MongoClient
+
+    from cbc.config import settings
+
+    raw = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
+
+    def set_role(role: str) -> None:
+        raw[TEST_DB]["users"].update_one({"email": TEST_ACTOR}, {"$set": {"role": role}})
+
+    try:
+        yield set_role
+    finally:
+        set_role("admin")
+        raw.close()
 
 
 @pytest.mark.parametrize("job_type", sorted(ESTIMATOR_JOB_TYPES))

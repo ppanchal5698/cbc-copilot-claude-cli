@@ -20,8 +20,10 @@ MONGODB_READONLY_URI and refuses to fall back to the writable string.
 """
 from __future__ import annotations
 
+import copy
 import json
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -145,18 +147,52 @@ def get_catalog_overview(catalog_id: str) -> dict[str, Any]:
     }
 
 
+def _rank_uncached(query: str, vendor: str | None, limit: int) -> dict[str, Any]:
+    documents = [
+        page_models.PageIndexDocument.from_mongo(row)
+        for row in reader.all_catalogs(vendor)
+    ]
+    return page_query.rank_pages(documents, query, limit=limit)
+
+
+@lru_cache(maxsize=256)
+def _rank_cached(
+    query_norm: str, vendor_key: str, limit: int, watermark: str
+) -> dict[str, Any]:
+    vendor = vendor_key or None
+    return _rank_uncached(query_norm, vendor, limit)
+
+
+def clear_find_pages_cache() -> None:
+    _rank_cached.cache_clear()
+
+
 def find_pages(query: str, vendor: str | None = None, limit: int = 8) -> dict[str, Any]:
     """Pages worth opening. Read the price off the page, not out of this."""
     if not str(query or "").strip():
         return {"error": "query is required", "count": 0, "pages": []}
     try:
-        documents = [
-            page_models.PageIndexDocument.from_mongo(row)
-            for row in reader.all_catalogs(vendor)
-        ]
+        headers = reader.list_catalogs(vendor)
+        if not vendor and len(headers) > 10:
+            return {
+                "query": query,
+                "count": 0,
+                "pages": [],
+                "note": (
+                    "Too many catalogs to search without a vendor filter. "
+                    "Pass vendor= to narrow the search."
+                ),
+            }
+        watermark = page_query.headers_watermark(headers)
+        ranked = _rank_cached(
+            str(query).strip().lower(),
+            str(vendor or "").strip().lower(),
+            _clamp(limit),
+            watermark,
+        )
+        return copy.deepcopy(ranked)
     except Exception as exc:
         return _unavailable(exc)
-    return page_query.rank_pages(documents, query, limit=_clamp(limit))
 
 
 def get_page(catalog_id: str, pdf_page: int) -> dict[str, Any]:

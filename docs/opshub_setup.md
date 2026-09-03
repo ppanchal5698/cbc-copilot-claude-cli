@@ -130,7 +130,8 @@ the app and unfixable from outside it.
 |---|---|---|
 | Claude subscription | `CLAUDE_CODE_OAUTH_TOKEN` | local development |
 | Anthropic API key | `ANTHROPIC_API_KEY` (x-api-key) | per-token billing |
-| Amazon Bedrock | `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION` | Fargate, via the task role |
+| Amazon Bedrock | `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION`, `AWS_BEARER_TOKEN_BEDROCK` (optional), inference-profile `ANTHROPIC_MODEL` | Fargate via the task role, or a Bedrock API key locally |
+| Cloudflare | AI Gateway URL + `ANTHROPIC_CUSTOM_HEADERS` (`cf-aig-authorization`), or a typed Workers `/v1/messages` URL | Anthropic, Bedrock, or Vertex through AI Gateway; OSS `@cf/` models on a Workers bridge |
 | Gateway | `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` (Bearer) | LiteLLM, self-hosted |
 | Ollama | `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN=ollama` + `ANTHROPIC_MODEL` | local dev with host Ollama |
 
@@ -153,6 +154,85 @@ prints an authorization URL, and waits. Open the URL, approve, paste the code
 back. The resulting one-year token is stored encrypted.
 
 Local development only; it is refused when `APP_ENV=production`.
+
+### Amazon Bedrock
+
+Claude Code talks to Bedrock when `CLAUDE_CODE_USE_BEDROCK=1` is set. Credentials
+are either a Bedrock API key (`AWS_BEARER_TOKEN_BEDROCK`, typed on the settings
+screen) or the Fargate task role — leave the key empty in production.
+
+1. Enable the Claude models in the Amazon Bedrock console (once per account).
+2. **Settings → Claude Code → Amazon Bedrock** — region, optional API key, model,
+   optional background model. Test connection, then Save.
+3. Confirm the worker: `docker compose exec worker python worker/main.py --preflight`.
+
+Newer Claude models reject a foundation-model ID
+(`anthropic.claude-sonnet-4-5-20250929-v1:0`). They need a cross-region inference
+profile:
+
+| AWS region | Prefix to use |
+|---|---|
+| `ap-south-1`, `ap-south-2` (India) | `global.` — Global CRIS, not `apac.` |
+| `us-*` | `us.` |
+| `eu-*` | `eu.` |
+| other `ap-*` | `apac.` |
+
+A bare `anthropic.…` ID typed on the screen is rewritten at spawn time to that
+prefix. The stored value is left as typed, so a re-save is not required. The
+same rewrite pins `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`,
+`ANTHROPIC_DEFAULT_HAIKU_MODEL`, and `CLAUDE_CODE_SUBAGENT_MODEL` so phase agents
+that declare `model: sonnet` do not resolve `opus` to Opus 5 from Claude Code's
+Bedrock catalog.
+
+`ANTHROPIC_BEDROCK_REGION_PREFIX` is set from the region (overridable from the
+environment) so unpinned aliases follow the same geography.
+
+On Fargate the task role supplies credentials and any of these variables in
+Secrets Manager lock the matching field on the screen.
+
+**Settings → Save** also writes the Bedrock API key (and the other provider
+fields for the selected mode) into the repo `.env` as `AWS_BEARER_TOKEN_BEDROCK`.
+The file is gitignored and created with mode `600`. The worker rereads it on
+every job, so a new key is live without restarting the container. Process
+environment still wins — that is how Fargate stays authoritative.
+
+Copy `.env.example` to `.env` **before** `docker compose up`. If the file is
+missing, Docker mounts a directory at `/app/.env` and Save cannot write the key.
+
+### Cloudflare (AI Gateway)
+
+Claude Code does not speak Workers AI natively. The documented path is
+[AI Gateway](https://developers.cloudflare.com/ai-gateway/integrations/coding-agents/claude-code/),
+which exposes Anthropic, Amazon Bedrock, and Google Vertex as Anthropic-compatible
+endpoints. A fourth Settings route accepts a custom URL that already speaks
+`/v1/messages` (a Workers bridge you deployed elsewhere — this repo does not
+ship one).
+
+1. Create an AI Gateway in the Cloudflare dashboard and a token with **Run**
+   permission.
+2. **Settings → Claude Code → Cloudflare** — account ID, gateway ID, token,
+   route, model. Test connection, then Save.
+3. Confirm the worker: `docker compose exec worker python worker/main.py --preflight`.
+
+| Route | What Claude Code gets |
+|---|---|
+| Anthropic | `ANTHROPIC_BASE_URL=https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic`, `ANTHROPIC_CUSTOM_HEADERS=cf-aig-authorization: Bearer <token>` |
+| Bedrock via Gateway | `CLAUDE_CODE_USE_BEDROCK=1`, `CLAUDE_CODE_SKIP_BEDROCK_AUTH=1`, `ANTHROPIC_BEDROCK_BASE_URL=…/aws-bedrock/bedrock-runtime/<region>/`. No AWS keys. |
+| Vertex via Gateway | `CLAUDE_CODE_USE_VERTEX=1`, `CLAUDE_CODE_SKIP_VERTEX_AUTH=1`, `ANTHROPIC_VERTEX_BASE_URL=…/google-vertex-ai/v1`, plus project ID and `CLOUD_ML_REGION`. |
+| Workers AI bridge | The typed `ANTHROPIC_BASE_URL`. Sonnet/opus/haiku aliases pin to the configured model. Agent-tool delegation is off — OSS `@cf/` models do not reliably call it. |
+
+**Unified Billing:** leave the Anthropic API key empty. The gateway token is
+used as `ANTHROPIC_API_KEY` (Claude Code requires one) and as
+`cf-aig-authorization`. **BYOK:** paste a real Anthropic key as well; the
+gateway forwards it and still authenticates with the token header.
+
+Model IDs: Anthropic/Bedrock/Vertex routes take Claude IDs
+(`claude-sonnet-4-5`, or a Bedrock inference-profile ID). The Workers route
+takes whatever the bridge serves (`@cf/…`).
+
+Save writes the constructed Claude variables — including
+`ANTHROPIC_CUSTOM_HEADERS` — into `.env`, not only the raw account/gateway
+pieces. Switching provider clears them.
 
 ### Ollama (local dev)
 
@@ -365,8 +445,9 @@ Processes at most one job, which is the quickest way to see a real run end to en
 | `API_BASE_URL` | web | the Next.js server and proxy call this |
 | `AUTH_SECRET` | web | NextAuth session signing |
 | `CLAUDE_BIN` | worker | resolved with PATHEXT, so `claude.cmd` is found on Windows |
-| `WORKER_JOB_TIMEOUT_SECONDS` | worker | default 1800 |
+| `WORKER_JOB_TIMEOUT_SECONDS` | worker | default 3600 |
 | `PRICEBOOK_DIR` | API, pricebook MCP | default `pricebooks/` |
+| `AWS_BEARER_TOKEN_BEDROCK` | worker, Test connection | written by Settings into `.env`; not injected by Compose |
 
 The API runs on **8001**, not 8000. A dead process was holding 8000 on the build
 machine and Windows no longer reported the owning PID, so the port moved rather

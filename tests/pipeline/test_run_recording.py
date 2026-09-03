@@ -137,3 +137,16 @@ def test_a_job_with_no_project_still_gets_a_home():
 
     assert path.name == "xyz789.log"
     assert "_system" in str(path)
+
+
+def test_retries_get_their_own_recording_file():
+    path = streaming.recording_path("test_bid", "abc123", ROOT, attempt=2)
+
+    assert path.name == "abc123-attempt2.log"
+
+
+def test_retry_banner_marks_a_fresh_attempt(tmp_path):
+    recording = tmp_path / "job.log"
+    streaming.write_retry_banner(recording, 2)
+
+    assert b"=== RETRY attempt 2 ===" in recording.read_bytes()

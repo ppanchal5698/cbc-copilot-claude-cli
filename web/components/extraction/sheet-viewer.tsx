@@ -167,12 +167,9 @@ export function SheetViewer({
 
   if (!activeDoc || !fileUrl) {
     return (
-      <aside
-        className="flex w-full shrink-0 flex-col rounded-xl xl:w-[clamp(380px,34vw,560px)]"
-        style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-      >
-        <div className="grid flex-1 place-items-center px-6 text-center">
-          <span className="text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+      <aside className="flex w-full shrink-0 flex-col rounded-xl xl:w-[clamp(380px,34vw,560px)] bg-panel border border-subtle shadow-sm">
+        <div className="grid flex-1 place-items-center px-8 py-16 text-center">
+          <span className="text-[13.5px] font-medium text-tx-secondary">
             No bid documents uploaded yet.
           </span>
         </div>
@@ -181,32 +178,23 @@ export function SheetViewer({
   }
 
   return (
-    <aside
-      className="anim-fadein flex h-[420px] w-full shrink-0 flex-col overflow-hidden rounded-xl xl:h-auto xl:w-[clamp(380px,34vw,560px)]"
-      style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-    >
-      <div
-        className="flex items-center gap-2.5 border-b px-4 py-3"
-        style={{ borderColor: "var(--app-line)" }}
-      >
-        <FilePdf size={18} weight="duotone" style={{ color: "#22d3ee" }} />
-        <span className="flex min-w-0 flex-1 flex-col leading-tight">
-          <span className="truncate text-[13px] font-semibold">{activeDoc.filename}</span>
-          <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+    <aside className="anim-fadein flex h-[420px] w-full shrink-0 flex-col overflow-hidden rounded-xl xl:h-auto xl:w-[clamp(380px,34vw,560px)] bg-panel border border-subtle shadow-xl">
+      <div className="flex items-center gap-3 border-b border-subtle bg-panel-muted/50 px-5 py-4">
+        <FilePdf size={22} weight="duotone" className="text-cyan-500" />
+        <span className="flex min-w-0 flex-1 flex-col leading-tight gap-0.5">
+          <span className="truncate text-[14px] font-bold text-tx-primary tracking-tight">{activeDoc.filename}</span>
+          <span className="text-[11.5px] font-medium text-tx-muted">
             page {pageNumber} of {pageCount || activeDoc.pages || "?"}
             {evidence?.sheet ? ` · ${evidence.sheet}` : ""}
           </span>
         </span>
-        <button onClick={onClose} style={{ color: "var(--app-tx-3)" }} aria-label="Hide the sheet">
-          <X size={15} weight="bold" />
+        <button onClick={onClose} className="p-1.5 rounded-md text-tx-muted hover:text-tx-primary hover:bg-background transition-colors" aria-label="Hide the sheet">
+          <X size={16} weight="bold" />
         </button>
       </div>
 
-      <div
-        className="flex items-center gap-1.5 border-b px-3 py-2"
-        style={{ borderColor: "var(--app-line)" }}
-      >
-        <div className="flex gap-1 overflow-x-auto">
+      <div className="flex items-center gap-2 border-b border-subtle bg-background px-4 py-2.5 shadow-inner">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin">
           {documents.map((doc) => (
             <button
               key={doc.id}
@@ -216,12 +204,11 @@ export function SheetViewer({
               }}
               aria-label={`Show ${doc.filename}`}
               aria-current={doc.id === activeDocId ? "page" : undefined}
-              className="whitespace-nowrap rounded-md px-2.5 py-1 text-[11.5px]"
-              style={{
-                background: doc.id === activeDocId ? "var(--app-accent-soft)" : "transparent",
-                color: doc.id === activeDocId ? "var(--app-accent)" : "var(--app-tx-2)",
-                border: `1px solid ${doc.id === activeDocId ? "var(--app-accent-line)" : "transparent"}`,
-              }}
+              className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-[12px] font-bold transition-all shadow-sm ${
+                doc.id === activeDocId
+                  ? "bg-brand-primary/10 border border-brand-primary/20 text-brand-primary"
+                  : "bg-transparent text-tx-secondary hover:bg-panel hover:text-tx-primary"
+              }`}
             >
               {doc.filename.replace(/\.pdf$/i, "").slice(0, 18)}
             </button>
@@ -230,58 +217,47 @@ export function SheetViewer({
 
         <span className="flex-1" />
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5 px-2">
           <button
             onClick={() => setZoom((z) => Math.max(MIN_ZOOM, z - 0.2))}
-            style={{ color: "var(--app-tx-2)" }}
+            className="p-1.5 rounded-md text-tx-secondary hover:text-tx-primary hover:bg-panel transition-colors"
             aria-label="Zoom out"
           >
-            <Minus size={14} weight="bold" />
+            <Minus size={16} weight="bold" />
           </button>
           <button
             onClick={() => setZoom(1)}
-            className="tnum min-w-[42px] text-[11.5px]"
-            style={{ color: "var(--app-tx-2)" }}
+            className="tnum min-w-[48px] text-[12.5px] font-bold text-tx-secondary hover:text-tx-primary transition-colors text-center"
           >
             {Math.round(zoom * 100)}%
           </button>
           <button
             onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z + 0.2))}
-            style={{ color: "var(--app-tx-2)" }}
+            className="p-1.5 rounded-md text-tx-secondary hover:text-tx-primary hover:bg-panel transition-colors"
             aria-label="Zoom in"
           >
-            <Plus size={14} weight="bold" />
+            <Plus size={16} weight="bold" />
           </button>
           <button
             onClick={fitZoomToHighlight}
             aria-label="Zoom to the highlight"
-            style={{ color: "var(--app-tx-2)" }}
+            className="p-1.5 rounded-md text-tx-secondary hover:text-tx-primary hover:bg-panel transition-colors ml-1 border-l border-subtle pl-2.5"
           >
-            <ArrowsOut size={14} weight="bold" />
+            <ArrowsOut size={16} weight="bold" />
           </button>
         </div>
       </div>
 
       {evidence && !evidence.bbox && (
-        <div
-          className="px-4 py-2 text-[11.5px]"
-          style={{ background: "var(--app-warn-soft)", color: "var(--app-warn)" }}
-        >
+        <div className="px-5 py-3 text-[12px] font-medium bg-status-warning-soft text-status-warning border-b border-status-warning/30">
           This line has no recorded position on the sheet — showing page{" "}
-          {evidence.sourcePage ?? "?"} without a highlight.
+          <strong className="font-bold">{evidence.sourcePage ?? "?"}</strong> without a highlight.
         </div>
       )}
 
-      <div ref={frameRef} className="min-h-0 flex-1 overflow-auto p-3">
+      <div ref={frameRef} className="min-h-0 flex-1 overflow-auto p-4 bg-[#e8ecef] dark:bg-background custom-scrollbar">
         {failure ? (
-          <div
-            className="rounded-lg px-4 py-3 text-[12.5px]"
-            style={{
-              background: "var(--app-neg-soft)",
-              border: "1px solid var(--app-neg-line)",
-              color: "var(--app-neg)",
-            }}
-          >
+          <div className="rounded-xl px-5 py-4 text-[13px] font-medium bg-status-error-soft border border-status-error/30 text-status-error shadow-sm max-w-md mx-auto mt-8">
             {failure}
             <button
               onClick={() =>
@@ -291,7 +267,7 @@ export function SheetViewer({
                   return next;
                 })
               }
-              className="ml-2 underline underline-offset-2"
+              className="ml-3 font-bold underline underline-offset-4 hover:text-status-error/80 transition-colors"
             >
               Try again
             </button>
@@ -308,12 +284,12 @@ export function SheetViewer({
               }))
             }
             loading={
-              <div className="p-8 text-center text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+              <div className="grid place-items-center h-full p-8 text-center text-[13px] font-bold text-tx-muted animate-pulse">
                 Opening the drawing…
               </div>
             }
           >
-            <div ref={pageRef} className="relative inline-block">
+            <div ref={pageRef} className="relative inline-block shadow-2xl rounded-sm overflow-hidden">
               <Page
                 pageNumber={pageNumber}
                 width={BASE_PAGE_WIDTH * zoom}
@@ -331,8 +307,8 @@ export function SheetViewer({
                     width: highlight.width,
                     height: highlight.height,
                     background: "rgba(129,140,248,0.22)",
-                    border: "2px solid var(--app-accent)",
-                    boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)",
+                    border: "3px solid var(--color-brand-primary)",
+                    boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)",
                   }}
                 />
               )}
@@ -342,26 +318,21 @@ export function SheetViewer({
       </div>
 
       {pageCount > 1 && (
-        <div
-          className="flex items-center gap-2 border-t px-4 py-2"
-          style={{ borderColor: "var(--app-line)" }}
-        >
+        <div className="flex items-center gap-3 border-t border-subtle bg-panel px-5 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
           <button
             onClick={() => setPageNumber((p) => Math.max(1, p - 1))}
             disabled={pageNumber <= 1}
-            className="rounded px-2 py-1 text-[11.5px] disabled:opacity-40"
-            style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+            className="rounded-lg px-3 py-1.5 text-[12px] font-bold disabled:opacity-40 border border-subtle bg-background text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm"
           >
             Previous
           </button>
-          <span className="tnum flex-1 text-center text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+          <span className="tnum flex-1 text-center text-[12.5px] font-bold tracking-widest uppercase text-tx-muted">
             {pageNumber} / {pageCount}
           </span>
           <button
             onClick={() => setPageNumber((p) => Math.min(pageCount, p + 1))}
             disabled={pageNumber >= pageCount}
-            className="rounded px-2 py-1 text-[11.5px] disabled:opacity-40"
-            style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+            className="rounded-lg px-3 py-1.5 text-[12px] font-bold disabled:opacity-40 border border-subtle bg-background text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm"
           >
             Next
           </button>

@@ -15,7 +15,8 @@ from cbc.db import db, oid, serialise
 from apps.api.deps import Actor
 from cbc.schemas import BulkAction, LineItemCreate, LineItemUpdate
 from apps.api.routers.projects import load
-from cbc.services import audit, jobs, sync
+from apps.api.pipeline_jobs import enqueue_pipeline
+from cbc.services import audit, sync
 from cbc.services.quote import MAX_QUOTE_LINES
 
 router = APIRouter(prefix="/api/projects/{code}/line-items", tags=["line-items"])
@@ -257,7 +258,7 @@ async def rerun_extraction(code: str, actor: Actor) -> dict:
     """
     project = await load(code)
     await sync.export_line_items(project)
-    job = await jobs.enqueue("rerun_extraction", project["_id"], actor=actor)
+    job = await enqueue_pipeline("rerun_extraction", project["_id"], actor=actor)
     return {"job": serialise(job)}
 
 
@@ -271,7 +272,7 @@ async def continue_to_quote(code: str, actor: Actor) -> dict:
     )
     await sync.export_line_items(project)
 
-    job = await jobs.enqueue("match_and_price", project["_id"], actor=actor)
+    job = await enqueue_pipeline("match_and_price", project["_id"], actor=actor)
     await audit.record(
         "project.continue_to_quote",
         actor,

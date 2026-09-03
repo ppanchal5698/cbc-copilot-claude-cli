@@ -154,7 +154,8 @@ async def build_one(
         raise FileNotFoundError(path)
 
     catalog_id = store.catalog_id_for(path.name)
-    if not force and await store.stored_hash(catalog_id) == store.file_hash(path):
+    current_hash = await asyncio.to_thread(store.file_hash, path)
+    if not force and await store.stored_hash(catalog_id) == current_hash:
         log.info("%s unchanged - not re-read", path.name)
         return None
 

@@ -68,17 +68,13 @@ export function DeleteBidButton({ code, name, role }: DeleteBidButtonProps) {
 
   return (
     <>
-      <div
-        className="border-t px-4 py-3"
-        style={{ borderColor: "var(--app-line)" }}
-      >
+      <div className="border-t border-subtle px-5 py-4 bg-background rounded-b-xl">
         <button
           type="button"
           onClick={beginDelete}
-          className="flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-2 text-[12.5px]"
-          style={{ border: "1px solid var(--app-neg-line)", color: "var(--app-neg)" }}
+          className="flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-bold border border-status-error/30 text-status-error bg-status-error-soft hover:bg-status-error/10 transition-colors shadow-sm"
         >
-          <Trash size={14} weight="duotone" />
+          <Trash size={16} weight="fill" />
           Delete bid
         </button>
       </div>
@@ -105,8 +101,7 @@ export function DeleteBidButton({ code, name, role }: DeleteBidButtonProps) {
               type="button"
               onClick={() => setOpen(false)}
               disabled={busy}
-              className="rounded-md px-3.5 py-2 text-[12.5px]"
-              style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+              className="rounded-lg px-4 py-2 text-[13px] font-bold border border-subtle bg-background text-tx-secondary hover:bg-panel-muted transition-colors shadow-sm"
             >
               Cancel
             </button>
@@ -114,12 +109,7 @@ export function DeleteBidButton({ code, name, role }: DeleteBidButtonProps) {
               type="button"
               onClick={confirmDelete}
               disabled={busy || confirmCode !== code}
-              className="rounded-md px-3.5 py-2 text-[12.5px] font-semibold disabled:opacity-50"
-              style={{
-                border: "1px solid var(--app-neg-line)",
-                color: "var(--app-neg)",
-                background: "var(--app-neg-soft, transparent)",
-              }}
+              className="rounded-lg px-4 py-2 text-[13px] font-bold disabled:opacity-50 border border-status-error/30 text-status-error bg-status-error-soft hover:bg-status-error/10 transition-colors shadow-sm"
             >
               Delete permanently
             </button>

@@ -1,6 +1,7 @@
 """Projects - the bid record every other screen hangs off."""
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, timezone
 from typing import Any
@@ -285,7 +286,7 @@ async def delete_project(code: str, actor: AdminActor) -> None:
 
     try:
         if slug:
-            storage.purge_project(slug)
+            await asyncio.to_thread(storage.purge_project, slug)
     except OSError as exc:
         raise HTTPException(
             500,

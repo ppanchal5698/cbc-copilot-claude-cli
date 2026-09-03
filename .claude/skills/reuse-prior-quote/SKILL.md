@@ -46,11 +46,6 @@ auto-adopt one.
 5. Delete residual rows that do not appear in this bid. Leftovers from the prior
    job are the classic templated-mode error.
 
-## Rules
-
-- @.claude/rules/accuracy-trust.md
-- @.claude/rules/auditability.md
-
 ## Reference data
 
 - @.claude/memory/estimator_profiles.md

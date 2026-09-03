@@ -14,15 +14,13 @@ export default async function SettingsPage() {
   return (
     <>
       <PageHeader crumbs={[{ label: "Workspace", href: "/dashboard" }, { label: "Settings" }]} />
-      <div className="flex flex-col gap-4 p-4">
+      <main id="main-content" className="min-h-0 flex-1 overflow-auto p-8 bg-background">
+        <div className="flex flex-col gap-6 w-full">
         {isAdmin ? (
           <>
-            <section
-              className="rounded-xl px-4 py-3"
-              style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-            >
-              <h2 className="text-[15px] font-semibold">Administration</h2>
-              <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+            <section className="rounded-xl px-6 py-5 bg-panel border border-subtle shadow-sm">
+              <h2 className="text-[18px] font-bold text-tx-primary tracking-tight">Administration</h2>
+              <p className="mt-1.5 text-[13.5px] font-medium text-tx-secondary">
                 Configure the AI provider, pipeline defaults, user accounts, and review the audit log.
               </p>
             </section>
@@ -32,22 +30,20 @@ export default async function SettingsPage() {
         ) : (
           <>
             <IntegrationsPanel />
-            <section
-              className="rounded-xl p-6"
-              style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-            >
-              <h2 className="text-[15px] font-semibold">Automation status</h2>
-              <p className="mt-2 text-[13px] leading-relaxed" style={{ color: "var(--app-tx-2)" }}>
+            <section className="rounded-xl p-8 bg-panel border border-subtle shadow-sm">
+              <h2 className="text-[18px] font-bold text-tx-primary tracking-tight">Automation status</h2>
+              <p className="mt-3 text-[13.5px] font-medium text-tx-secondary leading-relaxed max-w-3xl">
                 Your administrator configures the AI provider that reads bid documents and prices lines.
                 If automatic reads fail, add lines by hand or ask your admin to check Settings.
               </p>
-              <p className="mt-3 text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+              <p className="mt-4 text-[12.5px] font-medium text-tx-muted">
                 Provider configuration and user administration are limited to administrators.
               </p>
             </section>
           </>
         )}
-      </div>
+        </div>
+      </main>
     </>
   );
 }

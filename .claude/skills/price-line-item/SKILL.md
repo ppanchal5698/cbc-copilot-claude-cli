@@ -17,23 +17,24 @@ This skill produces the middle one.
 ```
 Is the item on special pricing, or regularly bought?
 ├── YES -> PATH 1: P21 last-PO price
-│          mcp__p21-connector__lookup_last_po
+│          mcp__p21-connector__lookup_last_po (always call; continue if empty)
 │          Then mcp__p21-connector__check_freshness on the PO date.
 │          Usable only if sold < 1 year AND no price increase since. (~9/10 right)
 │          NEVER read the P21 supplier-list or supplier-cost fields.
-│          P21 unreachable -> falls through to PATH 3 with a manual-entry prompt.
+│          P21 unreachable -> falls through to PATH 2 or PATH 3.
 │
-├── Is it a top-10 vendor with a price book?
+├── Is it a top-10 vendor CBC buys DIRECT (not Allegion distributor)?
 │   └── YES -> PATH 2: list x multiplier
 │              mcp__catalog__find_pages -> mcp__pdf-tools__extract_tables (price + page)
-│              mcp__catalog__get_multiplier (tier + effective date)
-│              cost = list x multiplier
+│              mcp__catalog__get_multiplier (category + effective date)
+│              mcp__calc-engine__calculate_line / apply_margin
+│              cost = list x multiplier; cost must be non-null on the line
 │              Then add any applicable ADDERS - they are never in the lookup.
 │
 └── OTHERWISE -> PATH 3: distributor lookup or vendor RFQ
-               Distributor-bought (Banner, SecLock, J2, Pionite, Wilsonart):
-                 cost_source = DISTRIBUTOR_MANUAL, prompt
-                 "price may be out of date - refresh"
+               Allegion (Von Duprin, LCN, Schlage, IVES) via Banner/SecLock:
+                 cost_source = MANUAL, prompt "price may be out of date - refresh"
+               Other distributor-bought (J2, Pionite, Wilsonart):
                Custom / never-sold / special-prep:
                  cost_source = VENDOR_RFQ, status "awaiting vendor quote"
 ```
@@ -48,15 +49,13 @@ Is the item on special pricing, or regularly bought?
 
 ## Adders (Path 2)
 
-Not in the base price book, added on top of the base list price and multiplied by
-the same category multiplier:
+Apply via `mcp__calc-engine__cost_from_list` — adders go on the **list** price,
+then the multiplier applies to the sum. Sources: `reference-library/adders/manual_adders.json`.
 
-- electrification (Hager tier 0.410 - a different multiplier from the base item)
-- non-removable-pin hinges (NRP)
-- premium / lead-time finishes
-- Hager list adders: SFIC construction core 69.95, lead lined 214.25,
-  extended-lip ASA strike 15.50, tactile warning 64.58, 3/4" latchbolt 161.22,
-  anti-microbial 57.13
+## Lite kits (NR-1)
+
+For lites/louvers: `mcp__calc-engine__lookup_lite_kit_list_price`, then
+`cost_from_list` with the vendor multiplier.
 
 ## What must be recorded on every line
 
@@ -70,12 +69,6 @@ and the **sourcing rationale** - buy direct vs buy through a wholesaler, and why
 At the manual cut-off, emit `cost: null`, `cost_source: "MANUAL"`,
 `confidence: 0.0` and a plain-language reason. Do not extrapolate a price from a
 similar SKU. There is no partial credit for a confidently wrong price.
-
-## Rules
-
-- @.claude/rules/p21-read-only.md
-- @.claude/rules/auditability.md
-- @.claude/rules/accuracy-trust.md
 
 ## Reference data
 

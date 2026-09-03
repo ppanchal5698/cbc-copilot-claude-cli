@@ -38,11 +38,13 @@ export function useJobRecording(
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [state, setState] = useState<RecordingState>("connecting");
   const [reason, setReason] = useState<string | null>(null);
-  const [subscribedJob, setSubscribedJob] = useState(jobId);
   const carried = useRef("");
+  const sessionCtx = useRef({ sessionInits: 0 });
   const rawCarried = useRef("");
   const offset = useRef(0);
   const seenEntryIds = useRef(new Set<string>());
+  const endedRef = useRef(false);
+  const rawLogRef = useRef("");
 
   // Callbacks are read through refs so that a caller passing an inline function
   // does not tear down and re-open the EventSource on every render.
@@ -53,27 +55,30 @@ export function useJobRecording(
     onFinishedRef.current = onFinished;
   });
 
-  // A new job resets the transcript before its first paint, rather than showing
-  // the previous run's entries until an effect catches up.
-  if (subscribedJob !== jobId) {
-    setSubscribedJob(jobId);
+  // A new job clears the transcript before the subscription effect runs.
+  useEffect(() => {
     setEntries([]);
     setState("connecting");
     setReason(null);
-  }
+    rawLogRef.current = "";
+  }, [jobId]);
 
   useEffect(() => {
     let disposed = false;
     let source: EventSource | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const endedRef = useRef(false);
-
     carried.current = "";
+    sessionCtx.current = { sessionInits: 0 };
     rawCarried.current = "";
     offset.current = 0;
     seenEntryIds.current = new Set();
     endedRef.current = false;
+    rawLogRef.current = "";
+
+    const appendRaw = (chunk: string) => {
+      if (chunk) rawLogRef.current += chunk;
+    };
 
     const appendEntries = (incoming: LogEntry[]) => {
       if (!incoming.length) return;
@@ -98,9 +103,10 @@ export function useJobRecording(
       source.addEventListener("output", (event) => {
         const chunk = decodeBase64Recording((event as MessageEvent).data);
         offset.current += byteLength(chunk);
+        appendRaw(chunk);
 
         if (parseEntries) {
-          const next = parseStream(chunk, carried.current);
+          const next = parseStream(chunk, carried.current, sessionCtx.current);
           carried.current = next.remainder;
           appendEntries(next.entries);
         }
@@ -152,8 +158,9 @@ export function useJobRecording(
 
       if (replay.data) {
         const decoded = decodeBase64Recording(replay.data);
+        appendRaw(decoded);
         if (parseEntries) {
-          const first = parseStream(decoded, "");
+          const first = parseStream(decoded, "", sessionCtx.current);
           carried.current = first.remainder;
           appendEntries(first.entries);
         }
@@ -179,5 +186,10 @@ export function useJobRecording(
     };
   }, [jobId, parseEntries]);
 
-  return { entries, state, reason };
+  return {
+    entries,
+    state,
+    reason,
+    getRawLog: () => rawLogRef.current,
+  };
 }

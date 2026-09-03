@@ -83,24 +83,24 @@ run_phase() {
   # script told every provider to delegate, so a local model was instructed to
   # use a tool it does not have and spent its turns circling - the same failure
   # the worker fixed by asking the provider first.
-  local prompt_args=("${project_dir}")
+  local prompt_args=(--job-type "${job_type}" "${project_dir}")
   local how
   if [[ -n "${CBC_SOLO:-}" ]]; then
-    prompt_args=(--solo "${project_dir}")
+    prompt_args=(--job-type "${job_type}" --solo "${project_dir}")
     how="Do this work yourself - the Agent tool is not available on this provider.
 Read \`.claude/agents/${agent}.md\` and follow it: it holds the required output
 fields, the tool order and the traps for this phase."
   else
-    how="Delegate to the \`${agent}\` subagent with the Agent tool. Every Agent call
-requires description, subagent_type, and prompt - calls missing description fail."
+    how="Delegate this work to the registered subagent with the Agent tool - subagent_type: ${agent}. One that cannot delegate is told to do it itself, with the same tools and the same outputs, because the alternative is what an observed local-model run actually did: read the instruction, fail to follow it, and spend its turns circling without writing anything.
+This is a single-phase run. Do the delegated agent's work only. Do not launch additional subagents or touch files outside this phase's outputs."
   fi
 
-  local preamble
-  if ! preamble="$(PYTHONPATH="${ROOT}:${ROOT}/src" python -m apps.worker.prompts "${prompt_args[@]}")"; then
-    echo "Could not read the constraint preamble from worker/prompts.py" >&2
+  local prompt
+  if ! prompt="$(PYTHONPATH="${ROOT}:${ROOT}/src" python -m apps.worker.prompts "${prompt_args[@]}")"; then
+    echo "Could not read the job prompt from worker/prompts.py" >&2
     return 1
   fi
-  "${CLAUDE_BIN}" --print "${scope[@]}" --dangerously-skip-permissions "$(cat <<EOF
+  "${CLAUDE_BIN}" --print "${scope[@]}" --max-turns 60 --dangerously-skip-permissions "$(cat <<EOF
 You are the CBC Estimating Copilot running ${label} for project ${project}.
 
 ${how}
@@ -110,7 +110,7 @@ Bid-set PDFs: ${project_dir}/uploads/raw/
 
 ${instructions}
 
-${preamble}
+${prompt}
 EOF
 )"
 }

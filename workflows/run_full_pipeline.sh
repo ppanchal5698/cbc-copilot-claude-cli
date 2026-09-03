@@ -63,7 +63,7 @@ if [[ "${#SCOPE[@]}" -eq 0 || -z "${SCOPE[0]}" ]]; then
   exit 1
 fi
 
-"${CLAUDE_BIN}" --print "${SCOPE[@]}" --dangerously-skip-permissions "${PROMPT}"
+"${CLAUDE_BIN}" --print "${SCOPE[@]}" --max-turns 200 --dangerously-skip-permissions "${PROMPT}"
 
 echo
 echo "[$(date -Iseconds)] Pipeline finished."

@@ -8,18 +8,34 @@ from fastapi import APIRouter, HTTPException
 from cbc.db import db, oid, serialise
 from apps.api.deps import ADMIN_ROLES, Actor
 from cbc.schemas import JobCreate
-from cbc.schemas.common import ESTIMATOR_JOB_TYPES
+from cbc.schemas.common import ESTIMATOR_JOB_TYPES, EXCLUSIVE_JOB_TYPES
 from apps.api.routers.projects import load
+from apps.api.pipeline_jobs import enqueue_pipeline
 from cbc.services import audit, jobs as job_service
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
 
 @router.get("")
-async def list_jobs(project: str | None = None, status: str | None = None, limit: int = 25) -> dict:
+async def list_jobs(
+    project: str | None = None,
+    status: str | None = None,
+    limit: int = 25,
+    pipeline_active: bool = False,
+) -> dict:
     query: dict = {}
+    project_doc = None
     if project:
-        query["projectId"] = (await load(project))["_id"]
+        project_doc = await load(project)
+        query["projectId"] = project_doc["_id"]
+    if pipeline_active:
+        if project_doc is None:
+            raise HTTPException(400, "project is required when pipeline_active is set")
+        active = await job_service.active_pipeline_job(project_doc["_id"])
+        return {
+            "jobs": serialise([active]) if active else [],
+            "active": await job_service.active_count(),
+        }
     if status:
         query["status"] = status
 
@@ -52,7 +68,12 @@ async def create_job(body: JobCreate, actor: Actor) -> dict:
     project_id = None
     if body.projectId:
         project_id = (await load(body.projectId))["_id"]
-    job = await job_service.enqueue(body.type, project_id, body.payload, actor)
+    if project_id is not None and body.type in job_service.EXCLUSIVE:
+        job = await enqueue_pipeline(
+            body.type, project_id, payload=body.payload, actor=actor
+        )
+    else:
+        job = await job_service.enqueue(body.type, project_id, body.payload, actor)
     return serialise(job)
 
 

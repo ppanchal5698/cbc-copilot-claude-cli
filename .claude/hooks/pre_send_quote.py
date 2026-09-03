@@ -32,8 +32,11 @@ def main() -> int:
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
-        return 0  # malformed hook input must not wedge the pipeline
+        return 0
+    return check(payload)
 
+
+def check(payload: dict) -> int:
     tool_name = str(payload.get("tool_name") or "")
     tool_input = payload.get("tool_input") or {}
     command = str(tool_input.get("command") or "")

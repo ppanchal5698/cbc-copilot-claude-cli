@@ -11,6 +11,7 @@ itself, so these two have to agree exactly. Here they are the same code.
 from __future__ import annotations
 
 import hashlib
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,12 @@ ROOT = repo_root()
 RENDER_CACHE = ROOT / ".cache" / "pdf-pages"
 PRICEBOOKS = ROOT / "pricebooks"
 REFERENCE_LIBRARY = ROOT / "reference-library"
+RENDERER_VERSION = str(getattr(fitz, "version", "unknown"))
+
+# Anthropic's documented long-edge cap for a useful vision token budget.
+MAX_LONG_EDGE_PX = 1568
+MAX_DPI = 300
+MIN_DPI = 36
 
 
 def _open(file_path: str | Path) -> fitz.Document:
@@ -102,12 +109,56 @@ def _writable_target(file_path: Path, out_dir: str | Path | None) -> Path:
     return target
 
 
-def _render_cache_name(file_path: Path, page_number: int, dpi: int) -> str:
-    stat = file_path.stat()
+@lru_cache(maxsize=64)
+def _file_sha256(resolved: str, size: int, mtime_ns: int) -> str:
+    """Content hash, keyed so a 15 MB drawing is not re-read on every page."""
+    digest = hashlib.sha256()
+    with open(resolved, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def content_sha256(file_path: str | Path) -> str:
+    """Content SHA-256 of a PDF, memoised on (path, size, mtime)."""
+    path = Path(file_path).resolve()
+    stat = path.stat()
+    return _file_sha256(str(path), stat.st_size, stat.st_mtime_ns)
+
+
+def _region_key(region: list[float] | None) -> str:
+    if not region:
+        return "none"
+    return ",".join(f"{float(value):.4f}" for value in region[:4])
+
+
+def render_cache_name(
+    file_path: Path,
+    page_number: int,
+    dpi: int,
+    region: list[float] | None = None,
+) -> str:
+    """On-disk name: content SHA-256 of the PDF, plus page, dpi, region, renderer."""
+    path = file_path.resolve()
+    stat = path.stat()
+    content_sha = _file_sha256(str(path), stat.st_size, stat.st_mtime_ns)
     digest = hashlib.sha256(
-        f"{file_path.resolve()}|{stat.st_mtime_ns}|{stat.st_size}|{page_number}|{dpi}".encode()
+        f"{content_sha}|{page_number}|{dpi}|{_region_key(region)}|{RENDERER_VERSION}".encode()
     ).hexdigest()[:24]
     return f"{digest}.png"
+
+
+def _clamp_dpi(requested: int, page: fitz.Page, region: list[float] | None) -> int:
+    dpi = max(MIN_DPI, min(int(requested), MAX_DPI))
+    if region:
+        return dpi
+    long_pt = max(page.rect.width, page.rect.height)
+    if long_pt <= 0:
+        return dpi
+    max_for_edge = int(MAX_LONG_EDGE_PX * 72 / long_pt)
+    if max_for_edge < dpi:
+        dpi = max(MIN_DPI, max_for_edge)
+    return dpi
 
 
 def page_image(
@@ -115,23 +166,34 @@ def page_image(
     page_number: int,
     dpi: int = 200,
     out_dir: str | Path | None = None,
+    region: list[float] | None = None,
 ) -> dict[str, Any]:
-    """Render one page to PNG. Writes to the shared cache unless told otherwise."""
-    doc = _open(file_path)
+    """Render one page (or a clip) to PNG. Full-page long edge is ≤1568 px."""
+    path = Path(file_path)
+    target = _writable_target(path, out_dir)
+    target.mkdir(parents=True, exist_ok=True)
+    doc = _open(path)
     try:
         index = page_number - 1
         if not 0 <= index < doc.page_count:
             raise ValueError(f"page {page_number} out of range (1-{doc.page_count})")
-        target = _writable_target(Path(file_path), out_dir)
-        target.mkdir(parents=True, exist_ok=True)
-        output = target / _render_cache_name(Path(file_path), page_number, dpi)
-        doc[index].get_pixmap(dpi=dpi).save(output)
-        return {
+        page = doc[index]
+        effective_dpi = _clamp_dpi(dpi, page, region)
+        output = target / render_cache_name(path, page_number, effective_dpi, region)
+        hit = {
             "source_page": page_number,
             "image_path": str(output),
-            "dpi": dpi,
+            "dpi": effective_dpi,
             "file": str(file_path),
         }
+        if output.exists():
+            return hit
+        if region:
+            clip = fitz.Rect(region[0], region[1], region[2], region[3])
+            page.get_pixmap(clip=clip, dpi=effective_dpi).save(output)
+        else:
+            page.get_pixmap(dpi=effective_dpi).save(output)
+        return hit
     finally:
         doc.close()
 

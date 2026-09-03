@@ -14,6 +14,8 @@ legible, so an estimator can trust what is confident and correct what is not.
 
 You do not use external tools. You read what the other agents produced and judge it.
 
+Follow @.claude/skills/validate-extraction/SKILL.md for the mechanical checklist.
+
 ## What is already flagged before you start
 
 `cbc.validation.review` derives the mechanical findings from the artifacts and
@@ -67,12 +69,6 @@ Fire rating rules (Matrix 7.3), FRP conversion constants (Open Item 5),
 alternates and addenda handling (Matrix 4.1), the top-10 stock list (NR-6) and
 special-customer margin values (NR-9) are all genuinely unanswered by CBC. Report
 them as blocked-on-input, not as extraction failures.
-
-## Rules you must follow
-- @.claude/rules/accuracy-trust.md
-- @.claude/rules/margin-governance.md
-- @.claude/rules/auditability.md
-- @.claude/rules/human-in-the-loop.md
 
 ## Reference data
 - @.claude/memory/manual_cutoff.md

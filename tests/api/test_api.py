@@ -9,15 +9,30 @@ whatever the code happens to do.
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from bson import ObjectId
+from pymongo import MongoClient
 
 from cbc.config import settings
 from tests.shared import ROOT, opshub_client  # noqa: E402
 
 TEST_DB = "cbc_opshub_test"
 FIXTURE = ROOT / "tests" / "fixtures" / "pdfs" / "1_Architectural.pdf"
+
+
+def _finish_active_pipeline_jobs(code: str) -> None:
+    """Clear queued/running pipeline jobs so phase-boundary routes can enqueue."""
+    raw = MongoClient(settings.mongodb_uri)[TEST_DB]
+    project_id = ObjectId(
+        raw.projects.find_one({"code": code}, {"_id": 1})["_id"]
+    )
+    raw.jobs.update_many(
+        {"projectId": project_id, "status": {"$in": ["queued", "running"]}},
+        {"$set": {"status": "done", "finishedAt": datetime.now(timezone.utc)}},
+    )
 
 
 @pytest.fixture(scope="module")
@@ -160,6 +175,7 @@ def test_unknown_filter_is_rejected(client, project):
 
 def test_continue_to_quote_writes_the_confirmed_state_to_disk(client, project):
     code, slug = project["code"], project["slug"]
+    _finish_active_pipeline_jobs(code)
     client.post(
         f"/api/projects/{code}/line-items",
         json={"mark": "900", "description": "Hand-added opening", "qty": 2},
@@ -387,9 +403,22 @@ def test_marking_complete_does_not_send(client, project):
 
 
 def test_duplicate_job_is_not_queued_twice(client, project):
+    _finish_active_pipeline_jobs(project["code"])
     first = client.post(f"/api/projects/{project['code']}/line-items/rerun").json()["job"]
     second = client.post(f"/api/projects/{project['code']}/line-items/rerun").json()["job"]
     assert first["id"] == second["id"], "a double click must not queue two extractions"
+
+
+def test_continue_to_quote_returns_409_when_pipeline_active(client, project):
+    code = project["code"]
+    _finish_active_pipeline_jobs(code)
+    client.post(f"/api/projects/{code}/line-items/rerun")
+
+    response = client.post(f"/api/projects/{code}/line-items/continue-to-quote")
+    assert response.status_code == 409
+    body = response.json()["detail"]
+    assert "already in progress" in body["message"]
+    assert body["activeJob"]["type"] == "rerun_extraction"
 
 
 def test_jobs_are_listed_for_a_project(client, project):

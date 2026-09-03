@@ -67,7 +67,12 @@ def tax_state(project: dict[str, Any], quote: dict[str, Any]) -> str | None:
     """
     stored = quote.get("taxJurisdiction")
     if stored == "NONE":
-        return None
+        return "NONE"
+    # Honor an explicit settings override (e.g. OH nexus on a NY ship-to bid).
+    # Auto-persisted jurisdiction always matches project.state and must not
+    # block ship-to from staying authoritative on every reprice.
+    if stored and stored != project.get("state"):
+        return stored
     return project.get("state")
 
 

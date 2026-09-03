@@ -80,16 +80,12 @@ export function UiStateProvider({
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [theme, setTheme] = useState<Theme>("dark");
-  const [hydrated, setHydrated] = useState(false);
   const [notesVersion, setNotesVersion] = useState(0);
 
-  // One pass after mount to pick up what the browser remembered. Guarded by a
-  // flag rather than an empty dependency array so it cannot loop.
-  if (!hydrated && typeof window !== "undefined") {
-    setHydrated(true);
+  useEffect(() => {
     setFocusMode(stored("opshub-focus") === "1");
     setTheme(stored("opshub-theme") === "light" ? "light" : "dark");
-  }
+  }, []);
 
   const toggleTheme = useCallback(() => {
     setTheme((current) => {

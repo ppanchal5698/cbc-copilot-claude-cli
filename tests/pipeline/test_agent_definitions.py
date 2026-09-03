@@ -31,6 +31,20 @@ def _body(text: str) -> str:
     return parts[2] if len(parts) > 2 else text
 
 
+_MCP_TOOL = re.compile(r"mcp__[\w-]+__[\w-]+")
+
+
+@pytest.mark.parametrize("path", AGENTS, ids=lambda p: p.stem)
+def test_every_mcp_tool_named_in_the_body_is_allowed(path) -> None:
+    text = path.read_text(encoding="utf-8")
+    allowed = set(_frontmatter_tools(text))
+    for match in _MCP_TOOL.finditer(_body(text)):
+        tool = match.group(0)
+        assert tool in allowed, (
+            f"{path.stem} body names {tool!r} but tools: frontmatter omits it"
+        )
+
+
 @pytest.mark.parametrize("path", AGENTS, ids=lambda p: p.stem)
 def test_an_agent_told_to_run_a_script_can_run_one(path) -> None:
     text = path.read_text(encoding="utf-8")
@@ -52,6 +66,16 @@ def test_every_mcp_tool_belongs_to_a_server_that_exists(path) -> None:
         assert server in toolsets.SERVERS, f"{path.stem} lists tool from {server!r}"
 
 
+def test_intake_coordinator_has_pdf_tools_for_metadata() -> None:
+    """Intake reads title blocks from bid sets; without pdf-tools it falls back to
+    Read (needs poppler) or ad-hoc Bash/fitz scripts."""
+    text = (AGENT_DIR / "intake-coordinator.md").read_text(encoding="utf-8")
+    tools = _frontmatter_tools(text)
+    assert any(t.startswith("mcp__pdf-tools__") for t in tools), (
+        "intake-coordinator must list pdf-tools so it can extract metadata"
+    )
+
+
 def test_the_delegation_rule_names_agents_that_exist() -> None:
     """The orchestrator picks `subagent_type` from this list.
 
@@ -71,6 +95,20 @@ def test_the_delegation_rule_names_agents_that_exist() -> None:
 
     on_disk = {p.stem for p in AGENTS}
     assert not names - on_disk, f"delegated to agents that do not exist: {names - on_disk}"
+    assert "quote-builder" not in names
+
+
+def test_mechanical_agents_declare_haiku_and_judgment_stays_sonnet() -> None:
+    def model_of(stem: str) -> str:
+        text = (AGENT_DIR / f"{stem}.md").read_text(encoding="utf-8")
+        match = re.search(r"^model:\s*(\S+)", text, re.MULTILINE)
+        assert match, stem
+        return match.group(1)
+
+    for name in ("intake-coordinator", "delivery-agent", "pricebook-ingestor"):
+        assert model_of(name) == "haiku", name
+    for name in ("takeoff-engineer", "product-matcher", "pricing-engineer"):
+        assert model_of(name) == "sonnet", name
 
 
 def test_no_agent_claims_a_server_the_deleted_alias_used_to_serve() -> None:

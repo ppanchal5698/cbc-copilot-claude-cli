@@ -128,6 +128,18 @@ def test_pricebook_ingest_is_not_an_exclusive_job() -> None:
     assert EXCLUSIVE == set(EXCLUSIVE_JOB_TYPES)
 
 
+def test_exclusive_active_job_index_is_one_per_project() -> None:
+    """Two pipeline types on one bid must not both be active at once."""
+    import inspect
+
+    from cbc import db as db_module
+
+    source = inspect.getsource(db_module.ensure_indexes)
+    assert '"exclusive_active_job"' in source
+    assert '("projectId", ASCENDING)]' in source
+    assert '("projectId", ASCENDING), ("type", ASCENDING)' not in source
+
+
 # ── the worker knows which failures are worth retrying ──────────────────────
 
 
@@ -158,6 +170,41 @@ def test_an_ordinary_failure_is_still_retried() -> None:
 
     assert result.ok is False
     assert result.permanent is False
+
+
+def test_a_bedrock_foundation_id_rejection_is_not_retried() -> None:
+    from cbc.core import claude_cli as runner
+
+    result = runner._interpret(
+        "",
+        "ValidationException: Invocation of model ID with on-demand throughput isn't supported. "
+        "Retry with an inference profile.",
+        1,
+        timeout=90,
+        redact_values=None,
+    )
+
+    assert result.ok is False
+    assert result.permanent is True
+    assert result.error_code == "bedrock_model_id"
+    assert "inference-profile" in result.error
+
+
+def test_a_bedrock_auth_refusal_is_not_retried() -> None:
+    from cbc.core import claude_cli as runner
+
+    result = runner._interpret(
+        "",
+        '403 {"Message":"Authorization header is missing"}',
+        1,
+        timeout=90,
+        redact_values=None,
+    )
+
+    assert result.ok is False
+    assert result.permanent is True
+    assert result.error_code == "bedrock_auth"
+    assert "AWS_BEARER_TOKEN_BEDROCK" in result.error
 
 
 # ── the file-safety hook sees Write and Edit, not only Bash ─────────────────
@@ -470,3 +517,76 @@ def test_a_read_hidden_behind_shell_syntax_is_still_allowed(command: str) -> Non
     """Unwrapping the command must not turn reads into writes."""
     result = _run_guard({"tool_name": "Bash", "tool_input": {"command": command}})
     assert result.returncode == 0, f"{command!r} should be allowed\n{result.stderr}"
+
+
+# ── the worker must not lose or duplicate a job it is holding ───────────────
+
+
+def test_a_failed_heartbeat_does_not_kill_the_heartbeat(monkeypatch) -> None:
+    """One transient Mongo error used to end the beat for the whole run.
+
+    The task died with its exception never retrieved; ninety seconds later
+    reap_abandoned saw a stale heartbeat and requeued a job that was still
+    running, and another worker claimed it - two Claude passes over one project
+    directory, from one blip during a forty-minute pipeline.
+    """
+    import asyncio
+
+    from apps.worker import main as worker
+
+    calls: list[int] = []
+
+    class _Jobs:
+        async def update_one(self, *_args, **_kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("connection reset by peer")
+            return None
+
+    class _Db:
+        jobs = _Jobs()
+
+    monkeypatch.setattr(worker, "db", _Db())
+    monkeypatch.setattr(worker, "HEARTBEAT_SECONDS", 0)
+
+    async def drive() -> None:
+        task = asyncio.create_task(worker._beat("job-1", "worker-1", 3))
+        while len(calls) < 3:
+            await asyncio.sleep(0)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(asyncio.wait_for(drive(), timeout=5))
+    assert len(calls) >= 3, "the beat stopped at the first failure"
+
+
+def test_the_shutdown_requeue_is_guarded_like_finish() -> None:
+    """A requeue that ignores ownership hands a live job to a second worker.
+
+    finish() writes under {_id, workerId, claimGeneration}. The shutdown path
+    wrote under {_id} alone, so a worker whose job had already been reaped and
+    re-claimed requeued it out from under the run that held it. It also fired
+    regardless of whether the pass had succeeded, throwing away a completed
+    three-hour extraction when SIGTERM landed just before finish().
+
+    Anchored on the note the requeue writes rather than on line numbers.
+    """
+    import inspect
+
+    from apps.worker import main as worker
+
+    source = inspect.getsource(worker.process)
+    note = '"worker shut down mid-run; requeued"'
+    assert note in source, "the shutdown requeue is gone"
+
+    guard = source.rindex("if _stop.is_set()", 0, source.index(note))
+    block = source[guard : source.index(note)]
+
+    assert "not result.ok" in block, "a successful run is still discarded on shutdown"
+    assert "_owns_job(job, current)" in block, "the requeue does not check ownership"
+    assert '"claimGeneration": job.get("claimGeneration")' in block, (
+        "the requeue write is not filtered by this worker's claim"
+    )

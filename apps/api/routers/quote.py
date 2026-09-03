@@ -15,6 +15,7 @@ from cbc.db import db, oid, serialise
 from apps.api.deps import Actor
 from cbc.schemas import QuoteLineCreate, QuoteLineUpdate, QuoteSettings
 from apps.api.routers.projects import load
+from apps.api.pipeline_jobs import enqueue_pipeline
 from cbc.services import audit, jobs, quote as quote_service, sync
 
 router = APIRouter(prefix="/api/projects/{code}/quote", tags=["quote"])
@@ -204,6 +205,6 @@ async def continue_to_proposal(code: str, actor: Actor) -> dict:
     await _recompute(project, actor)
     await sync.export_quote_lines(project)
 
-    job = await jobs.enqueue("build_proposal", project["_id"], actor=actor)
+    job = await enqueue_pipeline("build_proposal", project["_id"], actor=actor)
     await audit.record("project.continue_to_proposal", actor, {"projectId": project["_id"]})
     return {"job": serialise(job)}

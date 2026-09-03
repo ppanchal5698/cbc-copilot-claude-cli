@@ -213,15 +213,35 @@ def _terminate(process: subprocess.Popen) -> None:
             pass
 
 
-def recording_path(project_slug: str | None, job_id: str, root: Path) -> Path:
+def recording_path(
+    project_slug: str | None,
+    job_id: str,
+    root: Path,
+    attempt: int = 1,
+) -> Path:
     """Where a job's terminal recording lives.
 
     Under the project so it travels with the bid and is visible to both
     containers through the same shared volume; jobs with no project get a shared
     folder rather than being dropped.
+
+    Retries get their own file so a second Claude pass does not look like an
+    unexplained second session appended to the first attempt's log.
     """
     base = root / (f"projects/{project_slug}" if project_slug else "projects/_system")
-    return base / ".runs" / f"{job_id}.log"
+    if attempt <= 1:
+        name = f"{job_id}.log"
+    else:
+        name = f"{job_id}-attempt{attempt}.log"
+    return base / ".runs" / name
+
+
+def write_retry_banner(recording: Path, attempt: int) -> None:
+    """Mark the start of a re-queued attempt in the byte recording."""
+    recording.parent.mkdir(parents=True, exist_ok=True)
+    banner = f"\r\n=== RETRY attempt {attempt} ===\r\n".encode("utf-8")
+    with recording.open("wb") as handle:
+        handle.write(banner)
 
 
 def summarise(raw: str) -> tuple[str, str]:

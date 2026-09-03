@@ -63,11 +63,6 @@ and premium finishes are added deliberately from
   multiplier. The sheets are old; verify before quoting.
 - **Scranton** - access lost. Out of scope entirely.
 
-## Rules
-
-- @.claude/rules/auditability.md
-- @.claude/rules/file-safety.md - `pricebooks/` is read-only during a run
-
 ## Reference data
 
 - @.claude/memory/vendor_tiers.md

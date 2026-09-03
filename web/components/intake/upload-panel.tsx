@@ -108,16 +108,10 @@ export function UploadPanel({
   }
 
   return (
-    <div
-      className="rounded-xl"
-      style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-    >
-      <div
-        className="flex flex-wrap items-center gap-3 border-b px-4 py-3.5"
-        style={{ borderColor: "var(--app-line)" }}
-      >
-        <span className="text-[15px] font-semibold">Bid documents</span>
-        <span className="text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+    <div className="rounded-xl bg-panel border border-subtle shadow-sm">
+      <div className="flex flex-wrap items-center gap-4 border-b border-subtle px-5 py-4">
+        <span className="text-[16px] font-bold tracking-tight">Bid documents</span>
+        <span className="text-[12.5px] font-medium text-tx-muted">
           {documents.length} file{documents.length === 1 ? "" : "s"}
           {jobsError ? " · job status unavailable" : ""}
           {!jobsError && job && (job.status === "running" || job.status === "queued")
@@ -125,17 +119,16 @@ export function UploadPanel({
             : ""}
         </span>
         <span className="flex-1" />
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1.5">
           {KINDS.map((entry) => (
             <button
               key={entry.key}
               onClick={() => setKind(entry.key)}
-              className="rounded-md px-2.5 py-1 text-[11.5px]"
-              style={{
-                background: kind === entry.key ? "var(--app-accent-soft)" : "transparent",
-                color: kind === entry.key ? "var(--app-accent)" : "var(--app-tx-2)",
-                border: `1px solid ${kind === entry.key ? "var(--app-accent-line)" : "var(--app-line)"}`,
-              }}
+              className={`rounded-lg px-3 py-1.5 text-[12px] font-bold transition-all shadow-sm ${
+                kind === entry.key
+                  ? "bg-brand-primary/10 text-brand-primary border border-brand-primary/20"
+                  : "bg-background text-tx-secondary border border-subtle hover:bg-panel-muted hover:text-tx-primary"
+              }`}
             >
               {entry.label}
             </button>
@@ -155,12 +148,10 @@ export function UploadPanel({
       {documents.length > 0 && (
         <div className="overflow-x-auto">
           <div
-            className="grid gap-3 border-b px-4 py-2 text-[10.5px] uppercase tracking-[0.07em]"
+            className="grid gap-4 border-b border-subtle px-5 py-3 text-[11px] font-bold uppercase tracking-widest text-tx-muted bg-panel-muted"
             style={{
               minWidth: 560,
               gridTemplateColumns: "minmax(200px,1fr) 90px 110px 110px 40px",
-              borderColor: "var(--app-line)",
-              color: "var(--app-tx-3)",
             }}
           >
             <span>File</span>
@@ -172,77 +163,73 @@ export function UploadPanel({
           {documents.map((document) => (
             <div
               key={document.id}
-              className="grid items-center gap-3 border-b px-4 py-2.5 last:border-b-0"
+              className="grid items-center gap-4 border-b border-subtle px-5 py-3.5 last:border-b-0 hover:bg-background/50 transition-colors"
               style={{
                 minWidth: 560,
                 gridTemplateColumns: "minmax(200px,1fr) 90px 110px 110px 40px",
-                borderColor: "var(--app-line)",
               }}
             >
-              <span className="flex min-w-0 items-center gap-2">
-                <FilePdf size={16} weight="duotone" style={{ color: "#22d3ee" }} />
-                <span className="flex min-w-0 flex-col leading-tight">
-                  <span className="truncate text-[12.5px]">{document.filename}</span>
-                  <span className="text-[10.5px]" style={{ color: "var(--app-tx-3)" }}>
+              <span className="flex min-w-0 items-center gap-3">
+                <FilePdf size={20} weight="duotone" className="text-cyan-500" />
+                <span className="flex min-w-0 flex-col leading-tight gap-0.5">
+                  <span className="truncate text-[13.5px] font-semibold text-tx-primary">{document.filename}</span>
+                  <span className="text-[11.5px] font-medium text-tx-muted">
                     {document.kind}
                   </span>
                 </span>
               </span>
-              <span className="tnum text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+              <span className="tnum text-[13px] font-medium text-tx-secondary">
                 {document.pages ?? "—"}
               </span>
-              <span className="text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+              <span className="text-[12.5px] font-medium text-tx-secondary">
                 {new Date(document.uploadedAt).toLocaleDateString()}
               </span>
               <span
-                className="text-[12px]"
-                style={{
-                  color: document.state === "read" ? "var(--app-pos)" : "var(--app-tx-2)",
-                }}
+                className={`text-[12.5px] font-bold ${document.state === "read" ? "text-status-success" : "text-tx-secondary"}`}
               >
                 {document.state}
               </span>
               <button
                 onClick={() => remove(document)}
                 aria-label={`Detach ${document.filename}`}
-                style={{ color: "var(--app-tx-3)" }}
+                className="text-tx-muted hover:text-status-error transition-colors p-1.5 rounded-md hover:bg-status-error-soft"
               >
-                <Trash size={14} weight="duotone" />
+                <Trash size={16} weight="fill" />
               </button>
             </div>
           ))}
         </div>
       )}
 
-      <div
-        onDragOver={(event) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+        <div
+          onDragOver={(event) => {
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              setDragging(false);
+            }
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
             setDragging(false);
-          }
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          setDragging(false);
-          upload(event.dataTransfer.files);
-        }}
-        className="m-4 grid place-items-center gap-2 rounded-lg px-6 py-10 text-center transition"
-        style={{
-          border: `1.5px dashed ${dragging ? "var(--app-accent)" : "var(--app-line)"}`,
-          background: dragging ? "var(--app-accent-soft)" : "transparent",
-        }}
-      >
-        <Tray size={26} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
-        <span className="text-[13.5px] font-semibold">
-          {documents.length === 0 ? "No documents yet" : "Add another document"}
-        </span>
-        <span className="max-w-[460px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
-          Drop the bid set in and the schedules, elevations and specs are read for you. Uploading a
-          plan set is what notifies Claude — nothing else is needed.
-        </span>
+            upload(event.dataTransfer.files);
+          }}
+          className={`m-5 grid place-items-center gap-3 rounded-xl px-8 py-12 text-center transition-all ${
+            dragging
+              ? "border-2 border-dashed border-brand-primary bg-brand-primary/10"
+              : "border-2 border-dashed border-subtle bg-background"
+          }`}
+        >
+          <Tray size={32} weight="duotone" className="text-tx-muted" />
+          <span className="text-[15px] font-bold text-tx-primary tracking-tight">
+            {documents.length === 0 ? "No documents yet" : "Add another document"}
+          </span>
+          <span className="max-w-[460px] text-[13px] font-medium text-tx-secondary leading-relaxed">
+            Drop the bid set in and the schedules, elevations and specs are read for you. Uploading a
+            plan set is what notifies Claude — nothing else is needed.
+          </span>
 
         <input
           ref={inputRef}
@@ -255,18 +242,16 @@ export function UploadPanel({
         <button
           onClick={() => inputRef.current?.click()}
           disabled={busy}
-          className="mt-1 flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[12.5px] font-semibold disabled:opacity-60"
-          style={{ background: "var(--app-accent)", color: "#fff" }}
+          className="mt-2 flex items-center gap-2 rounded-lg px-5 py-2.5 text-[13px] font-bold disabled:opacity-50 transition-all bg-brand-primary text-white hover:bg-brand-primary/90 shadow-sm"
         >
-          <UploadSimple size={14} weight="bold" />
+          <UploadSimple size={16} weight="bold" />
           {busy ? "Uploading…" : "Choose PDFs"}
         </button>
 
         {progress && (
           <span
-            className="mt-1 text-[11.5px]"
+            className="mt-2 text-[12px] font-medium text-tx-secondary animate-pulse"
             aria-live="polite"
-            style={{ color: "var(--app-tx-2)" }}
           >
             Sending {progress.name}
             {progress.total > 1 ? ` (${progress.index} of ${progress.total})` : ""}…

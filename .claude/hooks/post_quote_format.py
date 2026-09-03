@@ -6,6 +6,26 @@ import json
 import shutil
 import subprocess
 import sys
+from pathlib import Path
+
+from _artifact_path import project_path_from_tool
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _target_path(payload: dict) -> Path | None:
+    tool_input = payload.get("tool_input") or {}
+    resolved = project_path_from_tool(payload.get("tool_name"), tool_input)
+    if resolved:
+        project, rel_path = resolved
+        if rel_path.endswith("quotation.html"):
+            return ROOT / "projects" / project / rel_path
+        return None
+
+    path = str(tool_input.get("file_path") or "")
+    if path.endswith("quotation.html"):
+        return Path(path)
+    return None
 
 
 def main() -> int:
@@ -13,11 +33,15 @@ def main() -> int:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, ValueError):
         return 0
+    return check(payload)
 
-    path = str((payload.get("tool_input") or {}).get("file_path") or "")
-    if not path.endswith("quotation.html"):
+
+def check(payload: dict) -> int:
+    target = _target_path(payload)
+    if target is None or not target.is_file():
         return 0
 
+    path = str(target)
     if shutil.which("prettier"):
         subprocess.run(["prettier", "--write", "--parser", "html", path], capture_output=True)
         return 0

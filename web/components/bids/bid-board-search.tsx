@@ -30,27 +30,23 @@ export function BidBoardSearch({
   }, [settled, initialQuery, router, stage]);
 
   return (
-    <div
-      className="relative flex h-9 w-full max-w-sm items-center gap-2 rounded-lg px-3"
-      style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-    >
-      <MagnifyingGlass size={15} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
+    <div className="relative flex h-9 w-full max-w-sm items-center gap-2 rounded-lg px-3 bg-panel border border-subtle shadow-sm transition-colors focus-within:border-brand-border focus-within:ring-1 focus-within:ring-brand-border/30">
+      <MagnifyingGlass size={15} weight="duotone" className="text-tx-muted" />
       <input
-        type="search"
+        type="text"
+        role="searchbox"
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         placeholder="Search bids by code, name, brand…"
         aria-label="Search bids"
-        className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
-        style={{ color: "var(--app-tx)" }}
+        className="min-w-0 flex-1 bg-transparent text-[13px] text-tx-primary outline-none placeholder:text-tx-muted"
       />
       {query && (
         <button
           type="button"
           onClick={() => setQuery("")}
           aria-label="Clear search"
-          className="rounded p-0.5"
-          style={{ color: "var(--app-tx-3)" }}
+          className="rounded p-0.5 text-tx-muted hover:text-tx-primary transition-colors hover:bg-panel-muted"
         >
           <X size={14} weight="bold" />
         </button>

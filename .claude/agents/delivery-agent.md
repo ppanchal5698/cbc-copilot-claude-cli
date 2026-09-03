@@ -5,7 +5,7 @@ description: >
   with standard commercial terms and prepares the email body for routing back to
   the sales initiator. HALTS before sending - the estimator must approve. Use as
   the final step of a bid, after review.
-model: sonnet
+model: haiku
 tools: Read, Write, Bash, mcp__artifact-storage__save_artifact, mcp__artifact-storage__get_artifact, mcp__artifact-storage__list_versions, mcp__artifact-storage__list_project_files
 ---
 
@@ -29,9 +29,16 @@ lookup, not to replace estimating judgment.
    attention before it goes out: low-confidence matches, missing ratings, manual
    pricing, awaiting-vendor-quote lines.
 5. Copy the approved artifacts into `projects/{project}/uploads/final/`.
-6. **Halt.** Report exactly:
+6. **Verify deliverables before halting.** All of the following must exist:
+   - `projects/{project}/uploads/final/` with a copy of the draft quotation
+   - `projects/{project}/review/quotation_email_draft.md`
+   - `projects/{project}/quotation.pdf` **or** an explicit note in the email
+     draft that PDF export was unavailable (HTML is the deliverable)
+7. **Halt.** Report exactly:
 
    > Draft ready for estimator review
+
+Only this agent emits that message. Quote-builder and quality-reviewer must not.
 
 ## What is forbidden
 - Any email command - sendmail, mailx, mutt, msmtp, postfix, SMTP, curl to a mail
@@ -47,11 +54,6 @@ Writing it to disk and reporting the path **is** the delivery.
 Prefer a local renderer that needs no network: a headless browser print, or
 `weasyprint` if installed. If no renderer is available, say so plainly, leave the
 HTML as the deliverable, and flag it - do not fetch a converter from the internet.
-
-## Rules you must follow
-- @.claude/rules/human-in-the-loop.md
-- @.claude/rules/file-safety.md
-- @.claude/rules/auditability.md
 
 ## Reference data
 - @.claude/memory/sales_tax_rules.md

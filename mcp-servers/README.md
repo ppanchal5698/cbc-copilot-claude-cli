@@ -6,7 +6,7 @@ Five stdio MCP servers backing the estimating pipeline.
 |---|---|---|
 | `pdf-tools` | `extract_text`, `extract_tables`, `get_page_image`, `search_pdf` | Read bid-set PDFs; every result carries `source_page` |
 | `catalog` | `find_pages`, `get_page`, `get_multiplier`, `get_special_net`, `is_stock_item`, `list_catalogs`, `get_catalog_overview` | Cost path 2: **which page** to open. It returns no prices - the price is read off the sheet with `pdf-tools` |
-| `calc-engine` | `calculate_line`, `apply_margin`, `compute_totals`, `validate_margin` | The only quote arithmetic in the system |
+| `calc-engine` | `cost_from_list`, `lookup_lite_kit_list_price`, `calculate_line`, `apply_margin`, `compute_totals`, `validate_margin` | The only quote arithmetic in the system |
 | `artifact-storage` | `save_artifact`, `get_artifact`, `list_versions`, `list_project_files` | Project writes with SHA-256 version history |
 | `p21-connector` | `lookup_last_po`, `check_freshness`, `search_item` | Cost path 1, **READ-ONLY** |
 

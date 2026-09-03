@@ -4,104 +4,7 @@
 
 @custom-variant dark (&:is([data-theme="dark"] *));
 
-/* ───────────────────────────────────────────────────────────────────────────
-   Design tokens, ported verbatim from the Ops-Hub prototype.
-   Everything in the app reads these; the shadcn tokens below are mapped onto
-   them so shadcn primitives inherit the same look without restyling.
-   ─────────────────────────────────────────────────────────────────────────── */
-
-[data-theme="dark"] {
-  --app-bg: #0a0a12;
-  --app-bg-2: #0e0e18;
-  --app-panel: #15151f;
-  --app-panel-2: #1b1b28;
-  --app-line: rgba(255, 255, 255, 0.075);
-  --app-tx: #f3f3f8;
-  --app-tx-2: #a2a2b8;
-  --app-tx-3: #6e6e88;
-  --app-accent: #818cf8;
-  --app-accent-soft: rgba(129, 140, 248, 0.14);
-  --app-accent-line: rgba(129, 140, 248, 0.28);
-  --app-neg: #fb7185;
-  --app-neg-soft: rgba(251, 113, 133, 0.14);
-  --app-neg-line: rgba(251, 113, 133, 0.3);
-  --app-pos: #34d399;
-  --app-pos-soft: rgba(52, 211, 153, 0.13);
-  --app-warn: #fbbf24;
-  --app-warn-soft: rgba(251, 191, 36, 0.14);
-  --app-warn-line: rgba(251, 191, 36, 0.3);
-  --app-sh-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --app-sh-2: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --app-sh-3: 0 24px 60px rgba(0, 0, 0, 0.6);
-}
-
-[data-theme="light"] {
-  --app-bg: #f6f6fa;
-  --app-bg-2: #ffffff;
-  --app-panel: #ffffff;
-  --app-panel-2: #f1f1f7;
-  --app-line: #e7e7f0;
-  --app-tx: #15151f;
-  --app-tx-2: #55556b;
-  --app-tx-3: #6e6e88;
-  --app-accent: #5b5bd6;
-  --app-accent-soft: rgba(91, 91, 214, 0.08);
-  --app-accent-line: rgba(91, 91, 214, 0.22);
-  --app-neg: #e11d48;
-  --app-neg-soft: rgba(225, 29, 72, 0.07);
-  --app-neg-line: rgba(225, 29, 72, 0.22);
-  --app-pos: #059669;
-  --app-pos-soft: rgba(5, 150, 105, 0.08);
-  --app-warn: #b45309;
-  --app-warn-soft: rgba(180, 83, 9, 0.09);
-  --app-warn-line: rgba(180, 83, 9, 0.24);
-  --app-sh-1: 0 1px 2px rgba(20, 20, 40, 0.06);
-  --app-sh-2: 0 8px 24px rgba(20, 20, 40, 0.08);
-  --app-sh-3: 0 24px 60px rgba(20, 20, 40, 0.14);
-}
-
-:root {
-  --app-font: "Manrope", system-ui, sans-serif;
-  --app-font-h: "Manrope", system-ui, sans-serif;
-  --app-font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
-  --radius: 0.625rem;
-
-  /* shadcn tokens mapped onto the app palette */
-  --background: var(--app-bg);
-  --foreground: var(--app-tx);
-  --card: var(--app-panel);
-  --card-foreground: var(--app-tx);
-  --popover: var(--app-panel);
-  --popover-foreground: var(--app-tx);
-  --primary: var(--app-accent);
-  --primary-foreground: #ffffff;
-  --secondary: var(--app-panel-2);
-  --secondary-foreground: var(--app-tx);
-  --muted: var(--app-panel-2);
-  --muted-foreground: var(--app-tx-2);
-  --accent: var(--app-accent-soft);
-  --accent-foreground: var(--app-accent);
-  --destructive: var(--app-neg);
-  --destructive-foreground: #ffffff;
-  --border: var(--app-line);
-  --input: var(--app-line);
-  --ring: var(--app-accent);
-  --sidebar: var(--app-bg-2);
-  --sidebar-foreground: var(--app-tx);
-  --sidebar-primary: var(--app-accent);
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: var(--app-accent-soft);
-  --sidebar-accent-foreground: var(--app-accent);
-  --sidebar-border: var(--app-line);
-  --sidebar-ring: var(--app-accent);
-  --chart-1: var(--app-accent);
-  --chart-2: var(--app-pos);
-  --chart-3: var(--app-warn);
-  --chart-4: var(--app-neg);
-  --chart-5: var(--app-tx-3);
-}
-
-@theme inline {
+@theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -117,56 +20,142 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --color-sidebar: var(--sidebar);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
 
-  /* app palette, usable as Tailwind utilities: bg-panel, text-tx-2, border-line */
-  --color-app-bg: var(--app-bg);
-  --color-app-bg-2: var(--app-bg-2);
-  --color-panel: var(--app-panel);
-  --color-panel-2: var(--app-panel-2);
-  --color-line: var(--app-line);
-  --color-tx: var(--app-tx);
-  --color-tx-2: var(--app-tx-2);
-  --color-tx-3: var(--app-tx-3);
-  --color-accent-app: var(--app-accent);
-  --color-accent-soft: var(--app-accent-soft);
-  --color-accent-line: var(--app-accent-line);
-  --color-neg: var(--app-neg);
-  --color-neg-soft: var(--app-neg-soft);
-  --color-neg-line: var(--app-neg-line);
-  --color-pos: var(--app-pos);
-  --color-pos-soft: var(--app-pos-soft);
-  --color-warn: var(--app-warn);
-  --color-warn-soft: var(--app-warn-soft);
-  --color-warn-line: var(--app-warn-line);
+  /* Premium Design System Colors */
+  --color-panel: var(--panel);
+  --color-panel-muted: var(--panel-muted);
+  --color-subtle: var(--subtle);
+  
+  --color-tx-primary: var(--tx-primary);
+  --color-tx-secondary: var(--tx-secondary);
+  --color-tx-muted: var(--tx-muted);
 
-  --font-sans: var(--app-font);
-  --font-heading: var(--app-font-h);
-  --font-mono: var(--app-font-mono);
+  --color-brand-primary: var(--brand-primary);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-border: var(--brand-border);
+
+  --color-status-success: var(--status-success);
+  --color-status-success-soft: var(--status-success-soft);
+  --color-status-warning: var(--status-warning);
+  --color-status-warning-soft: var(--status-warning-soft);
+  --color-status-error: var(--status-error);
+  --color-status-error-soft: var(--status-error-soft);
+  --color-status-info: var(--status-info);
+  --color-status-info-soft: var(--status-info-soft);
+
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-heading: var(--font-inter), system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+}
 
-  --shadow-app-1: var(--app-sh-1);
-  --shadow-app-2: var(--app-sh-2);
-  --shadow-app-3: var(--app-sh-3);
+:root {
+  --font-inter: "Inter", system-ui, sans-serif;
+  --radius: 0.5rem;
+}
+
+[data-theme="dark"] {
+  /* Core UI */
+  --background: #09090b; /* Zinc 950 */
+  --foreground: #fafafa;
+  --panel: #111113; /* Slightly lighter for cards */
+  --panel-muted: #18181b; /* Zinc 900 */
+  --subtle: #27272a; /* Zinc 800 - for borders */
+  
+  /* Text */
+  --tx-primary: #ffffff;
+  --tx-secondary: #a1a1aa; /* Zinc 400 */
+  --tx-muted: #71717a; /* Zinc 500 */
+
+  /* Brand / Accent (Glowing Violet/Indigo) */
+  --brand-primary: #818cf8; /* Indigo 400 */
+  --brand-soft: rgba(129, 140, 248, 0.1);
+  --brand-border: rgba(129, 140, 248, 0.25);
+
+  /* Status */
+  --status-success: #10b981;
+  --status-success-soft: rgba(16, 185, 129, 0.1);
+  --status-warning: #f59e0b;
+  --status-warning-soft: rgba(245, 158, 11, 0.1);
+  --status-error: #ef4444;
+  --status-error-soft: rgba(239, 68, 68, 0.1);
+  --status-info: #3b82f6;
+  --status-info-soft: rgba(59, 130, 246, 0.1);
+
+  /* Shadcn Overrides */
+  --card: var(--panel);
+  --card-foreground: var(--tx-primary);
+  --popover: var(--panel);
+  --popover-foreground: var(--tx-primary);
+  --primary: var(--brand-primary);
+  --primary-foreground: #ffffff;
+  --secondary: var(--panel-muted);
+  --secondary-foreground: var(--tx-primary);
+  --muted: var(--panel-muted);
+  --muted-foreground: var(--tx-secondary);
+  --accent: var(--brand-soft);
+  --accent-foreground: var(--brand-primary);
+  --destructive: var(--status-error);
+  --destructive-foreground: #ffffff;
+  --border: var(--subtle);
+  --input: var(--subtle);
+  --ring: var(--brand-border);
+}
+
+[data-theme="light"] {
+  /* Core UI */
+  --background: #fafafa; /* Zinc 50 */
+  --foreground: #09090b;
+  --panel: #ffffff;
+  --panel-muted: #f4f4f5; /* Zinc 100 */
+  --subtle: #e4e4e7; /* Zinc 200 */
+  
+  /* Text */
+  --tx-primary: #09090b;
+  --tx-secondary: #52525b; /* Zinc 600 */
+  --tx-muted: #a1a1aa; /* Zinc 400 */
+
+  /* Brand / Accent */
+  --brand-primary: #4f46e5; /* Indigo 600 */
+  --brand-soft: rgba(79, 70, 229, 0.08);
+  --brand-border: rgba(79, 70, 229, 0.2);
+
+  /* Status */
+  --status-success: #059669;
+  --status-success-soft: rgba(5, 150, 105, 0.08);
+  --status-warning: #d97706;
+  --status-warning-soft: rgba(217, 119, 6, 0.08);
+  --status-error: #dc2626;
+  --status-error-soft: rgba(220, 38, 38, 0.08);
+  --status-info: #2563eb;
+  --status-info-soft: rgba(37, 99, 235, 0.08);
+
+  /* Shadcn Overrides */
+  --card: var(--panel);
+  --card-foreground: var(--tx-primary);
+  --popover: var(--panel);
+  --popover-foreground: var(--tx-primary);
+  --primary: var(--brand-primary);
+  --primary-foreground: #ffffff;
+  --secondary: var(--panel-muted);
+  --secondary-foreground: var(--tx-primary);
+  --muted: var(--panel-muted);
+  --muted-foreground: var(--tx-secondary);
+  --accent: var(--brand-soft);
+  --accent-foreground: var(--brand-primary);
+  --destructive: var(--status-error);
+  --destructive-foreground: #ffffff;
+  --border: var(--subtle);
+  --input: var(--subtle);
+  --ring: var(--brand-border);
 }
 
 @layer base {
@@ -180,73 +169,53 @@
     margin: 0;
     padding: 0;
     height: 100%;
-    background: var(--app-bg);
-    color: var(--app-tx);
-    font-family: var(--app-font);
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-inter);
     font-size: 13.5px;
     line-height: 1.5;
-    font-feature-settings: "tnum" 1;
+    font-feature-settings: "tnum" 1, "cv11" 1; /* cv11 for inter readability */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   input::placeholder,
   textarea::placeholder {
-    color: var(--app-tx-3);
+    color: var(--tx-muted);
   }
 
   a {
-    color: var(--app-accent);
+    color: var(--brand-primary);
     text-decoration: none;
+    transition: color 0.15s ease;
   }
   a:hover {
-    text-decoration: underline;
+    color: var(--tx-primary);
   }
 
+  /* Elegant scrollbars */
   ::-webkit-scrollbar {
-    width: 9px;
-    height: 9px;
+    width: 6px;
+    height: 6px;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--app-tx-3);
-    border-radius: 9px;
+    background: var(--tx-muted);
+    border-radius: 6px;
+    opacity: 0.3;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--tx-secondary);
   }
   ::-webkit-scrollbar-track {
     background: transparent;
   }
 }
 
-/* Motion from the prototype */
-@keyframes sweep {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(300%);
-  }
-}
-@keyframes fadein {
+/* Animations */
+@keyframes fade-in {
   from {
     opacity: 0;
-    transform: translateY(3px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes popin {
-  from {
-    transform: scale(0.97);
-    opacity: 0;
-  }
-  to {
-    transform: none;
-    opacity: 1;
-  }
-}
-@keyframes riseup {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -254,49 +223,28 @@
   }
 }
 
-.anim-fadein {
-  animation: fadein 0.18s ease both;
-}
-.anim-popin {
-  animation: popin 0.16s ease both;
-}
-.anim-riseup {
-  animation: riseup 0.22s ease both;
-}
-.anim-sweep::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  width: 33%;
-  background: linear-gradient(90deg, transparent, var(--app-accent-soft), transparent);
-  animation: sweep 1.4s linear infinite;
+.animate-fade-in {
+  animation: fade-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Route-level loading skeletons. Every page here is force-dynamic and blocks
-   on the API, so navigation used to show nothing at all until it answered. */
 @keyframes skeleton-pulse {
   0%,
   100% {
-    opacity: 0.55;
+    opacity: 0.4;
   }
   50% {
-    opacity: 0.25;
+    opacity: 0.15;
   }
 }
 .skeleton {
-  border-radius: 6px;
-  background: var(--app-panel-2);
+  border-radius: var(--radius);
+  background: var(--panel-muted);
   animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
 
-/* Respect a reduced-motion preference: the shimmer, the sweep and the entrance
-   animations are all decoration, and a vestibular trigger is not decoration. */
 @media (prefers-reduced-motion: reduce) {
   .skeleton,
-  .anim-sweep::after,
-  .anim-fadein,
-  .anim-popin,
-  .anim-riseup {
+  .animate-fade-in {
     animation: none;
   }
   .terminal-log-scroll {
@@ -318,9 +266,9 @@
 }
 
 .terminal-log .agent-prose {
-  color: var(--app-tx);
-  font-size: 12px;
-  line-height: 1.55;
+  color: var(--tx-primary);
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
 .terminal-log .agent-prose p {
@@ -332,23 +280,24 @@
 }
 
 .terminal-log .agent-prose code {
-  font-family: var(--app-font-mono);
-  font-size: 11px;
-  background: var(--app-accent-soft);
-  color: var(--app-accent);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--panel-muted);
+  color: var(--tx-primary);
   border-radius: 4px;
-  padding: 0.1em 0.35em;
+  padding: 0.15em 0.4em;
+  border: 1px solid var(--subtle);
 }
 
 .terminal-log .agent-prose pre {
-  font-family: var(--app-font-mono);
-  font-size: 11px;
-  background: var(--app-panel-2);
-  border: 1px solid var(--app-line);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--panel);
+  border: 1px solid var(--subtle);
   border-radius: 6px;
-  padding: 0.5em 0.75em;
+  padding: 0.75em 1em;
   overflow-x: auto;
-  margin: 0.5em 0;
+  margin: 0.75em 0;
 }
 
 .terminal-log .agent-prose ul,
@@ -362,26 +311,27 @@
 }
 
 .terminal-log .tool-card {
-  background: var(--app-panel);
+  background: var(--panel);
   transition: border-color 0.15s ease;
+  border: 1px solid var(--subtle);
 }
 
 .terminal-log .tool-card:hover {
-  border-color: var(--app-accent-line) !important;
+  border-color: var(--brand-border) !important;
 }
 
 .terminal-code-block {
-  font-family: var(--app-font-mono);
-  font-size: 10.5px;
-  line-height: 1.45;
-  background: var(--app-panel-2);
-  border: 1px solid var(--app-line);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  background: var(--panel-muted);
+  border: 1px solid var(--subtle);
   border-radius: 6px;
-  padding: 0.5em 0.65em;
+  padding: 0.75em 1em;
   overflow-x: auto;
   max-height: 240px;
   white-space: pre-wrap;
   word-break: break-word;
-  color: var(--app-tx-2);
+  color: var(--tx-secondary);
   margin: 0;
 }

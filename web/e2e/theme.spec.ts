@@ -10,9 +10,6 @@ test.describe("Theme toggle", () => {
   test("switches light and dark themes", async ({ page }) => {
     await page.goto("/dashboard");
     const root = page.locator("html");
-    // Two toggles exist by design - one in the header, one on the focus card -
-    // so an unscoped role query is a strict-mode violation rather than a bug in
-    // the app. Drive the header's, and let it stand for both.
     const toggle = page.getByRole("banner").getByRole("button", { name: /toggle theme/i });
 
     const initial = await root.getAttribute("data-theme");

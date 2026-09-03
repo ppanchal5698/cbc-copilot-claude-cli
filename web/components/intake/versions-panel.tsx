@@ -26,10 +26,7 @@ export function VersionsPanel({ code }: { code: string }) {
 
   if (error) {
     return (
-      <section
-        className="rounded-xl"
-        style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-      >
+      <section className="rounded-xl bg-panel border border-subtle shadow-sm">
         <FetchError
           title="Could not load addendum versions"
           error={error}
@@ -81,51 +78,41 @@ export function VersionsPanel({ code }: { code: string }) {
   const unreconciled = (data?.unreconciled ?? 0) > 0;
 
   return (
-    <section
-      className="rounded-xl"
-      style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-    >
-      <div
-        className="flex items-center gap-2 border-b px-4 py-3.5"
-        style={{ borderColor: "var(--app-line)" }}
-      >
-        <ClockCounterClockwise size={16} weight="duotone" style={{ color: "var(--app-accent)" }} />
-        <span className="text-[15px] font-semibold">Addendum versions</span>
+    <section className="rounded-xl bg-panel border border-subtle shadow-sm">
+      <div className="flex items-center gap-3 border-b border-subtle px-5 py-4">
+        <ClockCounterClockwise size={18} weight="fill" className="text-brand-primary" />
+        <span className="text-[16px] font-bold tracking-tight">Addendum versions</span>
         {data?.unreconciled ? (
-          <span
-            className="rounded-full px-2 py-0.5 text-[10.5px] font-semibold"
-            style={{ background: "var(--app-warn-soft)", color: "var(--app-warn)" }}
-          >
+          <span className="rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest bg-status-warning-soft text-status-warning shadow-sm">
             {data.unreconciled} unreconciled
           </span>
         ) : null}
       </div>
 
-      <div className="divide-y" style={{ borderColor: "var(--app-line)" }}>
+      <div className="divide-y divide-subtle">
         {versions.map((entry) => (
-          <div key={entry.id} className="px-4 py-3">
-            <div className="flex flex-wrap items-start gap-3">
+          <div key={entry.id} className="px-5 py-4 hover:bg-background/50 transition-colors">
+            <div className="flex flex-wrap items-start gap-4">
               <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-semibold">v{entry.version}</span>
-                  <span className="text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                <div className="flex items-center gap-3">
+                  <span className="text-[14px] font-bold">v{entry.version}</span>
+                  <span className="text-[13px] font-medium text-tx-secondary">
                     {entry.reason}
                   </span>
                   {entry.reconciled ? (
-                    <span className="text-[10.5px]" style={{ color: "var(--app-pos)" }}>
+                    <span className="text-[11px] font-bold uppercase tracking-widest text-status-success bg-status-success-soft px-2 py-0.5 rounded-full shadow-sm">
                       reconciled
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-1 text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+                <p className="mt-1.5 text-[12px] font-medium text-tx-muted">
                   {entry.lineItemCount} line items · {entry.quoteLineCount} quote lines · by{" "}
                   {entry.createdBy}
                 </p>
               </div>
               <button
                 onClick={() => loadDiff(entry.version)}
-                className="rounded-md px-2.5 py-1 text-[11.5px]"
-                style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+                className="rounded-lg px-3 py-1.5 text-[12px] font-bold border border-subtle text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm"
               >
                 {expanded === entry.version ? "Hide diff" : "View diff"}
               </button>
@@ -133,41 +120,37 @@ export function VersionsPanel({ code }: { code: string }) {
                 <button
                   onClick={() => reconcile(entry.version)}
                   disabled={busy}
-                  className="flex items-center gap-1 rounded-md px-2.5 py-1 text-[11.5px] font-semibold disabled:opacity-50"
-                  style={{ background: "var(--app-accent)", color: "#fff" }}
+                  className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-bold disabled:opacity-50 bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors shadow-sm"
                 >
-                  <Checks size={12} weight="bold" />
+                  <Checks size={14} weight="bold" />
                   Mark reviewed
                 </button>
               )}
             </div>
 
             {expanded === entry.version && diff && (
-              <div
-                className="mt-3 rounded-lg p-3 text-[12px]"
-                style={{ background: "var(--app-panel-2)", border: "1px solid var(--app-line)" }}
-              >
+              <div className="mt-4 rounded-xl p-4 text-[13px] font-medium bg-panel-muted border border-subtle shadow-inner">
                 {diff.added.length > 0 && (
                   <p>
-                    <strong>Added:</strong> {diff.added.join(", ") || "—"}
+                    <strong className="text-tx-primary font-bold">Added:</strong> {diff.added.join(", ") || "—"}
                   </p>
                 )}
                 {diff.removed.length > 0 && (
-                  <p className="mt-1">
-                    <strong>Removed:</strong> {diff.removed.join(", ") || "—"}
+                  <p className="mt-1.5">
+                    <strong className="text-tx-primary font-bold">Removed:</strong> {diff.removed.join(", ") || "—"}
                   </p>
                 )}
                 {diff.changed.length > 0 && (
-                  <ul className="mt-2 space-y-1">
+                  <ul className="mt-3 flex flex-col gap-1.5">
                     {diff.changed.map((row) => (
-                      <li key={row.mark}>
-                        <strong>{row.mark}</strong> — {row.fields.join(", ")} changed
+                      <li key={row.mark} className="text-tx-secondary">
+                        <strong className="text-tx-primary font-bold">{row.mark}</strong> — {row.fields.join(", ")} changed
                       </li>
                     ))}
                   </ul>
                 )}
                 {diff.added.length === 0 && diff.removed.length === 0 && diff.changed.length === 0 && (
-                  <p style={{ color: "var(--app-tx-3)" }}>No line-item changes detected against this snapshot.</p>
+                  <p className="text-tx-muted italic">No line-item changes detected against this snapshot.</p>
                 )}
               </div>
             )}
@@ -176,14 +159,12 @@ export function VersionsPanel({ code }: { code: string }) {
       </div>
 
       <p
-        className="flex items-center gap-1.5 border-t px-4 py-2.5 text-[10.5px]"
-        style={{
-          borderColor: "var(--app-line)",
-          color: unreconciled ? "var(--app-warn)" : "var(--app-tx-3)",
-        }}
+        className={`flex items-center gap-2 border-t border-subtle px-5 py-3 text-[12px] font-medium transition-colors ${
+          unreconciled ? "text-status-warning bg-status-warning-soft/30" : "text-tx-muted"
+        }`}
         title={data?.pending}
       >
-        {unreconciled ? <Warning size={12} weight="duotone" /> : null}
+        {unreconciled ? <Warning size={14} weight="fill" /> : null}
         Mark reviewed records that you compared this addendum against the prior version.
         Automatic merge rules are not yet available — review changes manually before pricing.
       </p>

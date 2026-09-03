@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from _runtime import serve  # noqa: E402
 from tools import TOOLS  # noqa: E402
@@ -49,6 +50,17 @@ def _versions_dir(project: str) -> Path:
 def save_artifact(
     project: str, path: str, content: str, version_note: str | None = None
 ) -> dict[str, Any]:
+    stripped = content.strip()
+    if stripped in ("{file_content}", "{content}", "<file_content>"):
+        raise ValueError(
+            f"refusing placeholder content for {path!r} - read the file from disk first"
+        )
+    if path.endswith("quotation.html") and len(stripped) < 200:
+        raise ValueError(
+            f"refusing to save quotation.html with only {len(stripped)} bytes - "
+            "run validate_and_render_quote.py and Read the file before save_artifact"
+        )
+
     target = _resolve(project, path)
     target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -57,6 +69,10 @@ def save_artifact(
     unchanged = previous is not None and hashlib.sha256(previous.encode("utf-8")).hexdigest() == digest
 
     target.write_text(content, encoding="utf-8")
+
+    from cbc.services import manifests
+
+    manifests.write_sidecar(project, path, digest)
 
     store = _versions_dir(project)
     store.mkdir(parents=True, exist_ok=True)

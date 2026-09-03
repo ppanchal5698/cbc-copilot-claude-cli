@@ -86,4 +86,4 @@ Record `null` and flag. Never infer from a neighbouring row.
 
 The fixture's WINDOW SCHEDULE specifies `KAWNEER 541T` aluminum storefront. Read
 it, record it under `out_of_scope_items`, and do not quote it
-(@.claude/rules/scope-boundaries.md).
+(scope-boundaries project rule).

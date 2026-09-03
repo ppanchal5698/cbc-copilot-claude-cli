@@ -35,10 +35,12 @@ envfile.apply_to_environ(skip=provider.MANAGED)
 
 from cbc import db as db_module  # noqa: E402
 from cbc.db import db  # noqa: E402
+from cbc.schemas.common import EXCLUSIVE_JOB_TYPES
 from cbc.services import audit, quote as quote_service, render, storage, sync  # noqa: E402
+from cbc.services import manifests, matchcache, runmetrics, sheetmap  # noqa: E402
 from cbc.core import claude_cli as runner, streaming  # noqa: E402
 from cbc.core import logs  # noqa: E402
-from cbc.validation import validate_job_artifacts  # noqa: E402
+from cbc.validation import ArtifactValidationError, validate_job_artifacts  # noqa: E402
 from cbc.validation import review as review_flags  # noqa: E402
 from apps.worker import prompts  # noqa: E402
 from apps.worker.handlers.catalog import delete_catalog, index_catalog  # noqa: E402
@@ -65,6 +67,15 @@ def limits_for(job_type: str) -> tuple[int, int]:
     if job_type == "run_full_pipeline":
         return PIPELINE_TIMEOUT, PIPELINE_MAX_TURNS
     return JOB_TIMEOUT, MAX_TURNS
+
+
+def concurrency_for(raw: str | None = None) -> int:
+    """How many jobs this process may run at once. Default 1; junk and 0 become 1."""
+    value = os.environ.get("WORKER_CONCURRENCY", "1") if raw is None else raw
+    try:
+        return max(1, int(value))
+    except (TypeError, ValueError):
+        return 1
 
 
 # Which phase a project has reached, read from what is on disk. An autopilot run is
@@ -370,7 +381,7 @@ def _derive_review_flags(job_type: str, slug: str) -> None:
         log.exception("%s: could not derive review flags for %s", job_type, slug)
 
 
-def _sync_blocking_pre(job: dict, project: dict) -> None:
+def _sync_blocking_pre(job: dict, project: dict) -> dict:
     """BBox measurement, frame depths, and artifact validation — all sync I/O."""
     slug = project["slug"]
     if job["type"] in ("extract_bid_set", "rerun_extraction", "run_full_pipeline"):
@@ -394,7 +405,8 @@ def _sync_blocking_pre(job: dict, project: dict) -> None:
         "build_proposal",
         "run_full_pipeline",
     ):
-        validate_job_artifacts(job["type"], slug)
+        return validate_job_artifacts(job["type"], slug) or {}
+    return {}
 
 
 def _sync_blocking_render(job_type: str, slug: str) -> list[str]:
@@ -408,6 +420,32 @@ def _sync_blocking_render(job_type: str, slug: str) -> list[str]:
     return failed
 
 
+async def _persist_phase_state(job: dict, slug: str, phase_state: dict) -> None:
+    if not phase_state:
+        return
+    await asyncio.to_thread(manifests.stamp_phase, slug, phase_state)
+    await db.jobs.update_one({"_id": job["_id"]}, {"$set": {"phaseState": phase_state}})
+    job["phaseState"] = phase_state
+
+
+async def _inherit_phase_state(job: dict, project: dict) -> dict:
+    """Copy still-valid phases from the previous job on this bid (B-15)."""
+    prev = await db.jobs.find_one(
+        {
+            "projectId": project["_id"],
+            "_id": {"$ne": job["_id"]},
+            "phaseState": {"$exists": True, "$ne": {}},
+        },
+        sort=[("finishedAt", -1), ("createdAt", -1)],
+    )
+    if not prev:
+        return {}
+    kept = manifests.reusable_phases(project["slug"], prev.get("phaseState") or {})
+    if kept:
+        await db.jobs.update_one({"_id": job["_id"]}, {"$set": {"phaseState": kept}})
+    return kept
+
+
 async def sync_results(job: dict, project: dict | None) -> str:
     """Move what Claude wrote on disk into Mongo."""
     if project is None:
@@ -417,7 +455,16 @@ async def sync_results(job: dict, project: dict | None) -> str:
         raise RuntimeError("cancelled by estimator")
 
     slug = project["slug"]
-    await asyncio.to_thread(_sync_blocking_pre, job, project)
+    try:
+        phase_state = await asyncio.to_thread(_sync_blocking_pre, job, project)
+    except ArtifactValidationError as exc:
+        await _persist_phase_state(job, slug, exc.phase_state or {})
+        if job["type"] in matchcache.JOB_TYPES:
+            await asyncio.to_thread(matchcache.ingest, slug)
+        raise
+    await _persist_phase_state(job, slug, phase_state or {})
+    if job["type"] in matchcache.JOB_TYPES:
+        await asyncio.to_thread(matchcache.ingest, slug)
 
     if await _job_cancelled(job["_id"]):
         raise RuntimeError("cancelled by estimator")
@@ -505,6 +552,34 @@ LOCAL_HANDLERS = {
 }
 
 
+async def _record_runmetrics(
+    job: dict,
+    recording: Path,
+    prompt: str,
+    project: dict | None,
+    described: dict | None,
+    error_code: str | None = None,
+) -> None:
+    """Parse the Claude recording after every post-CLI finish(). Never raises."""
+    try:
+        current = await db.jobs.find_one(
+            {"_id": job["_id"]},
+            {"status": 1, "errorCode": 1, "startedAt": 1, "finishedAt": 1, "provider": 1},
+        )
+        merged = {**job, **(current or {})}
+        await runmetrics.record(
+            merged,
+            recording,
+            prompt=prompt,
+            project=project,
+            provider=described or merged.get("provider"),
+            outcome_status=merged.get("status"),
+            error_code=error_code or merged.get("errorCode"),
+        )
+    except Exception:
+        log.exception("runmetrics failed for job %s", job.get("_id"))
+
+
 async def process_locally(job: dict) -> None:
     """Run a job in this process rather than through a Claude Code pass."""
     handler = LOCAL_HANDLERS[job["type"]]
@@ -539,12 +614,85 @@ async def process(job: dict) -> None:
             return
         storage.scaffold(project["slug"])
 
+    # One Claude session per bid: if another pipeline job is still running on this
+    # project, defer until it finishes (handles reaper/claim races).
+    if (
+        project is not None
+        and job["type"] in EXCLUSIVE_JOB_TYPES
+        and job.get("status") == "running"
+    ):
+        other = await db.jobs.find_one(
+            {
+                "projectId": project["_id"],
+                "type": {"$in": list(EXCLUSIVE_JOB_TYPES)},
+                "status": "running",
+                "_id": {"$ne": job["_id"]},
+            }
+        )
+        if other:
+            log.info(
+                "job %s (%s) blocked by concurrent pipeline job %s (%s)",
+                job["_id"],
+                job["type"],
+                other["_id"],
+                other["type"],
+            )
+            await db.jobs.update_one(
+                {
+                    "_id": job["_id"],
+                    "status": "running",
+                    "workerId": job.get("workerId"),
+                    "claimGeneration": job.get("claimGeneration"),
+                },
+                {
+                    "$set": {
+                        "status": "queued",
+                        "startedAt": None,
+                        "heartbeatAt": None,
+                        "workerId": None,
+                        "nextAttemptAt": _now() + timedelta(seconds=15),
+                        "note": (
+                            f"waiting for {other['type']} job {other['_id']} "
+                            "to finish (one session per bid)"
+                        ),
+                    },
+                    "$inc": {"attempts": -1},
+                },
+            )
+            return
+
     payload = job.setdefault("payload", {})
     if job["type"] == "ingest_pricebook":
         # Assigned, never defaulted. `POST /api/jobs` takes a free-form payload, and
         # a `setdefault` here let the caller choose a path that the ingest handler
         # then read and unlinked - arbitrary file deletion through the jobs API.
         payload["outputPath"] = f".cache/pricebook-{job['_id']}.json"
+
+    # Catalog `force` reindexes a sheet; pipeline `force` means rebuild phases.
+    # Do not mix the two.
+    if (
+        project is not None
+        and job["type"] in sheetmap.SHEETMAP_JOB_TYPES | {"match_and_price", "build_proposal"}
+        and payload.get("force")
+    ):
+        await db.jobs.update_one({"_id": job["_id"]}, {"$unset": {"phaseState": ""}})
+        job.pop("phaseState", None)
+
+    if (
+        project is not None
+        and job["type"] == "run_full_pipeline"
+        and not payload.get("force")
+    ):
+        inherited = await _inherit_phase_state(job, project)
+        if inherited:
+            job["phaseState"] = inherited
+
+    if project is not None and job["type"] in sheetmap.SHEETMAP_JOB_TYPES:
+        await asyncio.to_thread(
+            sheetmap.build_sheetmap,
+            project["slug"],
+            force=bool(payload.get("force")),
+        )
 
     # Read the provider on every job, so changing it on the settings screen takes
     # effect on the next job rather than on the next worker restart.
@@ -567,11 +715,29 @@ async def process(job: dict) -> None:
         log.info("provider cannot delegate; using the solo prompt for %s", job["type"])
     prompt = prompts.build(job, project, delegates=delegates)
 
+    from cbc.db import readonly_uri
+
+    if job["type"] in ("match_and_price", "ingest_pricebook") and not readonly_uri():
+        await finish(
+            job,
+            False,
+            "catalog unavailable: set MONGODB_READONLY_URI before pricing jobs",
+            "",
+            error_code="catalog_unavailable",
+        )
+        return
+
     # Where the estimator watches this happen. Recorded per job under the project
     # so the session can be replayed after the fact, not only while it runs.
+    attempt = max(int(job.get("attempts") or 1), 1)
     recording = streaming.recording_path(
-        project["slug"] if project else None, str(job["_id"]), REPO_ROOT
+        project["slug"] if project else None,
+        str(job["_id"]),
+        REPO_ROOT,
+        attempt=attempt,
     )
+    if attempt > 1:
+        await asyncio.to_thread(streaming.write_retry_banner, recording, attempt)
     await db.jobs.update_one(
         {"_id": job["_id"]},
         {"$set": {"recording": str(recording.relative_to(REPO_ROOT)).replace("\\", "/")}},
@@ -716,6 +882,9 @@ async def process(job: dict) -> None:
             permanent=result.permanent,
             error_code=result.error_code,
         )
+        await _record_runmetrics(
+            job, recording, prompt, project, described, result.error_code
+        )
         return
 
     try:
@@ -724,17 +893,35 @@ async def process(job: dict) -> None:
             if job["type"] == "ingest_pricebook"
             else await sync_results(job, project)
         )
+    except ArtifactValidationError as exc:
+        await finish(
+            job,
+            False,
+            str(exc),
+            result.output,
+            permanent=True,
+            error_code="artifact_validation",
+        )
+        await _record_runmetrics(
+            job, recording, prompt, project, described, "artifact_validation"
+        )
+        return
     except Exception as exc:  # a sync failure is a real failure - do not mask it
         if str(exc) == "cancelled by estimator":
             await finish(job, False, "cancelled by estimator", result.output)
+            await _record_runmetrics(job, recording, prompt, project, described)
             return
         await finish(job, False, f"result sync failed: {exc}", result.output, error_code="sync_failed")
+        await _record_runmetrics(
+            job, recording, prompt, project, described, "sync_failed"
+        )
         return
 
     combined = note
     if recording_note:
         combined = f"{note}; {recording_note}" if note else recording_note
     await finish(job, True, None, result.output, combined or None)
+    await _record_runmetrics(job, recording, prompt, project, described)
 
 
 async def loop(once: bool = False) -> int:
@@ -751,25 +938,40 @@ async def loop(once: bool = False) -> int:
         )
 
     log.info(
-        "worker up - polling every %ss (phase jobs %ss/%s turns, full pipeline %ss/%s turns)",
+        "worker up - polling every %ss (phase jobs %ss/%s turns, full pipeline %ss/%s turns, concurrency %s)",
         POLL_SECONDS, JOB_TIMEOUT, MAX_TURNS, PIPELINE_TIMEOUT, PIPELINE_MAX_TURNS,
+        1 if once else concurrency_for(),
     )
     await reap_abandoned()
 
-    while not _stop.is_set():
-        job = await claim()
-        if job:
+    slots = 1 if once else concurrency_for()
+    in_flight: set[asyncio.Task] = set()
+
+    async def run_claimed(job: dict) -> None:
+        try:
+            await process(job)
+        except Exception as exc:
+            # Without this, one unexpected exception ends the worker with the
+            # job still marked `running` - which the reaper would eventually
+            # recover, but only after the container came back. Record it now.
+            log.exception("job %s raised", job["type"])
             try:
-                await process(job)
-            except Exception as exc:
-                # Without this, one unexpected exception ends the worker with the
-                # job still marked `running` - which the reaper would eventually
-                # recover, but only after the container came back. Record it now.
-                log.exception("job %s raised", job["type"])
-                try:
-                    await finish(job, False, f"worker error: {exc}", "")
-                except Exception:
-                    log.exception("could not record the failure for job %s", job["_id"])
+                await finish(job, False, f"worker error: {exc}", "")
+            except Exception:
+                log.exception("could not record the failure for job %s", job["_id"])
+
+    while not _stop.is_set():
+        while len(in_flight) < slots and not _stop.is_set():
+            job = await claim()
+            if not job:
+                break
+            in_flight.add(asyncio.create_task(run_claimed(job)))
+            if once:
+                break
+        if in_flight:
+            _done, in_flight = await asyncio.wait(
+                in_flight, return_when=asyncio.FIRST_COMPLETED
+            )
             if once:
                 return 0
             continue
@@ -781,6 +983,8 @@ async def loop(once: bool = False) -> int:
             await asyncio.wait_for(_stop.wait(), timeout=POLL_SECONDS)
         except asyncio.TimeoutError:
             pass
+    if in_flight:
+        await asyncio.wait(in_flight)
     log.info("worker stopped")
     return 0
 

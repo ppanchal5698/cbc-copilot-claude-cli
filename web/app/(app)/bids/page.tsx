@@ -6,6 +6,8 @@ import { BidBoardSearch } from "@/components/bids/bid-board-search";
 import { NewBidDialog } from "@/components/bids/new-bid-dialog";
 import { api } from "@/lib/api";
 import type { Project, Stage } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { Tray } from "@phosphor-icons/react/dist/ssr";
 
 export const dynamic = "force-dynamic";
 
@@ -38,11 +40,11 @@ export default async function BidBoardPage({
     <>
       <PageHeader crumbs={[{ label: "Workspace" }, { label: "Bid board" }]} />
 
-      <main id="main-content" className="min-h-0 flex-1 overflow-auto p-6">
-        <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <main id="main-content" className="min-h-0 flex-1 overflow-auto p-8 bg-background">
+        <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-[20px] font-semibold">Bid board</h1>
-            <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+            <h1 className="text-[26px] font-bold text-tx-primary tracking-tight">Bid board</h1>
+            <p className="mt-1.5 text-[14px] text-tx-secondary font-medium">
               {projects.length} bid{projects.length === 1 ? "" : "s"} · grouped by brand
               {stage && stage !== "all" ? ` in ${stage}` : ""}
             </p>
@@ -50,7 +52,7 @@ export default async function BidBoardPage({
           <NewBidDialog />
         </div>
 
-        <div className="mb-4 flex gap-1.5">
+        <div className="mb-6 flex gap-2">
           {FILTERS.map((filter) => {
             const active = (stage ?? "all") === filter.key;
             return (
@@ -58,12 +60,12 @@ export default async function BidBoardPage({
                 key={filter.key}
                 href={`/bids?stage=${filter.key}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
                 aria-current={active ? "page" : undefined}
-                className="rounded-md px-3 py-1.5 text-[12.5px] no-underline"
-                style={{
-                  background: active ? "var(--app-accent-soft)" : "var(--app-panel)",
-                  border: `1px solid ${active ? "var(--app-accent-line)" : "var(--app-line)"}`,
-                  color: active ? "var(--app-accent)" : "var(--app-tx-2)",
-                }}
+                className={cn(
+                  "rounded-md px-3.5 py-1.5 text-[13px] font-medium no-underline transition-colors shadow-sm",
+                  active
+                    ? "bg-brand-soft border border-brand-border text-brand-primary"
+                    : "bg-panel border border-subtle text-tx-secondary hover:text-tx-primary hover:bg-panel-muted"
+                )}
               >
                 {filter.label}
               </Link>
@@ -71,24 +73,28 @@ export default async function BidBoardPage({
           })}
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="mb-6 flex flex-wrap items-center gap-3">
           <BidBoardSearch key={q ?? ""} stage={stage} initialQuery={q ?? ""} />
         </div>
 
         {projects.length === 0 ? (
-          <div
-            className="grid place-items-center gap-2 rounded-xl px-6 py-16 text-center"
-            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-          >
-            <span className="text-[15px] font-semibold">
+          <div className="grid place-items-center gap-3 rounded-xl bg-panel border border-subtle px-6 py-24 text-center shadow-sm">
+            <div className="w-16 h-16 rounded-full bg-brand-soft flex items-center justify-center mb-2 shadow-sm border border-brand-border">
+              <Tray size={28} weight="duotone" className="text-brand-primary" />
+            </div>
+            <span className="text-[16px] font-semibold text-tx-primary">
               {q ? "No bids match that search" : "No bids yet"}
             </span>
-            <span className="max-w-[420px] text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+            <span className="max-w-[420px] text-[13.5px] text-tx-secondary leading-relaxed">
               {q
                 ? "Try a different code, name, or brand — or clear the search to see all bids."
                 : "Create a bid to start intake. Upload a plan set and Claude reads the openings for you."}
             </span>
-            {!q && <NewBidDialog />}
+            {!q && (
+              <div className="mt-4">
+                <NewBidDialog />
+              </div>
+            )}
           </div>
         ) : (
           <BoardGroups projects={projects} />

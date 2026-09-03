@@ -12,12 +12,28 @@ through. `validate_job_artifacts` is the worker's gate and raises on problems.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+class ArtifactValidationError(ValueError):
+    """A job's artifacts failed the worker gate. Do not retry the whole run."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        phase: str | None = None,
+        phase_state: dict[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.phase = phase
+        self.phase_state = phase_state or {}
 
 import fitz
 
@@ -504,28 +520,100 @@ ARTIFACT_CHECKS: dict[str, tuple] = {
         check_proposal,
     ),
 }
+PHASE_LABELS: dict[str, tuple[str, ...]] = {
+    "extract_bid_set": ("extraction",),
+    "rerun_extraction": ("extraction",),
+    "match_and_price": ("pricing",),
+    "build_proposal": ("proposal",),
+    "run_full_pipeline": ("extraction", "pricing", "proposal"),
+}
+PHASE_ARTIFACTS: dict[str, tuple[str, ...]] = {
+    "extraction": (
+        "extracted/door_schedule.json",
+        "extracted/scope_metadata.json",
+        "extracted/scope_summary.json",
+        "extracted/frp_takeoff.json",
+        "extracted/hardware_sets.json",
+    ),
+    "pricing": (
+        "priced/line_items.json",
+        "priced/margin_applied.json",
+        "extracted/hardware_sets.json",
+    ),
+    "proposal": (
+        "quotation.html",
+        "review/review_flags.json",
+        "review/quotation_email_draft.md",
+    ),
+}
 UNCHECKED_JOB_TYPES = frozenset(
     {"ingest_pricebook", "ingest_addendum", "index_catalog", "delete_catalog"}
 )
-def validate_job_artifacts(job_type: str, project_slug: str) -> None:
-    """Raise ValueError if job artifacts fail validation (worker gate)."""
+
+
+def _file_sha(project: str, relative: str) -> str | None:
+    path = ROOT / "projects" / project / relative
+    if not path.is_file():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _phase_record(project: str, phase: str) -> dict[str, Any]:
+    artifacts = {}
+    for relative in PHASE_ARTIFACTS.get(phase, ()):
+        sha = _file_sha(project, relative)
+        if sha:
+            artifacts[relative] = sha
+    return {
+        "passed": True,
+        "validatedAt": datetime.now(timezone.utc).isoformat(),
+        "artifacts": artifacts,
+    }
+
+
+def validate_job_artifacts(job_type: str, project_slug: str) -> dict[str, Any] | None:
+    """Raise ArtifactValidationError if job artifacts fail validation (worker gate).
+
+    `run_full_pipeline` is fail-fast: extraction, then pricing, then proposal.
+    The first failing phase is named in the error; later checks do not run.
+    Passing phases are returned (and attached to the error) as `phaseState`.
+    """
     problems: list[str] = []
     warnings: list[str] = []
+    phase_state: dict[str, Any] = {}
 
     checks = ARTIFACT_CHECKS.get(job_type)
     if checks is None:
         if job_type not in UNCHECKED_JOB_TYPES:
             # Better a loud failure than a job quietly skipping its own gate.
-            raise ValueError(
+            raise ArtifactValidationError(
                 f"job type {job_type!r} has no entry in ARTIFACT_CHECKS and is not "
                 "listed as unchecked - add it to one or the other"
             )
-        return
+        return None
 
-    for check in checks:
+    labels = PHASE_LABELS.get(job_type, ())
+    fail_fast = job_type == "run_full_pipeline"
+
+    for index, check in enumerate(checks):
+        phase = labels[index] if index < len(labels) else f"check_{index}"
         p, w = check(project_slug)
-        problems.extend(p)
         warnings.extend(w)
+        if p:
+            detail = "; ".join(p[:5])
+            if len(p) > 5:
+                detail += f" (+{len(p) - 5} more)"
+            if fail_fast:
+                for warning in warnings:
+                    print(f"WARN  {warning}", file=sys.stderr)
+                raise ArtifactValidationError(
+                    f"artifact validation failed at {phase}: {detail}",
+                    phase=phase,
+                    phase_state=phase_state,
+                )
+            problems.extend(p)
+            continue
+        phase_state[phase] = _phase_record(project_slug, phase)
 
     for warning in warnings:
         print(f"WARN  {warning}", file=sys.stderr)
@@ -534,4 +622,8 @@ def validate_job_artifacts(job_type: str, project_slug: str) -> None:
         detail = "; ".join(problems[:5])
         if len(problems) > 5:
             detail += f" (+{len(problems) - 5} more)"
-        raise ValueError(f"artifact validation failed: {detail}")
+        raise ArtifactValidationError(
+            f"artifact validation failed: {detail}",
+            phase_state=phase_state,
+        )
+    return phase_state or None

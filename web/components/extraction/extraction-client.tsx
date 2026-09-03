@@ -25,6 +25,7 @@ import { PartComposer } from "@/components/extraction/part-composer";
 import { JobFailedBanner } from "@/components/jobs/job-failed-banner";
 import { useRowKeys } from "@/hooks/use-row-keys";
 import { useUiState } from "@/components/shell/ui-state";
+import { usePipelineJob } from "@/hooks/use-pipeline-job";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 import type {
   AlternateAssignResult,
@@ -64,10 +65,12 @@ export function ExtractionClient({
   code,
   documents,
   initialJob,
+  autopilot = false,
 }: {
   code: string;
   documents: BidDocument[];
   initialJob: Job | null;
+  autopilot?: boolean;
 }) {
   const router = useRouter();
   const { openNotes, focusMode, userRole } = useUiState();
@@ -79,20 +82,7 @@ export function ExtractionClient({
   const [alternate, setAlternate] = useState<string | null | undefined>(undefined);
   const [runDismissed, setRunDismissed] = useState<string | null>(null);
 
-  // Poll while Claude is working so the screen fills in as it goes.
-  const { data: jobData } = useSWR<{ jobs: Job[] }>(
-    `/api/proxy/jobs?project=${code}&limit=1`,
-    proxyFetcher,
-    {
-      refreshInterval: (latest) => {
-        const current = latest?.jobs?.[0] ?? initialJob;
-        return current?.status === "running" || current?.status === "queued" ? 4000 : 0;
-      },
-      fallbackData: initialJob ? { jobs: [initialJob] } : undefined,
-    },
-  );
-  const job = jobData?.jobs?.[0] ?? null;
-  const running = job?.status === "running" || job?.status === "queued";
+  const { job, running } = usePipelineJob(code, initialJob);
 
   const alternateQuery =
     alternate === undefined ? "" : `&alternate=${encodeURIComponent(alternate ?? "")}`;
@@ -473,12 +463,20 @@ export function ExtractionClient({
         </button>
 
         <button
-          onClick={() =>
+          onClick={() => {
+            if (
+              autopilot &&
+              !window.confirm(
+                "This bid ran on autopilot. Re-run pricing only if you changed the take-off or need a fresh pass.",
+              )
+            ) {
+              return;
+            }
             post("/line-items/continue-to-quote", "Pricing queued for Claude", () =>
               router.push(`/bids/${code}/quote`),
-            )
-          }
-          disabled={busy || !counts?.all}
+            );
+          }}
+          disabled={busy || running || !counts?.all}
           className="flex items-center gap-2 rounded-lg px-5 py-2.5 text-[13px] font-bold disabled:opacity-50 transition-all bg-brand-primary text-white hover:bg-brand-primary/90 shadow-md hover:shadow-lg"
         >
           Continue to Quote
