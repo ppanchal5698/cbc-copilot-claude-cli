@@ -53,6 +53,10 @@ building-plans/
 # project in scope makes it fall back to the repo root, leaving a stray here.
 /audit_trail.jsonl
 
+# The same hook mirrors every tool call to claude.log for post-mortems
+# (log_audit_trail.py, SESSION_LOG). A session transcript, not source.
+/claude.log
+
 # Knowledge graph output and local agent tooling
 graphify-out/
 .agents/
