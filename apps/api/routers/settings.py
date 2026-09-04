@@ -28,11 +28,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from cbc.db import db
 from apps.api.deps import Actor, require_admin
-from cbc.services import audit, provider
+from cbc.core import freshness as freshness_core
+from cbc.services import audit, freshness as freshness_settings, provider
 from cbc.core import secrets
 
 # Every route here reads or writes provider credentials, or spawns a CLI process.
@@ -145,6 +146,21 @@ class PipelineSettings(BaseModel):
     autopilotDefault: bool = False
 
 
+class FreshnessSettings(BaseModel):
+    """How long a price book or last-PO cost stays inside the review window."""
+
+    catalogStaleMonths: int = Field(ge=1, le=freshness_core.MAX_MONTHS)
+    discardAfterMonths: int = Field(ge=1, le=freshness_core.MAX_MONTHS)
+
+    @model_validator(mode="after")
+    def discard_after_the_review_window(self) -> FreshnessSettings:
+        if self.catalogStaleMonths >= self.discardAfterMonths:
+            raise ValueError(
+                "discardAfterMonths must be greater than catalogStaleMonths"
+            )
+        return self
+
+
 @router.get("/pipeline")
 async def get_pipeline_settings() -> dict[str, Any]:
     stored = await db.settings.find_one({"_id": "pipeline"}) or {}
@@ -174,6 +190,40 @@ async def save_pipeline_settings(body: PipelineSettings, actor: Actor) -> dict[s
         after={"autopilotDefault": body.autopilotDefault},
     )
     return await get_pipeline_settings()
+
+
+@router.get("/freshness")
+async def get_freshness_settings() -> dict[str, Any]:
+    freshness_settings.clear_cache()
+    return freshness_settings.as_payload(await freshness_settings.load())
+
+
+@router.put("/freshness")
+async def save_freshness_settings(body: FreshnessSettings, actor: Actor) -> dict[str, Any]:
+    document = {
+        "catalogStaleMonths": body.catalogStaleMonths,
+        "discardAfterMonths": body.discardAfterMonths,
+        "catalogStaleDays": freshness_core.days_from_months(body.catalogStaleMonths),
+        "discardAfterDays": freshness_core.days_from_months(body.discardAfterMonths),
+        "updatedAt": _now(),
+        "updatedBy": actor,
+    }
+    await db.settings.update_one(
+        {"_id": freshness_settings.DOC_ID},
+        {"$set": document},
+        upsert=True,
+    )
+    freshness_settings.clear_cache()
+    await audit.record(
+        "settings.freshness.update",
+        actor,
+        {},
+        after={
+            "catalogStaleMonths": body.catalogStaleMonths,
+            "discardAfterMonths": body.discardAfterMonths,
+        },
+    )
+    return await get_freshness_settings()
 
 
 def _validate_provider_urls(body: ClaudeSettings, candidate: dict[str, Any] | None = None) -> None:

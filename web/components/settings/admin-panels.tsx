@@ -12,7 +12,7 @@ import { endpoints } from "@/lib/endpoints";
 import { isAdminRole } from "@/lib/job-error";
 import { swrKeys } from "@/lib/swr-keys";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
-import type { AuditEntry, IntegrationsResponse, PipelineSettings, UserRow } from "@/lib/types";
+import type { AuditEntry, FreshnessSettings, IntegrationsResponse, PipelineSettings, UserRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export function AuditLogPanel() {
@@ -304,6 +304,140 @@ export function PipelineSettingsPanel() {
           >
             {busy ? "Saving…" : data.autopilotDefault ? "Autopilot on" : "Autopilot off"}
           </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function FreshnessSettingsPanel() {
+  const { data, error, isLoading, mutate } = useSWR<FreshnessSettings>(
+    swrKeys.freshnessSettings(),
+    proxyFetcher,
+  );
+  const [busy, setBusy] = useState(false);
+  const [catalogMonths, setCatalogMonths] = useState("");
+  const [discardMonths, setDiscardMonths] = useState("");
+
+  const catalogValue = catalogMonths !== "" ? catalogMonths : String(data?.catalogStaleMonths ?? "");
+  const discardValue = discardMonths !== "" ? discardMonths : String(data?.discardAfterMonths ?? "");
+
+  async function save() {
+    const catalogStaleMonths = Number(catalogValue);
+    const discardAfterMonths = Number(discardValue);
+    if (
+      !Number.isInteger(catalogStaleMonths) ||
+      !Number.isInteger(discardAfterMonths) ||
+      catalogStaleMonths < 1 ||
+      discardAfterMonths > 120 ||
+      catalogStaleMonths >= discardAfterMonths
+    ) {
+      toast.error("Check the month values", {
+        description: "Review window must be at least 1 month and shorter than the discard band (max 120).",
+      });
+      return;
+    }
+    setBusy(true);
+    try {
+      await proxyMutate<FreshnessSettings>(endpoints.freshnessSettings(), {
+        method: "PUT",
+        body: { catalogStaleMonths, discardAfterMonths },
+      });
+      toast.success(
+        `Price books stale after ${catalogStaleMonths} months; last-PO discarded after ${discardAfterMonths}`,
+      );
+      setCatalogMonths("");
+      setDiscardMonths("");
+      mutate();
+    } catch (problem) {
+      toast.error("Could not save freshness settings", { description: errorMessage(problem) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl bg-panel border border-subtle shadow-sm">
+      <div className="border-b border-subtle px-5 py-4">
+        <h2 className="text-[16px] font-bold text-tx-primary tracking-tight">Price book freshness</h2>
+        <p className="mt-1 text-[13px] font-medium text-tx-secondary">
+          How long vendor catalogs and price books stay inside the review window.
+          P21 last-PO costs use the same fresh window, then the discard band.
+        </p>
+      </div>
+
+      {error && (
+        <div className="p-4">
+          <FetchError
+            title="Could not load freshness settings"
+            error={error}
+            onRetry={() => mutate()}
+            compact
+          />
+        </div>
+      )}
+      {isLoading && !data && !error && (
+        <p className="px-5 py-6 text-[13px] font-medium text-tx-muted">
+          Loading…
+        </p>
+      )}
+      {data && (
+        <div className="flex flex-col gap-5 px-5 py-5">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[13px] font-semibold text-tx-primary">
+                Catalog / price-book review window (months)
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={119}
+                step={1}
+                value={catalogValue}
+                onChange={(event) => setCatalogMonths(event.target.value)}
+                className="rounded-md px-2.5 py-2 text-[13px] font-medium outline-none border border-subtle bg-background text-tx-primary focus:ring-1 focus:ring-brand-border shadow-sm tnum"
+              />
+              <span className="text-[12px] font-medium text-tx-muted">
+                Sheets older than this show as stale. Default 24.
+              </span>
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[13px] font-semibold text-tx-primary">
+                P21 last-PO discard after (months)
+              </span>
+              <input
+                type="number"
+                min={2}
+                max={120}
+                step={1}
+                value={discardValue}
+                onChange={(event) => setDiscardMonths(event.target.value)}
+                className="rounded-md px-2.5 py-2 text-[13px] font-medium outline-none border border-subtle bg-background text-tx-primary focus:ring-1 focus:ring-brand-border shadow-sm tnum"
+              />
+              <span className="text-[12px] font-medium text-tx-muted">
+                Last-PO costs older than this are discarded. Default 30 (2.5 years).
+              </span>
+            </label>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[12.5px] font-medium text-tx-secondary max-w-[520px]">
+              {data.rule ?? data.note}
+              {data.updatedBy ? (
+                <span className="block mt-1.5 text-[11.5px] text-tx-muted">
+                  Last changed by {data.updatedBy}
+                  {data.updatedAt ? ` · ${new Date(data.updatedAt).toLocaleString()}` : ""}
+                </span>
+              ) : null}
+            </p>
+            <button
+              type="button"
+              onClick={save}
+              disabled={busy}
+              className="rounded-md px-4 py-2.5 text-[13px] font-semibold bg-brand-primary text-white hover:bg-brand-primary/90 disabled:opacity-50 transition-colors shadow-sm"
+            >
+              {busy ? "Saving…" : "Save freshness"}
+            </button>
+          </div>
         </div>
       )}
     </section>

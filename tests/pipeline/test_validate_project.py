@@ -514,7 +514,15 @@ def test_pipeline_fails_fast_at_extraction_and_skips_pricing(validate_project, m
         return [], []
 
     monkeypatch.setattr(artifacts, "check_pricing", counting)
-    _write(validate_project, "extracted/door_schedule.json", {"openings": []})
+    # An opening that is present and unusable, not an empty schedule: an empty
+    # one is now a legitimate no-scope finding and passes, so it no longer
+    # stands in for a broken extraction. What this test is about is the
+    # ordering - a pipeline that fails at extraction must not go on to price.
+    _write(
+        validate_project,
+        "extracted/door_schedule.json",
+        {"openings": [{"door_number": "01"}]},
+    )
     _write(validate_project, "extracted/scope_metadata.json", {})
     _write(validate_project, "extracted/scope_summary.json", {})
     with pytest.raises(ArtifactValidationError, match="at extraction"):

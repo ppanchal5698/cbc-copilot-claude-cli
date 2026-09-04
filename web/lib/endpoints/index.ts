@@ -3,6 +3,7 @@
 export const endpoints = {
   jobCancel: (jobId: string) => `/api/proxy/jobs/${jobId}/cancel`,
   pipelineSettings: () => "/api/proxy/settings/pipeline",
+  freshnessSettings: () => "/api/proxy/settings/freshness",
   integrations: () => "/api/proxy/integrations",
   projectDelete: (code: string) => `/api/proxy/projects/${encodeURIComponent(code)}`,
   proposalPdf: (code: string) => `/api/proxy/projects/${code}/proposal/pdf`,

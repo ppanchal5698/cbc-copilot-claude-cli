@@ -43,6 +43,8 @@ SETTINGS_ROUTES = [
     ("get", "/api/settings/claude", None),
     ("put", "/api/settings/claude", {"mode": "subscription"}),
     ("post", "/api/settings/claude/test", {"mode": "subscription"}),
+    ("get", "/api/settings/freshness", None),
+    ("put", "/api/settings/freshness", {"catalogStaleMonths": 24, "discardAfterMonths": 30}),
 ]
 
 

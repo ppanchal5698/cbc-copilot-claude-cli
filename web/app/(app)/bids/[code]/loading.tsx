@@ -7,7 +7,7 @@
 export default function BidStageLoading() {
   return (
     <>
-      <div className="flex h-[56px] shrink-0 items-center gap-4 border-b border-subtle px-5 bg-background">
+      <div className="flex h-[54px] shrink-0 items-center gap-4 border-b border-subtle px-5 bg-background">
         <span className="skeleton h-3 w-52" />
         <span className="flex-1" />
         <span className="skeleton h-[34px] w-[200px] rounded-lg" />

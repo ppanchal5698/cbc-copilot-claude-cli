@@ -12,6 +12,7 @@ test.describe("Admin settings", () => {
     await expect(page.getByRole("heading", { name: "Pipeline defaults" })).toBeVisible({
       timeout: 15_000,
     });
+    await expect(page.getByRole("heading", { name: "Price book freshness" })).toBeVisible();
     await expect(page.getByText(/autopilot default/i)).toBeVisible();
   });
 });

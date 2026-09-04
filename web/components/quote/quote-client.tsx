@@ -370,7 +370,7 @@ export function QuoteClient({
             {!!data?.lapsedCount && (
               <span
                 className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-[12px] font-bold bg-status-warning-soft border border-status-warning/30 text-status-warning shadow-sm"
-                title="Priced from a book past its 180-day review window"
+                title={`Priced from a book past its ${data.reviewWindowMonths ?? 24}-month review window`}
               >
                 <Clock size={14} weight="fill" />
                 {data.lapsedCount} lapsed
@@ -573,7 +573,7 @@ export function QuoteClient({
                           {line.lapsed && (
                             <span
                               className="inline-block mt-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest bg-status-warning-soft text-status-warning shadow-sm"
-                              title={`Price book effective ${line.multiplierEffectiveDate} — past the 180-day review window`}
+                              title={`Price book effective ${line.multiplierEffectiveDate} — past the ${data?.reviewWindowMonths ?? 24}-month review window`}
                             >
                               lapsed
                             </span>

@@ -38,7 +38,7 @@ export function JobFailedBanner({
                     key={action.label}
                     type="button"
                     onClick={() => onAction?.(action)}
-                    className="rounded-lg px-4 py-2 text-[12.5px] font-bold bg-white/50 border border-status-error/30 text-status-error hover:bg-white/70 transition-colors shadow-sm"
+                    className="rounded-lg px-4 py-2 text-[12.5px] font-bold bg-panel border border-status-error/30 text-status-error hover:bg-panel-muted transition-colors shadow-sm"
                   >
                     {action.label}
                   </button>
@@ -48,7 +48,7 @@ export function JobFailedBanner({
                 <Link
                   key={action.label}
                   href={action.href}
-                  className="rounded-lg px-4 py-2 text-[12.5px] font-bold no-underline bg-white/50 border border-status-error/30 text-status-error hover:bg-white/70 transition-colors shadow-sm"
+                  className="rounded-lg px-4 py-2 text-[12.5px] font-bold no-underline bg-panel border border-status-error/30 text-status-error hover:bg-panel-muted transition-colors shadow-sm"
                 >
                   {action.label}
                 </Link>
@@ -59,7 +59,7 @@ export function JobFailedBanner({
                 key={action.label}
                 type="button"
                 onClick={() => onAction?.(action)}
-                className="rounded-lg px-4 py-2 text-[12.5px] font-bold bg-white/50 border border-status-error/30 text-status-error hover:bg-white/70 transition-colors shadow-sm"
+                className="rounded-lg px-4 py-2 text-[12.5px] font-bold bg-panel border border-status-error/30 text-status-error hover:bg-panel-muted transition-colors shadow-sm"
               >
                 {action.label}
               </button>

@@ -37,5 +37,6 @@ export const swrKeys = {
       ? `/api/proxy/audit?limit=50&project=${encodeURIComponent(project)}`
       : "/api/proxy/audit?limit=50",
   pipelineSettings: () => "/api/proxy/settings/pipeline",
+  freshnessSettings: () => "/api/proxy/settings/freshness",
   claudeSettings: () => "/api/proxy/settings/claude",
 } as const;

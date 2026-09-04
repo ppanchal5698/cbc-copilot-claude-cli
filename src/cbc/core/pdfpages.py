@@ -34,10 +34,38 @@ MAX_DPI = 300
 MIN_DPI = 36
 
 
+def _near_miss(path: Path) -> str:
+    """A close-enough real path, when the one asked for does not exist.
+
+    "PDF not found" is a dead end: a run that typed `dunkin_donots_remodel` for
+    `dunkin_donuts_remodel` spent three searches on it, concluded the schedule
+    was not there and moved on. One letter, and the error said nothing about it.
+    """
+    import difflib
+
+    parent = path.parent
+    if not parent.is_dir():
+        # The directory is where a slug typo lands, so look one level up for it.
+        grandparent = parent
+        while grandparent != grandparent.parent and not grandparent.is_dir():
+            grandparent = grandparent.parent
+        if not grandparent.is_dir():
+            return ""
+        candidates = [entry.name for entry in grandparent.iterdir() if entry.is_dir()]
+        missing = path.relative_to(grandparent).parts[0] if path != grandparent else ""
+        close = difflib.get_close_matches(missing, candidates, n=1, cutoff=0.7)
+        return f" Did you mean directory {close[0]!r} rather than {missing!r}?" if close else ""
+
+    close = difflib.get_close_matches(
+        path.name, [entry.name for entry in parent.iterdir()], n=1, cutoff=0.7
+    )
+    return f" Did you mean {close[0]!r}?" if close else ""
+
+
 def _open(file_path: str | Path) -> fitz.Document:
     path = Path(file_path)
     if not path.exists():
-        raise FileNotFoundError(f"PDF not found: {file_path}")
+        raise FileNotFoundError(f"PDF not found: {file_path}.{_near_miss(path)}")
     return fitz.open(path)
 
 

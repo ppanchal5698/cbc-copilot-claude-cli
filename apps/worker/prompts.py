@@ -150,6 +150,21 @@ checked against the drawing by the estimator.
 Do not read the whole set. Most sheets are elevations and details that cost
 context and carry nothing a take-off needs.
 
+**If the set genuinely has no Division 08 openings, say so in the file.** Some
+bids are finishes-only - tile, paint, wall covering - with no doors, frames or
+hardware. That is a finding, not a failure, and the way to report it is to write
+extracted/door_schedule.json with an empty `openings` array and a
+`no_scope_reason` naming what you searched for and did not find:
+
+  {{"openings": [], "no_scope_reason": "no door schedule, door type or hardware
+   set on any of the 28 sheets; Division 08 is existing-to-remain"}}
+
+Write that file. Do not skip the phase and leave it unwritten - an unwritten
+schedule and an empty one mean different things, and only one of them is a
+reportable answer. Beware the opposite error too: an accessibility or general-
+notes sheet mentions "door" and "hardware" many times without being a schedule,
+so a page scoring high on those words alone is not evidence that scope exists.
+
 If {project_dir}/extracted/door_schedule.json already exists it holds openings the
 estimator has confirmed or added by hand. Reconcile against it; do not discard
 their work.
@@ -353,6 +368,14 @@ Run them in that order, **one subagent at a time**. Wait for each phase's
 completion notification before launching the next. Do not read or write that
 phase's output paths while its subagent is still running. A phase that fails
 stops the run - do not carry on and quote off a take-off that did not finish.
+
+**If the set has no Division 08 openings, write that down.** A finishes-only bid
+is a real outcome. Write extracted/door_schedule.json with an empty `openings`
+array and a `no_scope_reason` naming what you searched for and did not find, then
+carry on - the later phases will have nothing to price and that is the answer.
+Never skip Phase 3 and leave the file unwritten. And note that an accessibility
+or general-notes sheet repeats "door" and "hardware" without being a schedule, so
+a high word count on one page is not on its own evidence that scope exists.
 
 **What to do with a line you are unsure of.** Price it, and flag it. Do not guess a
 fire rating, handing, finish, size or price to make a line look complete, and do

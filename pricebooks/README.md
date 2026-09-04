@@ -70,7 +70,7 @@ Only PDFs are text-indexed by the `pricebook` MCP server. The `.xlsx`, `.xls`,
 bash scripts/refresh_pricebooks.sh
 ```
 
-At the time of writing, **11 of 26 files are past 180 days** and **7 carry no
+At the time of writing, **11 of 26 files are past the 24-month review window** and **7 carry no
 effective date**. That is reported on every pre-flight rather than suppressed.
 
 **NFR-10 (data stewardship) is OPEN** - no owner and no refresh cadence have been

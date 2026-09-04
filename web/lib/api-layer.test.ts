@@ -19,5 +19,6 @@ describe("endpoints", () => {
   it("builds cancel and pipeline paths", () => {
     expect(endpoints.jobCancel("abc123")).toBe("/api/proxy/jobs/abc123/cancel");
     expect(endpoints.pipelineSettings()).toBe("/api/proxy/settings/pipeline");
+    expect(endpoints.freshnessSettings()).toBe("/api/proxy/settings/freshness");
   });
 });

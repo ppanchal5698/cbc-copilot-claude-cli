@@ -100,25 +100,53 @@ def _merge_pages(ranked: dict[str, Any], markers: list[dict[str, Any]]) -> list[
                 "markers": found,
             }
         )
-    pages.sort(key=lambda p: (-int(p.get("score") or 0), int(p["source_page"])))
+    # A page carrying a real schedule marker outranks any page that merely uses
+    # the words a lot. Sorted on score alone, an accessibility details sheet with
+    # 30 uses of "door" led the map on a bid whose Division 08 scope was nil.
+    pages.sort(
+        key=lambda p: (
+            0 if p.get("kind") == "schedule" else 1,
+            -int(p.get("score") or 0),
+            int(p["source_page"]),
+        )
+    )
     return pages
 
 
-def _file_entry(pdf: Path) -> dict[str, Any]:
+def _project_relative(slug: str, pdf: Path) -> str:
+    """The path a pdf-tools call takes, whole.
+
+    This used to be `uploads/raw/<name>`, so every caller rebuilt the project
+    directory in front of it by hand. One run typed `dunkin_donots_remodel` and
+    three searches - the ones hunting for the door schedule - came back "PDF not
+    found" against a set that was there all along. Nothing should have to retype
+    a slug it was already given.
+    """
+    return f"projects/{slug}/uploads/raw/{pdf.name}"
+
+
+def _file_entry(slug: str, pdf: Path) -> dict[str, Any]:
     path = str(pdf)
     ranked = _find_sheets(path)
     parse = _load_parse_schedule()
     markers = parse.find_schedule_pages(path)
-    rel = f"uploads/raw/{pdf.name}"
+    pages = _merge_pages(ranked, markers)
+    schedule_pages = [p["source_page"] for p in pages if p.get("kind") == "schedule"]
     return {
-        "path": rel,
+        "path": _project_relative(slug, pdf),
         "file_sha": pdfpages.content_sha256(pdf),
         "page_count": ranked.get("page_count") or 0,
-        "pages": _merge_pages(ranked, markers),
+        # Stated, so "no page in this file carries a schedule marker" is a fact a
+        # run can read rather than a conclusion it has to reach from an empty
+        # search. A ranked page is only a word count: an accessibility sheet
+        # scored 44 on `door` alone and was not a schedule.
+        "schedule_pages": schedule_pages,
+        "has_schedule_markers": bool(schedule_pages),
+        "pages": pages,
     }
 
 
-def _unchanged(existing: dict[str, Any], files: list[Path]) -> bool:
+def _unchanged(slug: str, existing: dict[str, Any], files: list[Path]) -> bool:
     recorded = {
         row.get("path"): row.get("file_sha")
         for row in (existing.get("files") or [])
@@ -127,8 +155,7 @@ def _unchanged(existing: dict[str, Any], files: list[Path]) -> bool:
     if len(recorded) != len(files):
         return False
     for pdf in files:
-        rel = f"uploads/raw/{pdf.name}"
-        if recorded.get(rel) != pdfpages.content_sha256(pdf):
+        if recorded.get(_project_relative(slug, pdf)) != pdfpages.content_sha256(pdf):
             return False
     return True
 
@@ -149,12 +176,12 @@ def build_sheetmap(slug: str, *, force: bool = False) -> dict[str, Any]:
             existing = json.loads(target.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             existing = {}
-        if isinstance(existing, dict) and _unchanged(existing, files):
+        if isinstance(existing, dict) and _unchanged(slug, existing, files):
             return existing
 
     payload = {
         "generated_at": _now(),
-        "files": [_file_entry(pdf) for pdf in files],
+        "files": [_file_entry(slug, pdf) for pdf in files],
     }
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(payload, indent=2), encoding="utf-8")

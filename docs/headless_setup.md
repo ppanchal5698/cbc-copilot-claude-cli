@@ -156,7 +156,7 @@ Draft ready for estimator review. Nothing has been sent.
 ```
 
 Pre-flight warnings about stale price books are expected today - 11 of 26 books are
-past 180 days. They are surfaced, not suppressed (NFR-10).
+past the 24-month review window. They are surfaced, not suppressed (NFR-10).
 
 ## Troubleshooting
 

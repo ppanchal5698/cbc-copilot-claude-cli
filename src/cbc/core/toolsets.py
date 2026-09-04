@@ -117,13 +117,13 @@ def config_for(job_type: str) -> str:
         # always done it this way.
         entry: dict[str, Any] = {"command": sys.executable, "args": [SERVERS[name]]}
         env: dict[str, str] = {}
-        if name == "catalog":
-            # The page index lives in MongoDB, and this is the one credential a
-            # run is given for it: read-only, and no fallback to the writable
-            # string. `provider.WITHHELD` keeps MONGODB_URI out of the subprocess
-            # entirely, because pymongo is in the image and one Bash call with the
-            # root URI would go straight past every read-only assertion the tools
-            # make about themselves.
+        if name in ("catalog", "p21-connector"):
+            # The page index and the freshness settings live in MongoDB, and this
+            # is the one credential a run is given for them: read-only, and no
+            # fallback to the writable string. `provider.WITHHELD` keeps
+            # MONGODB_URI out of the subprocess entirely, because pymongo is in
+            # the image and one Bash call with the root URI would go straight
+            # past every read-only assertion the tools make about themselves.
             readonly = _readonly_uri()
             if readonly:
                 env["MONGODB_READONLY_URI"] = readonly

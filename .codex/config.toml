@@ -1,0 +1,19 @@
+[mcp_servers.artifact-storage]
+command = "python"
+args = ["./mcp-servers/artifact-storage/server.py"]
+
+[mcp_servers.calc-engine]
+command = "python"
+args = ["./mcp-servers/calc-engine/server.py"]
+
+[mcp_servers.catalog]
+command = "python"
+args = ["./mcp-servers/catalog/server.py"]
+
+[mcp_servers.p21-connector]
+command = "python"
+args = ["./mcp-servers/p21-connector/server.py"]
+
+[mcp_servers.pdf-tools]
+command = "python"
+args = ["./mcp-servers/pdf-tools/server.py"]

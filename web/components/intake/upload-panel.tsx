@@ -216,7 +216,9 @@ export function UploadPanel({
             setDragging(false);
             upload(event.dataTransfer.files);
           }}
-          className={`m-5 grid place-items-center gap-3 rounded-xl px-8 py-12 text-center transition-all ${
+          className={`m-5 grid place-items-center gap-3 rounded-xl px-8 text-center transition-all ${
+            documents.length > 0 ? "py-6" : "py-12"
+          } ${
             dragging
               ? "border-2 border-dashed border-brand-primary bg-brand-primary/10"
               : "border-2 border-dashed border-subtle bg-background"

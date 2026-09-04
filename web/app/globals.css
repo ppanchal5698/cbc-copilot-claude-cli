@@ -223,8 +223,24 @@
   }
 }
 
-.animate-fade-in {
+.animate-fade-in,
+.anim-fadein {
   animation: fade-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.anim-popin {
+  animation: pop-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @keyframes skeleton-pulse {
@@ -244,7 +260,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .skeleton,
-  .animate-fade-in {
+  .animate-fade-in,
+  .anim-fadein,
+  .anim-popin {
     animation: none;
   }
   .terminal-log-scroll {

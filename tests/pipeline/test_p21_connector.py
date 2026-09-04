@@ -22,19 +22,52 @@ def test_search_without_base_url_is_empty() -> None:
     assert result["connected"] is False
 
 
-def test_freshness_under_six_months_is_usable() -> None:
+def test_freshness_under_twenty_four_months_is_usable() -> None:
     from datetime import date, timedelta
 
     recent = (date.today() - timedelta(days=30)).isoformat()
     result = check_freshness(recent)
     assert result["freshness_status"] == "fresh"
     assert result["usable"] is True
+    still_fresh = (date.today() - timedelta(days=700)).isoformat()
+    assert check_freshness(still_fresh)["freshness_status"] == "fresh"
 
 
-def test_freshness_over_three_years_is_stale() -> None:
+def test_freshness_past_twenty_four_months_is_unreliable() -> None:
     from datetime import date, timedelta
 
-    old = (date.today() - timedelta(days=1200)).isoformat()
+    mid = (date.today() - timedelta(days=800)).isoformat()
+    result = check_freshness(mid)
+    assert result["freshness_status"] == "unreliable"
+    assert result["usable"] is False
+
+
+def test_freshness_over_two_and_a_half_years_is_stale() -> None:
+    from datetime import date, timedelta
+
+    old = (date.today() - timedelta(days=1000)).isoformat()
     result = check_freshness(old)
     assert result["freshness_status"] == "stale"
     assert result["usable"] is False
+
+
+def test_freshness_respects_a_narrower_admin_window(monkeypatch) -> None:
+    from datetime import date, timedelta
+
+    from cbc.core import freshness as core
+    from cbc.services.freshness import Bands
+    import server as p21
+
+    bands = Bands(
+        catalog_stale_months=6,
+        discard_after_months=12,
+        catalog_stale_days=core.days_from_months(6),
+        discard_after_days=core.days_from_months(12),
+        rule=core.rule_text(6, 12),
+    )
+    monkeypatch.setattr(p21, "load_sync", lambda: bands)
+    mid = (date.today() - timedelta(days=250)).isoformat()
+    result = check_freshness(mid)
+    assert result["freshness_status"] == "unreliable"
+    assert result["usable"] is False
+    assert result["rule"] == bands.rule

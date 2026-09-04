@@ -81,12 +81,12 @@ solved problem.
 | Interim mitigation | What it does |
 |---|---|
 | `pricebooks/index.json` | Records an effective date per book |
-| `scripts/refresh_pricebooks.sh` | Reports age, warns past 180 days |
+| `scripts/refresh_pricebooks.sh` | Reports age, warns past ~24 months |
 | `validate_project.py --all` | Surfaces stale books in pre-flight |
 | Manual-entry refresh prompt | "price may be out of date - refresh" on every distributor line |
 | P21 freshness rule | Independent age check on last-PO costs |
 
-Today 11 of 26 price books are past 180 days and 7 carry no effective date at all.
+Today 11 of 26 price books are past the 24-month review window and 7 carry no effective date at all.
 That is visible on every run, which is the most this layer can do until an owner
 is named.
 

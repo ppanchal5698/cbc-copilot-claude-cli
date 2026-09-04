@@ -7,7 +7,7 @@
 - Cost = the **LAST PO price**, from purchase history or the cost screen.
 - **Never** the "supplier list" or "supplier cost" fields - purchasing does not
   keep them current. This is the single most important trap on this path.
-- Right about **9 times out of 10** when the item sold within the last year with
+- Right about **9 times out of 10** when the item sold within the last ~24 months with
   no price increase since.
 - Access is **READ-ONLY** (NFR-5).
 
@@ -15,9 +15,9 @@
 
 | Age | Status | Action |
 |---|---|---|
-| < 6 months | fresh | usable |
-| ~6-8 months+ | unreliable | re-verify against the vendor sheet |
-| 3-4 years | stale | discard |
+| < ~24 months | fresh | usable |
+| more than 24 months | unreliable | re-verify against the vendor sheet |
+| more than 2.5 years | stale | discard |
 
 **Known risks:** P21 item IDs frequently differ from manufacturer part numbers,
 and semi/custom items will not match at all. Manual entry must always be

@@ -74,6 +74,14 @@ def test_ingest_can_read_the_sheet_it_is_given():
     assert "pdf-tools" in servers, "ingest must be able to open the sheet"
 
 
+def test_pricing_hands_p21_the_readonly_mongo_uri(monkeypatch):
+    """check_freshness reads the admin window from settings; that needs the RO URI."""
+    monkeypatch.setenv("MONGODB_READONLY_URI", "mongodb://ro@localhost/cbc_opshub")
+    servers = json.loads(toolsets.config_for("match_and_price"))["mcpServers"]
+    assert servers["p21-connector"]["env"]["MONGODB_READONLY_URI"].startswith("mongodb://")
+    assert servers["catalog"]["env"]["MONGODB_READONLY_URI"].startswith("mongodb://")
+
+
 def test_every_job_type_is_either_a_prompt_or_a_local_handler():
     """A job type nobody runs is a queue entry that fails at dispatch.
 

@@ -175,10 +175,42 @@ def _scope_flags(scope: Any, metadata: Any) -> list[dict]:
     return flags
 
 
+def _no_scope_flags(schedule: Any, openings: list[dict]) -> list[dict]:
+    """An empty take-off has to say so loudly, however it was phrased.
+
+    The job passes validation in this case, so without a flag the estimator
+    would see a green run and an empty quote and have to work out why. Keyed on
+    the openings being empty rather than on any particular field, because the
+    gate that keyed on a field name is what rejected a correct run.
+    """
+    if openings:
+        return []
+    reason = ""
+    if isinstance(schedule, dict):
+        reason = str(schedule.get("no_scope_reason") or "").strip()
+        if not reason:
+            for field in ("door_schedule_found", "schedule_found"):
+                if schedule.get(field) is False:
+                    reason = f"the take-off recorded {field}: false"
+                    break
+    return [
+        _flag(
+            "bid set",
+            "no_scope",
+            "high",
+            "No Division 08 openings were found in this bid set"
+            + (f": {reason}" if reason else " and no reason was recorded")
+            + ". Confirm against the drawings before declining - an empty "
+            "take-off and a missed schedule look identical on the quote.",
+        )
+    ]
+
+
 def derive_flags(slug: str) -> list[dict]:
     """Every finding that follows from the artifacts, without a model."""
     project = ROOT / "projects" / slug
-    openings = _openings(_load(project / "extracted" / "door_schedule.json"))
+    schedule = _load(project / "extracted" / "door_schedule.json")
+    openings = _openings(schedule)
     priced = _load(project / "priced" / "line_items.json")
     if isinstance(priced, list):
         lines = priced
@@ -188,6 +220,7 @@ def derive_flags(slug: str) -> list[dict]:
         lines = []
 
     return [
+        *_no_scope_flags(schedule, openings),
         *_opening_flags(openings),
         *_line_flags([line for line in lines if isinstance(line, dict)]),
         *_scope_flags(

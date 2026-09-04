@@ -181,6 +181,7 @@ export interface QuoteResponse {
   lineCount: number;
   edited?: { count: number; firstId: string | null };
   lapsedCount?: number;
+  reviewWindowMonths?: number;
 }
 
 export interface Product {
@@ -617,6 +618,17 @@ export interface UserRow {
 
 export interface PipelineSettings {
   autopilotDefault: boolean;
+  note?: string;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface FreshnessSettings {
+  catalogStaleMonths: number;
+  discardAfterMonths: number;
+  catalogStaleDays: number;
+  discardAfterDays: number;
+  rule?: string;
   note?: string;
   updatedAt?: string | null;
   updatedBy?: string | null;

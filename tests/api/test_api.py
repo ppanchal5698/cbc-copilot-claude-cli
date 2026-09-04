@@ -362,6 +362,39 @@ def test_stale_price_books_are_reported(client):
     assert body["stewardship"]["owner"] is None, "NFR-10 is open; do not fake an owner"
 
 
+def test_a_mid_age_price_book_follows_the_review_window(client):
+    from datetime import date, timedelta
+
+    from cbc.services import freshness as freshness_settings
+
+    effective = (date.today() - timedelta(days=400)).isoformat()
+    client.post(
+        "/api/price-books",
+        json={"vendor": "windowvendor", "multiplier": 0.5, "effective": effective},
+    )
+
+    def book():
+        books = client.get("/api/price-books").json()["priceBooks"]
+        return next(row for row in books if row["vendor"] == "windowvendor")
+
+    assert book()["stale"] is False
+
+    try:
+        saved = client.put(
+            "/api/settings/freshness",
+            json={"catalogStaleMonths": 6, "discardAfterMonths": 12},
+        )
+        assert saved.status_code == 200, saved.text
+        freshness_settings.clear_cache()
+        assert book()["stale"] is True
+    finally:
+        client.put(
+            "/api/settings/freshness",
+            json={"catalogStaleMonths": 24, "discardAfterMonths": 30},
+        )
+        freshness_settings.clear_cache()
+
+
 # ── proposal ────────────────────────────────────────────────────────────────
 
 

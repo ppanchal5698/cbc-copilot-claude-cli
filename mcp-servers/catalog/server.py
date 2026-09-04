@@ -40,10 +40,11 @@ from cbc.pageindex import models as page_models  # noqa: E402
 from cbc.pageindex import query as page_query  # noqa: E402
 from cbc.pageindex import reader  # noqa: E402
 
+from cbc.services.freshness import load_sync  # noqa: E402
+
 TIERS_FILE = ROOT / "reference-library" / "multipliers" / "vendor_tiers.json"
 SPECIAL_NETS_FILE = ROOT / "reference-library" / "multipliers" / "hager_special_nets.json"
 STOCK_LIST_DIR = ROOT / "reference-library" / "hardware_sets"
-STALE_DAYS = 180
 
 _special_nets: dict[str, dict[str, Any]] | None = None
 _special_nets_meta: dict[str, Any] | None = None
@@ -81,6 +82,7 @@ def list_catalogs(vendor: str | None = None) -> dict[str, Any]:
         return _unavailable(exc)
 
     catalogs = []
+    stale_days = load_sync().catalog_stale_days
     for row in rows:
         effective = row.get("effectiveDate")
         age = None
@@ -99,7 +101,7 @@ def list_catalogs(vendor: str | None = None) -> dict[str, Any]:
                 "pages": row.get("pageCount", 0),
                 "effective_date": effective,
                 "age_days": age,
-                "stale": age is not None and age > STALE_DAYS,
+                "stale": age is not None and age > stale_days,
                 "undated": effective is None,
             }
         )

@@ -17,7 +17,7 @@ from cbc.config import settings
 from cbc.db import db, oid, serialise
 from apps.api.deps import Actor, AdminActor
 from cbc.schemas import PriceBookCreate, PriceBookUpdate
-from cbc.services import audit, jobs, storage
+from cbc.services import audit, freshness as freshness_settings, jobs, storage
 from cbc.pageindex import basis, store as catalog_store
 from cbc.services.reference_library import sync_vendor_categories
 
@@ -25,7 +25,6 @@ router = APIRouter(prefix="/api/price-books", tags=["price-books"])
 
 PDF_MAGIC = b"%PDF-"
 
-STALE_DAYS = 180
 
 
 def _now() -> datetime:
@@ -41,12 +40,13 @@ def _age_days(effective: str | None) -> int | None:
         return None
 
 
-def _decorate(book: dict[str, Any]) -> dict[str, Any]:
+async def _decorate(book: dict[str, Any]) -> dict[str, Any]:
+    bands = await freshness_settings.load()
     age = _age_days(book.get("effective"))
     return {
         **serialise(book),
         "ageDays": age,
-        "stale": age is not None and age > STALE_DAYS,
+        "stale": age is not None and age > bands.catalog_stale_days,
         "undated": book.get("effective") is None,
     }
 
@@ -54,7 +54,7 @@ def _decorate(book: dict[str, Any]) -> dict[str, Any]:
 @router.get("")
 async def list_price_books() -> dict[str, Any]:
     books = await db.price_books.find().sort([("vendor", 1), ("program", 1)]).to_list(200)
-    decorated = [_decorate(b) for b in books]
+    decorated = [await _decorate(b) for b in books]
     return {
         "priceBooks": decorated,
         "counts": {
@@ -78,7 +78,7 @@ async def get_price_book(book_id: str) -> dict[str, Any]:
 
     parts = await db.products.find({"priceBookId": book["_id"]}).sort("part", 1).to_list(500)
     part_count = await db.products.count_documents({"priceBookId": book["_id"]})
-    return {"priceBook": _decorate(book), "parts": serialise(parts), "partCount": part_count}
+    return {"priceBook": await _decorate(book), "parts": serialise(parts), "partCount": part_count}
 
 
 @router.post("", status_code=201)
@@ -89,7 +89,7 @@ async def create_price_book(body: PriceBookCreate, actor: Actor) -> dict:
     await audit.record(
         "price_book.create", actor, {"priceBookId": result.inserted_id}, after=body.vendor
     )
-    return _decorate(document)
+    return await _decorate(document)
 
 
 @router.post("/{book_id}/file", status_code=201)
@@ -141,7 +141,7 @@ async def upload_price_book_file(
 
     await audit.record("price_book.upload", actor, {"priceBookId": book["_id"]}, after=target.name)
     response: dict[str, Any] = {
-        "priceBook": _decorate(await db.price_books.find_one({"_id": book["_id"]})),
+        "priceBook": await _decorate(await db.price_books.find_one({"_id": book["_id"]})),
         "job": serialise(job),
     }
     return response
@@ -167,7 +167,7 @@ async def update_price_book(book_id: str, body: PriceBookUpdate, actor: AdminAct
 
     changes = body.model_dump(exclude_unset=True)
     if not changes:
-        return _decorate(book)
+        return await _decorate(book)
 
     await db.price_books.update_one({"_id": book["_id"]}, {"$set": {**changes, "updatedAt": _now()}})
 
@@ -222,7 +222,7 @@ async def update_price_book(book_id: str, body: PriceBookUpdate, actor: AdminAct
         before={k: book.get(k) for k in changes},
         after={**changes, **({"repricedParts": repriced} if repriced is not None else {})},
     )
-    return _decorate(await db.price_books.find_one({"_id": book["_id"]}))
+    return await _decorate(await db.price_books.find_one({"_id": book["_id"]}))
 
 
 @router.post("/{book_id}/mark-reviewed")
@@ -236,7 +236,7 @@ async def mark_reviewed(book_id: str, actor: Actor) -> dict:
         {"_id": book["_id"]}, {"$set": {"lastReviewed": today, "updatedAt": _now()}}
     )
     await audit.record("price_book.reviewed", actor, {"priceBookId": book["_id"]}, after=today)
-    return _decorate(await db.price_books.find_one({"_id": book["_id"]}))
+    return await _decorate(await db.price_books.find_one({"_id": book["_id"]}))
 
 
 @router.delete("/{book_id}", status_code=204)
