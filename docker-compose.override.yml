@@ -26,6 +26,7 @@ services:
       - ./tests/fixtures/pdfs:/app/tests/fixtures/pdfs:ro
       - claude_home:/home/cbc/.claude
       - ${CLAUDE_CREDENTIALS:-~/.claude/.credentials.json}:/home/cbc/.claude/.credentials.json:ro
+      - cbc_cache:/app/.cache
 
   worker:
     environment:
@@ -35,3 +36,4 @@ services:
       - ./pricebooks:/app/pricebooks:ro
       - claude_home:/home/cbc/.claude
       - ${CLAUDE_CREDENTIALS:-~/.claude/.credentials.json}:/home/cbc/.claude/.credentials.json:ro
+      - cbc_cache:/app/.cache

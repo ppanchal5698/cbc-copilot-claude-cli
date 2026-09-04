@@ -115,6 +115,41 @@ def test_a_job_with_a_fresh_heartbeat_is_left_alone(database) -> None:
     assert database["jobs"].find_one({})["status"] == "running"
 
 
+def test_only_one_active_pipeline_job_per_project(database) -> None:
+    """Autopilot and manual pricing must not run as two Claude sessions on one bid."""
+    from bson import ObjectId
+
+    from cbc.services import jobs
+
+    project_id = ObjectId()
+    autopilot = run(jobs.enqueue("run_full_pipeline", project_id))
+    pricing = run(jobs.enqueue("match_and_price", project_id))
+
+    assert pricing["_id"] == autopilot["_id"]
+    assert pricing["type"] == "run_full_pipeline"
+    assert (
+        database["jobs"].count_documents(
+            {
+                "projectId": project_id,
+                "status": {"$in": ["queued", "running"]},
+            }
+        )
+        == 1
+    )
+
+
+def test_enqueue_exclusive_refuses_a_second_pipeline_type(database) -> None:
+    from bson import ObjectId
+
+    from cbc.services import jobs
+
+    project_id = ObjectId()
+    run(jobs.enqueue("extract_bid_set", project_id))
+
+    with pytest.raises(jobs.PipelineJobActive):
+        run(jobs.enqueue_exclusive("match_and_price", project_id))
+
+
 def test_a_reaped_job_that_is_out_of_attempts_fails(database) -> None:
     from bson import ObjectId
 
@@ -344,6 +379,44 @@ def test_a_finished_index_does_not_block_a_re_index(database) -> None:
     assert first["_id"] != second["_id"]
 
 
+def test_same_file_sha_coalesces_even_when_filenames_differ(database) -> None:
+    from cbc.services import jobs
+
+    first = run(
+        jobs.enqueue(
+            "index_catalog",
+            payload={"filename": "hager.pdf", "fileSha": "sha256:abc"},
+        )
+    )
+    second = run(
+        jobs.enqueue(
+            "index_catalog",
+            payload={"filename": "hager (1).pdf", "fileSha": "sha256:abc"},
+        )
+    )
+    assert first["_id"] == second["_id"]
+    assert database["jobs"].count_documents({"type": "index_catalog"}) == 1
+
+
+def test_a_different_file_sha_still_gets_its_own_job(database) -> None:
+    from cbc.services import jobs
+
+    first = run(
+        jobs.enqueue(
+            "index_catalog",
+            payload={"filename": "hager.pdf", "fileSha": "sha256:aaa"},
+        )
+    )
+    second = run(
+        jobs.enqueue(
+            "index_catalog",
+            payload={"filename": "hager.pdf", "fileSha": "sha256:bbb"},
+        )
+    )
+    assert first["_id"] != second["_id"]
+    assert database["jobs"].count_documents({"type": "index_catalog"}) == 2
+
+
 # ── the queue, visible without reading the logs ─────────────────────────────
 
 
@@ -353,8 +426,8 @@ def test_metrics_report_depth_throughput_and_failures(database) -> None:
 
     now = _now()
     # Distinct projects: `exclusive_active_job` is a unique partial index over
-    # (projectId, type) for queued and running jobs, so two active jobs of one
-    # type on one project is exactly what the schema forbids.
+    # projectId for queued and running pipeline jobs, so two active jobs of any
+    # pipeline type on one project is exactly what the schema forbids.
     from bson import ObjectId
 
     database["jobs"].insert_many([
@@ -405,4 +478,42 @@ def test_no_finished_jobs_reports_no_rate_rather_than_zero(database) -> None:
     result = run(jobs.metrics())
     assert result["failureRate"] is None
     assert result["oldestQueuedAt"] is not None
+
+
+def test_artifact_validation_failure_is_not_retried(database) -> None:
+    """A missing bbox used to re-queue the whole job up to MAX_ATTEMPTS (T-03)."""
+    from bson import ObjectId
+
+    from apps.worker import main as worker
+
+    job_id = ObjectId()
+    job = {
+        "_id": job_id,
+        "type": "extract_bid_set",
+        "projectId": ObjectId(),
+        "status": "running",
+        "attempts": 1,
+        "workerId": "test-worker",
+        "claimGeneration": 1,
+        "payload": {},
+    }
+    database["jobs"].insert_one(job)
+
+    run(
+        worker.finish(
+            job,
+            False,
+            "artifact validation failed: opening 01 has no bbox",
+            "",
+            permanent=True,
+            error_code="artifact_validation",
+        )
+    )
+
+    stored = database["jobs"].find_one({"_id": job_id})
+    assert stored["status"] == "failed"
+    assert stored["attempts"] == 1
+    assert stored["errorCode"] == "artifact_validation"
+    assert "bbox" in stored["error"]
+    assert stored.get("nextAttemptAt") is None
 

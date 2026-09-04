@@ -4,9 +4,9 @@ description: >
   Extracts the door / opening schedule from an architectural PDF. Captures door
   number, size (4-digit notation or explicit feet-inches), handing (LH/RH/LHR/RHR),
   finish (US26D/626 dual nomenclature), fire rating (20/45/60/90-minute), frame
-  type, wall type and hardware-group callouts. Use in Phase 2 (spec scoping) and
-  Phase 3 (drawing take-off) of a CBC bid, or whenever a bid-set PDF needs its
-  openings enumerated.
+  type, wall type and hardware-group callouts. Use in Phase 3 (drawing take-off)
+  of a CBC bid. Phase 2 records hardware-group page numbers only — spec-scope-analyst
+  owns that; takeoff-engineer owns item-level extraction here.
 ---
 
 # Extract Door Schedule
@@ -43,11 +43,6 @@ table detection.** Rows are recovered by clustering positioned words instead.
 
 See `references/schedule_anatomy.md` for the full anatomy, including the
 hardware-set composition and the two size notations.
-
-## Rules
-
-- @.claude/rules/accuracy-trust.md
-- @.claude/rules/auditability.md
 
 ## Reference data
 

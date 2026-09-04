@@ -17,6 +17,7 @@ import { useDebounced } from "@/hooks/use-debounced";
 import { formatMoney } from "@/lib/format";
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 import type { Product, ProductSearchResponse } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const EDIT_FIELDS = [
   { key: "description", label: "Description", type: "text" },
@@ -180,20 +181,19 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
   }
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4 lg:flex-row lg:overflow-hidden">
-      <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+    <main className="flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-8 bg-background lg:flex-row lg:overflow-hidden">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col gap-5">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-[20px] font-semibold">Product catalog</h1>
-            <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+            <h1 className="text-[26px] font-bold tracking-tight text-tx-primary">Product catalog</h1>
+            <p className="mt-1.5 text-[14px] font-medium text-tx-secondary">
               {data?.total ?? 0} of your own parts
               {pages.length > 0 ? ` · ${pages.length} price-book page${pages.length === 1 ? "" : "s"} match` : ""}
             </p>
           </div>
           <button
             onClick={() => setCreating((c) => !c)}
-            className="flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[12.5px] font-semibold"
-            style={{ background: "var(--app-accent)", color: "#fff" }}
+            className="flex items-center gap-1.5 rounded-md px-3.5 py-2 text-[13px] font-semibold bg-brand-primary text-white shadow-sm hover:bg-brand-primary/90 transition-colors"
           >
             <Plus size={14} weight="bold" />
             Add part
@@ -203,8 +203,7 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
         {creating && (
           <form
             onSubmit={create}
-            className="anim-fadein grid gap-2 rounded-xl p-3 sm:grid-cols-2 xl:grid-cols-[170px_1fr_130px_110px_100px_90px]"
-            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
+            className="animate-fade-in grid gap-3 rounded-xl p-4 bg-panel border border-subtle shadow-sm sm:grid-cols-2 xl:grid-cols-[170px_1fr_130px_110px_100px_90px]"
           >
             {[
               { name: "part", placeholder: "Part number", required: true },
@@ -221,52 +220,42 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
                 required={field.required}
                 placeholder={field.placeholder}
                 aria-label={field.placeholder}
-                className="rounded-md px-2.5 py-2 text-[12.5px] outline-none focus:ring-2"
-                style={{
-                  background: "var(--app-panel-2)",
-                  border: "1px solid var(--app-line)",
-                  color: "var(--app-tx)",
-                }}
+                className="rounded-md px-3 py-2 text-[13px] outline-none border border-subtle bg-background text-tx-primary placeholder:text-tx-muted focus:ring-1 focus:ring-brand-border focus:border-brand-border transition-colors shadow-sm"
               />
             ))}
             <button
               type="submit"
               disabled={busy}
-              className="rounded-md py-2 text-[12.5px] font-semibold disabled:opacity-60"
-              style={{ background: "var(--app-pos)", color: "#fff" }}
+              className="rounded-md py-2 text-[13px] font-semibold disabled:opacity-60 bg-status-success text-white shadow-sm hover:bg-status-success/90 transition-colors"
             >
               Save
             </button>
           </form>
         )}
 
-        <div
-          className="flex items-center gap-2 rounded-xl px-3.5 py-2.5"
-          style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-        >
-          <MagnifyingGlass size={15} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
+        <div className="flex items-center gap-2 rounded-xl px-4 py-2.5 bg-panel border border-subtle shadow-sm transition-colors focus-within:border-brand-border focus-within:ring-1 focus-within:ring-brand-border/30">
+          <MagnifyingGlass size={16} weight="duotone" className="text-tx-muted" />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Part number, description, manufacturer"
             aria-label="Search the catalog"
-            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
-            style={{ color: "var(--app-tx)" }}
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-tx-primary outline-none placeholder:text-tx-muted"
           />
-          <span className="tnum shrink-0 text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+          <span className="tnum shrink-0 text-[12px] font-medium text-tx-muted">
             {products.length} of {data?.total ?? 0}
           </span>
         </div>
 
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setDivision("")}
-            className="rounded-md px-3 py-1.5 text-[12px]"
-            style={{
-              background: division === "" ? "var(--app-accent-soft)" : "var(--app-panel)",
-              color: division === "" ? "var(--app-accent)" : "var(--app-tx-2)",
-              border: `1px solid ${division === "" ? "var(--app-accent-line)" : "var(--app-line)"}`,
-            }}
+            className={cn(
+              "rounded-md px-3.5 py-1.5 text-[12.5px] font-medium transition-colors shadow-sm",
+              division === "" 
+                ? "bg-brand-soft border border-brand-border text-brand-primary" 
+                : "bg-panel border border-subtle text-tx-secondary hover:text-tx-primary hover:bg-panel-muted"
+            )}
           >
             All divisions {data?.total ?? 0}
           </button>
@@ -274,32 +263,23 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
             <button
               key={entry.division}
               onClick={() => setDivision(entry.division)}
-              className="rounded-md px-3 py-1.5 text-[12px]"
-              style={{
-                background:
-                  division === entry.division ? "var(--app-accent-soft)" : "var(--app-panel)",
-                color: division === entry.division ? "var(--app-accent)" : "var(--app-tx-2)",
-                border: `1px solid ${division === entry.division ? "var(--app-accent-line)" : "var(--app-line)"}`,
-              }}
+              className={cn(
+                "rounded-md px-3.5 py-1.5 text-[12.5px] font-medium transition-colors shadow-sm",
+                division === entry.division 
+                  ? "bg-brand-soft border border-brand-border text-brand-primary" 
+                  : "bg-panel border border-subtle text-tx-secondary hover:text-tx-primary hover:bg-panel-muted"
+              )}
             >
               {entry.division} {entry.count}
             </button>
           ))}
         </div>
 
-        <div
-          className="min-h-[240px] flex-1 overflow-auto rounded-xl lg:min-h-0"
-          style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-        >
+        <div className="min-h-[240px] flex-1 overflow-auto rounded-xl bg-panel border border-subtle shadow-sm lg:min-h-0">
           <div style={{ minWidth: 840 }}>
             <div
-              className="sticky top-0 z-10 grid gap-3 border-b px-4 py-2.5 text-[10.5px] uppercase tracking-[0.07em]"
-              style={{
-                gridTemplateColumns: COLUMNS,
-                borderColor: "var(--app-line)",
-                background: "var(--app-panel)",
-                color: "var(--app-tx-3)",
-              }}
+              className="sticky top-0 z-10 grid gap-3 border-b border-subtle px-4 py-2.5 text-[10.5px] font-bold uppercase tracking-widest text-tx-muted bg-panel/80 backdrop-blur-md"
+              style={{ gridTemplateColumns: COLUMNS }}
             >
               <span>Part</span>
               <span>Description</span>
@@ -311,34 +291,33 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
 
             {error ? (
               <div className="grid place-items-center gap-2 px-6 py-16 text-center">
-                <span className="text-[13.5px] font-semibold" style={{ color: "var(--app-neg)" }}>
+                <span className="text-[13.5px] font-semibold text-status-error">
                   Could not load the catalog
                 </span>
-                <span className="max-w-[420px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                <span className="max-w-[420px] text-[12.5px] text-tx-secondary">
                   {errorMessage(error)}
                 </span>
                 <button
                   onClick={() => mutate()}
-                  className="mt-1 rounded-md px-3 py-1.5 text-[12px]"
-                  style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+                  className="mt-1 rounded-md px-3 py-1.5 text-[12.5px] font-medium border border-subtle text-tx-secondary hover:bg-panel-muted transition-colors"
                 >
                   Try again
                 </button>
               </div>
             ) : isLoading && products.length === 0 ? (
               <div className="grid place-items-center px-6 py-16 text-center">
-                <span className="text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+                <span className="text-[12.5px] font-medium text-tx-muted">
                   Searching the catalog…
                 </span>
               </div>
             ) : products.length === 0 ? (
               <div className="grid place-items-center gap-1.5 px-6 py-16 text-center">
-                <span className="text-[13.5px] font-semibold">
+                <span className="text-[14px] font-semibold text-tx-primary">
                   {data?.indexAvailable === false
                     ? "The catalog index has not been built"
                     : "No parts match"}
                 </span>
-                <span className="max-w-[460px] text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                <span className="max-w-[460px] text-[12.5px] text-tx-secondary">
                   {/* The API says exactly why it is empty. Showing "no matches"
                       for an unbuilt index sent people looking for the wrong problem. */}
                   {data?.note ??
@@ -355,50 +334,40 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
                   key={product.id}
                   onClick={() => setSelectedId(product.id)}
                   aria-current={selectedId === product.id}
-                  className="grid w-full items-center gap-3 border-b px-4 py-2.5 text-left last:border-b-0"
-                  style={{
-                    gridTemplateColumns: COLUMNS,
-                    borderColor: "var(--app-line)",
-                    background: selectedId === product.id ? "var(--app-panel-2)" : "transparent",
-                    borderLeft:
-                      selectedId === product.id
-                        ? "3px solid var(--app-accent)"
-                        : "3px solid transparent",
-                  }}
+                  className={cn(
+                    "grid w-full items-center gap-3 border-b border-subtle px-4 py-3 text-left last:border-b-0 transition-colors hover:bg-panel-muted",
+                    selectedId === product.id && "bg-brand-soft/30"
+                  )}
+                  style={{ gridTemplateColumns: COLUMNS }}
                 >
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="truncate text-[12.5px] font-semibold">{product.part}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-[13px] font-semibold text-tx-primary">{product.part}</span>
                     {product.editable === false && (
-                      <Lock
-                        size={11}
-                        weight="bold"
-                        style={{ color: "var(--app-tx-3)", flexShrink: 0 }}
-                      />
+                      <Lock size={12} weight="bold" className="text-tx-muted shrink-0" />
                     )}
                   </span>
-                  <span className="truncate text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+                  <span className="truncate text-[12.5px] text-tx-secondary font-medium">
                     {product.description}
                   </span>
-                  <span className="truncate text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                  <span className="truncate text-[12.5px] text-tx-secondary font-medium">
                     {product.manufacturer ?? "—"}
                   </span>
-                  <span className="tnum text-right text-[12.5px]">
+                  <span className="tnum text-right text-[13px] font-medium text-tx-primary">
                     {product.cost === null
                       ? priceLabel(product)
                       : `$${formatMoney(product.cost)}`}
                   </span>
-                  <span className="tnum truncate text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+                  <span className="tnum truncate text-[12.5px] font-medium text-tx-muted">
                     {product.division ?? "—"}
                   </span>
                   <span
-                    className="truncate text-[12px]"
-                    style={{
-                      color:
-                        product.availability?.toLowerCase().includes("long") ||
+                    className={cn(
+                      "truncate text-[12.5px] font-medium",
+                      product.availability?.toLowerCase().includes("long") ||
                         product.availability?.toLowerCase().includes("custom")
-                          ? "var(--app-neg)"
-                          : "var(--app-tx-2)",
-                    }}
+                        ? "text-status-error"
+                        : "text-tx-secondary"
+                    )}
                   >
                     {product.availability ?? "—"}
                   </span>
@@ -410,51 +379,44 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
       </section>
 
       {pages.length > 0 && (
-        <section className="flex min-h-0 min-w-0 flex-col gap-2 lg:max-w-[420px]">
+        <section className="flex min-h-0 min-w-0 flex-col gap-3 lg:max-w-[420px]">
           <div>
-            <h2 className="text-[14px] font-semibold">In the price books</h2>
-            <p className="mt-0.5 text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+            <h2 className="text-[15px] font-semibold text-tx-primary">In the price books</h2>
+            <p className="mt-0.5 text-[12.5px] font-medium text-tx-secondary">
               {data?.pagesNote ?? "Pages worth opening. The price is on the page."}
             </p>
           </div>
-          <ul className="flex min-h-0 flex-col gap-2 overflow-auto">
+          <ul className="flex min-h-0 flex-col gap-2 overflow-auto pr-1">
             {pages.map((page) => (
               <li
                 key={`${page.catalog_id}-${page.pdf_page}`}
-                className="flex flex-col gap-1 rounded-lg p-3"
-                style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
+                className="flex flex-col gap-1.5 rounded-lg p-3.5 bg-panel border border-subtle shadow-sm transition-colors hover:border-brand-border/40"
               >
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-[12.5px] font-semibold">{page.title}</span>
-                  <span
-                    className="tnum shrink-0 text-[11px]"
-                    style={{ color: "var(--app-tx-3)" }}
-                  >
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="truncate text-[13px] font-semibold text-tx-primary">{page.title}</span>
+                  <span className="tnum shrink-0 text-[11.5px] font-medium text-tx-muted">
                     {page.locator}
                   </span>
                 </div>
-                <span className="text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                <span className="text-[12.5px] font-medium text-tx-secondary">
                   {page.description}
                 </span>
-                <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-                  <span style={{ color: "var(--app-tx-3)" }}>{page.vendor}</span>
+                <div className="flex flex-wrap items-center gap-2 text-[11.5px] font-medium mt-1">
+                  <span className="text-tx-muted">{page.vendor}</span>
                   {page.has_prices && (
-                    <span
-                      className="rounded px-1.5 py-0.5"
-                      style={{ background: "var(--app-line)", color: "var(--app-tx-2)" }}
-                    >
+                    <span className="rounded bg-panel-muted border border-subtle px-1.5 py-0.5 text-tx-secondary">
                       {page.price_basis === "net" ? "net prices" : "list prices"}
                     </span>
                   )}
                   {page.code_prefixes.slice(0, 3).map((code) => (
-                    <span key={code} className="tnum" style={{ color: "var(--app-tx-3)" }}>
+                    <span key={code} className="tnum text-tx-muted">
                       {code}
                     </span>
                   ))}
                 </div>
                 {/* Why it matched, so a page that is not what you wanted is
                     legible rather than mysterious. */}
-                <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                <span className="text-[11px] font-medium text-tx-muted mt-0.5">
                   {page.why.join(" · ")}
                 </span>
               </li>
@@ -463,39 +425,26 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
         </section>
       )}
 
-      <aside
-        className="flex shrink-0 flex-col overflow-auto rounded-xl lg:w-[330px]"
-        style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-      >
+      <aside className="flex shrink-0 flex-col overflow-auto rounded-xl lg:w-[360px] bg-panel border border-subtle shadow-sm">
         {!selected ? (
           <div className="grid flex-1 place-items-center gap-2 px-6 py-10 text-center">
-            <Package size={26} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
-            <span className="text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+            <Package size={32} weight="duotone" className="text-tx-muted mb-2" />
+            <span className="text-[13px] font-medium text-tx-secondary">
               Pick a part to see and edit its pricing.
             </span>
           </div>
         ) : (
-          <div className="p-4">
-            <span
-              className="block text-[10.5px] uppercase tracking-[0.07em]"
-              style={{ color: "var(--app-tx-3)" }}
-            >
+          <div className="p-5">
+            <span className="block text-[11px] font-bold uppercase tracking-widest text-tx-muted">
               {selected.manufacturer ?? "—"} · {selected.division ?? "—"}
             </span>
-            <h2 className="mt-1 text-[17px] font-semibold">{selected.part}</h2>
-            <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+            <h2 className="mt-1 text-[18px] font-semibold text-tx-primary leading-tight">{selected.part}</h2>
+            <p className="mt-1.5 text-[13px] font-medium text-tx-secondary">
               {selected.description}
             </p>
 
             {selected.seedSource === "prototype sample" && (
-              <p
-                className="mt-3 rounded-md px-2.5 py-2 text-[11px]"
-                style={{
-                  background: "var(--app-warn-soft)",
-                  border: "1px solid var(--app-warn-line)",
-                  color: "var(--app-warn)",
-                }}
-              >
+              <p className="mt-4 rounded-md px-3 py-2.5 text-[12px] font-medium bg-status-warning-soft border border-status-warning/30 text-status-warning">
                 Sample figures from the design, not confirmed CBC pricing. Ingest the real price
                 book, or correct them here.
               </p>
@@ -503,22 +452,15 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
 
             {!editable ? (
               <>
-                <p
-                  className="mt-3 flex items-start gap-2 rounded-md px-2.5 py-2 text-[11px]"
-                  style={{
-                    background: "var(--app-panel-2)",
-                    border: "1px solid var(--app-line)",
-                    color: "var(--app-tx-2)",
-                  }}
-                >
-                  <Lock size={13} weight="duotone" className="mt-px shrink-0" />
+                <p className="mt-4 flex items-start gap-2.5 rounded-md px-3 py-2.5 text-[12px] font-medium bg-panel-muted border border-subtle text-tx-secondary">
+                  <Lock size={14} weight="duotone" className="mt-px shrink-0 text-tx-muted" />
                   <span>
                     Read from the vendor price book, so it is not edited here — the next reindex
                     rewrites it from the PDF. Correct the sheet, or add your own part.
                   </span>
                 </p>
 
-                <div className="mt-4 flex flex-col gap-2">
+                <div className="mt-5 flex flex-col gap-2.5">
                   {[
                     [
                       selected.priceBasis === "net"
@@ -536,25 +478,21 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
                   ].map(([label, value]) => (
                     <div
                       key={label}
-                      className="flex items-baseline justify-between gap-3 border-b pb-1.5 last:border-b-0"
-                      style={{ borderColor: "var(--app-line)" }}
+                      className="flex items-baseline justify-between gap-3 border-b border-subtle pb-2 last:border-b-0"
                     >
-                      <span className="shrink-0 text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                      <span className="shrink-0 text-[11.5px] font-medium text-tx-muted">
                         {label}
                       </span>
-                      <span className="truncate text-right text-[12px]">{value}</span>
+                      <span className="truncate text-right text-[12.5px] font-medium text-tx-primary">{value}</span>
                     </div>
                   ))}
                 </div>
               </>
             ) : (
-              <div className="mt-4 flex flex-col gap-2.5">
+              <div className="mt-5 flex flex-col gap-3">
                 {EDIT_FIELDS.map((field) => (
                   <label key={field.key} className="block">
-                    <span
-                      className="block text-[10.5px] uppercase tracking-[0.06em]"
-                      style={{ color: "var(--app-tx-3)" }}
-                    >
+                    <span className="block text-[11px] font-bold uppercase tracking-widest text-tx-muted">
                       {field.label}
                     </span>
                     <input
@@ -562,81 +500,66 @@ export function CatalogClient({ initialQuery = "" }: { initialQuery?: string }) 
                       step={field.type === "number" ? "0.001" : undefined}
                       value={draft[field.key] ?? ""}
                       onChange={(event) => setField(field.key, event.target.value)}
-                      className="mt-1 w-full rounded-md px-2.5 py-1.5 text-[12.5px] outline-none focus:ring-2"
-                      style={{
-                        background: "var(--app-panel-2)",
-                        border: "1px solid var(--app-line)",
-                        color: "var(--app-tx)",
-                      }}
+                      className="mt-1.5 w-full rounded-md px-3 py-2 text-[13px] outline-none border border-subtle bg-background text-tx-primary focus:ring-1 focus:ring-brand-border focus:border-brand-border transition-colors shadow-sm"
                     />
                   </label>
                 ))}
               </div>
             )}
 
-            <div
-              className="mt-4 flex items-baseline justify-between rounded-md px-3 py-2"
-              style={{ background: "var(--app-panel-2)" }}
-            >
-              <span className="text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+            <div className="mt-6 flex items-center justify-between rounded-md px-3.5 py-3 bg-panel-muted border border-subtle shadow-sm">
+              <span className="text-[12px] font-semibold text-tx-muted">
                 Sell at
               </span>
-              <span
-                className="tnum text-[14px] font-semibold"
-                style={{ color: "var(--app-accent)" }}
-              >
+              <span className="tnum text-[16px] font-bold text-brand-primary">
                 {selected.sellAt == null ? "—" : `$${formatMoney(selected.sellAt)}`}
               </span>
             </div>
-            <p className="mt-1.5 text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+            <p className="mt-2 text-[11.5px] font-medium text-tx-muted leading-relaxed">
               Sell follows the division&apos;s margin divisor. Overriding it on a quote line is
               logged against your name.
             </p>
 
             {(selected.xref?.length ?? 0) > 0 && (
-              <div className="mt-4">
-                <span
-                  className="block text-[10.5px] uppercase tracking-[0.07em]"
-                  style={{ color: "var(--app-tx-3)" }}
-                >
+              <div className="mt-5">
+                <span className="block text-[11px] font-bold uppercase tracking-widest text-tx-muted mb-2">
                   Cross-reference
                 </span>
                 {selected.xref?.map((entry) => (
                   <div
                     key={`${entry.manufacturer}-${entry.part}`}
-                    className="flex justify-between border-b py-1.5 last:border-b-0"
-                    style={{ borderColor: "var(--app-line)" }}
+                    className="flex justify-between border-b border-subtle py-2 last:border-b-0"
                   >
-                    <span className="text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                    <span className="text-[12.5px] font-medium text-tx-secondary">
                       {entry.manufacturer}
                     </span>
-                    <span className="text-[12px]">{entry.part}</span>
+                    <span className="text-[12.5px] font-medium text-tx-primary">{entry.part}</span>
                   </div>
                 ))}
               </div>
             )}
 
-            <AddToBid product={selected} />
+            <div className="mt-5">
+              <AddToBid product={selected} />
+            </div>
 
             {editable && (
-              <div className="mt-5 flex gap-2">
+              <div className="mt-6 flex gap-3">
                 <button
                   onClick={save}
                   disabled={busy}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-[12.5px] font-semibold disabled:opacity-60"
-                  style={{ background: "var(--app-accent)", color: "#fff" }}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-md py-2.5 text-[13px] font-semibold disabled:opacity-60 bg-brand-primary text-white shadow-sm hover:bg-brand-primary/90 transition-colors"
                 >
-                  <FloppyDisk size={14} weight="duotone" />
+                  <FloppyDisk size={16} weight="duotone" />
                   Save
                 </button>
                 <button
                   onClick={remove}
                   disabled={busy}
                   aria-label={`Remove ${selected.part}`}
-                  className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] disabled:opacity-60"
-                  style={{ border: "1px solid var(--app-neg-line)", color: "var(--app-neg)" }}
+                  className="flex items-center justify-center gap-1.5 rounded-md px-4 py-2.5 text-[13px] disabled:opacity-60 border border-status-error/30 text-status-error hover:bg-status-error-soft transition-colors shadow-sm"
                 >
-                  <Trash size={14} weight="duotone" />
+                  <Trash size={16} weight="duotone" />
                 </button>
               </div>
             )}

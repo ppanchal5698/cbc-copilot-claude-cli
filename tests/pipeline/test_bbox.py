@@ -78,6 +78,7 @@ def test_pdf_tools_reports_page_size_and_row_boxes(fixture_pdf):
     for row in page["rows"]:
         assert _valid_box(row["bbox"])
         assert len(row["cells"]) == len(row["cell_boxes"])
+        assert "text" not in row
 
 
 def test_page_size_rejects_a_page_out_of_range(fixture_pdf):
@@ -165,7 +166,7 @@ def test_a_row_is_grouped_as_it_appears_on_screen(tmp_path):
     from cbc.core.pdfrows import rows_from_words
 
     doc = fitz.open(_drawing_page(tmp_path))
-    rows = [r["text"] for r in rows_from_words(doc[0])]
+    rows = [" | ".join(r["cells"]) for r in rows_from_words(doc[0])]
     doc.close()
     assert any("DOOR" in t and "101" in t for t in rows), (
         f"one on-screen row split across rows -> {rows}"

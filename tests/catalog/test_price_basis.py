@@ -18,10 +18,15 @@ from cbc.pageindex import basis
 
 @pytest.fixture(autouse=True)
 def _fresh_caches():
-    """The lookups are cached for the process; each test reads the real files."""
-    basis._sheet_kinds.cache_clear()
-    basis._vendors_with_a_multiplier.cache_clear()
-    basis._net_program_vendors.cache_clear()
+    """The lookups are cached for the process; each test reads the real files.
+
+    The cache lives on the `_at` functions - the signature-keyed inner half of
+    the pair - not on the public wrapper. Clearing the wrapper raised
+    AttributeError in setup, so every test in this file errored rather than ran.
+    """
+    basis._sheet_kinds_at.cache_clear()
+    basis._vendors_with_a_multiplier_at.cache_clear()
+    basis._net_program_vendors_at.cache_clear()
     yield
 
 

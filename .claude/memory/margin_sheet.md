@@ -2,16 +2,8 @@
 
 Margin is applied **by product type, as a divisor**. The framework has been stable ~14 years.
 
-| Band | Margin | Divisor | Sale $ EA |
-|---|---|---|---|
-| Commodity | 27% | 0.73 | Cost / 0.73 |
-| Restroom partitions | 35% | 0.65 | Cost / 0.65 |
-| Specialty (e.g. laminated doors) | 40% | 0.60 | Cost / 0.60 |
-| Custom-built via outside fabricator | 25% | 0.75 | Cost / 0.75 |
-| Accessories | ~56% | 0.44 | Cost / 0.44 |
-
-**Accessories** derive to **~56%** from the data (originally recorded as 35% — corrected in
-the 14 Jul estimator session). The row above is authoritative; the prose note is context only.
+Bands, divisors, and accessory derivation live in
+`reference-library/margins/margin_framework.json`. Do not copy the numbers here.
 
 ## Formula (the only money math in the system)
 

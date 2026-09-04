@@ -1,20 +1,15 @@
 # Margin Bands
 
-| Band | Key | Margin | Divisor | Sale $ EA from cost 100.00 |
-|---|---|---|---|---|
-| Commodity | commodity | 27% | 0.73 | 136.99 |
-| Restroom partitions | restroom_partitions | 35% | 0.65 | 153.85 |
-| Specialty | specialty | 40% | 0.60 | 166.67 |
-| Custom-built (outside fabricator) | custom_built | 25% | 0.75 | 133.33 |
-| Restroom accessories | accessories | 56% | 0.44 | 227.27 |
+Read `reference-library/margins/margin_framework.json` for every product-type
+band, divisor, and accessory derivation. Do not copy the numbers into this file.
 
 Source: Requirements Matrix 6.1, confirmed in the 14 Jul estimator session.
-Machine-readable: reference-library/margins/margin_framework.json
 
-## Accessories: 56%, not 35%
+## Accessories: use the JSON, not the original 35% note
 
 The original documentation recorded restroom accessories at 35%. The estimator
-session corrected this: the data derives to about **56%**. Use 56%.
+session corrected the derivation. The value in `margin_framework.json` is
+authoritative.
 
 ## Overridable, by design
 
@@ -31,16 +26,17 @@ exists to catch.
 
 ## Worked example, end to end
 
-Hager 3500-series storeroom lock:
+Hager 3500-series storeroom lock. Apply the commodity band from
+`reference-library/margins/margin_framework.json` via `apply_margin` — do not
+hand-compute the divisor.
 
 | Step | Value | Source |
 |---|---|---|
 | List price | 256.31 | Price Book #18, page 297 |
 | Multiplier (locks tier) | 0.290 | Hager discount sheet, effective 2026-03-02 |
 | Cost | 74.33 | list x multiplier |
-| Band | commodity, 27% | margin_framework.json |
-| Sale $ EA | 101.82 | cost / 0.73 |
-| Qty 3, Ext | 305.46 | sale_ea x qty |
+| Band | commodity | margin_framework.json |
+| Sale $ EA / Ext | from calc-engine | cost, qty, band |
 
 ## Governance
 

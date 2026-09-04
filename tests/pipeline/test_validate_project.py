@@ -130,8 +130,10 @@ def test_pricing_requires_fields_on_each_line(validate_project):
 
 
 def test_validate_job_artifacts_raises(validate_project):
+    from cbc.validation.artifacts import ArtifactValidationError
+
     _write(validate_project, "extracted/door_schedule.json", {"openings": []})
-    with pytest.raises(ValueError, match="artifact validation failed"):
+    with pytest.raises(ArtifactValidationError, match="artifact validation failed"):
         validate_job_artifacts("extract_bid_set", validate_project)
 
 
@@ -152,6 +154,8 @@ def test_match_and_price_prompt_uses_agent_tool_not_paths():
 
     assert ".claude/agents/" not in prompts.MATCH_AND_PRICE
     assert "product-matcher" in prompts.MATCH_AND_PRICE
+    assert "scope_summary.json" in prompts.MATCH_AND_PRICE
+    assert "do **not** ask it to read `uploads/raw/`" in prompts.MATCH_AND_PRICE
     # The Agent-call contract moved out of PREAMBLE into DELEGATION_RULE when the
     # prompts gained a second mode, so assert on what a run is actually handed.
     delegating = prompts.preamble_for("projects/demo", delegates=True)
@@ -186,7 +190,9 @@ def test_build_proposal_prompt_uses_agent_tool_not_paths():
     from apps.worker import prompts
 
     assert ".claude/agents/" not in prompts.BUILD_PROPOSAL
-    assert "quote-builder" in prompts.BUILD_PROPOSAL
+    assert "quote-builder" not in prompts.BUILD_PROPOSAL
+    assert "quality-reviewer" in prompts.BUILD_PROPOSAL
+    assert "delivery-agent" in prompts.BUILD_PROPOSAL
 
 
 def _priced(**overrides):
@@ -478,3 +484,89 @@ def test_a_page_size_from_the_wrong_frame_is_rejected(validate_project):
     )
     problems, _ = check_extraction(validate_project)
     assert any("records page_size" in p for p in problems), problems
+
+
+def test_a_warning_only_run_passes_the_gate(validate_project, monkeypatch):
+    """The warning print path used `sys` in a module that never imported it.
+
+    Every job producing at least one warning and no problems - a single opening
+    missing `handing` is enough, SOFT_FIELDS warn by design - died with
+    NameError instead of passing, so a valid extraction failed its own gate.
+    """
+    from cbc.validation import artifacts
+
+    monkeypatch.setitem(
+        artifacts.ARTIFACT_CHECKS,
+        "extract_bid_set",
+        (lambda slug: ([], [f"{slug}: opening 01 is missing handing"]),),
+    )
+    validate_job_artifacts("extract_bid_set", validate_project)
+
+
+def test_pipeline_fails_fast_at_extraction_and_skips_pricing(validate_project, monkeypatch):
+    from cbc.validation import artifacts
+    from cbc.validation.artifacts import ArtifactValidationError
+
+    called = {"n": 0}
+
+    def counting(slug, **kwargs):
+        called["n"] += 1
+        return [], []
+
+    monkeypatch.setattr(artifacts, "check_pricing", counting)
+    # An opening that is present and unusable, not an empty schedule: an empty
+    # one is now a legitimate no-scope finding and passes, so it no longer
+    # stands in for a broken extraction. What this test is about is the
+    # ordering - a pipeline that fails at extraction must not go on to price.
+    _write(
+        validate_project,
+        "extracted/door_schedule.json",
+        {"openings": [{"door_number": "01"}]},
+    )
+    _write(validate_project, "extracted/scope_metadata.json", {})
+    _write(validate_project, "extracted/scope_summary.json", {})
+    with pytest.raises(ArtifactValidationError, match="at extraction"):
+        validate_job_artifacts("run_full_pipeline", validate_project)
+    assert called["n"] == 0
+
+
+def test_pipeline_fails_at_pricing_after_good_extraction(validate_project):
+    from cbc.validation.artifacts import ArtifactValidationError
+
+    _write(validate_project, "extracted/door_schedule.json", {"openings": [_good_opening()]})
+    _write(validate_project, "extracted/scope_metadata.json", {})
+    _write(validate_project, "extracted/scope_summary.json", {})
+    with pytest.raises(ArtifactValidationError, match="at pricing") as exc:
+        validate_job_artifacts("run_full_pipeline", validate_project)
+    assert exc.value.phase == "pricing"
+    assert "extraction" in exc.value.phase_state
+    assert exc.value.phase_state["extraction"]["passed"] is True
+
+
+def test_pipeline_prompt_skips_passed_extraction_unless_forced():
+    from apps.worker import prompts
+
+    project = {"slug": "demo", "code": "CBC-1"}
+    phase_state = {
+        "extraction": {
+            "passed": True,
+            "artifacts": {"extracted/door_schedule.json": "abc"},
+        }
+    }
+    text = prompts.build(
+        {"type": "run_full_pipeline", "payload": {}, "phaseState": phase_state},
+        project,
+    )
+    assert "Skip these completed phases" in text
+    assert "door_schedule.json" in text
+    forced = prompts.build(
+        {
+            "type": "run_full_pipeline",
+            "payload": {"force": True},
+            "phaseState": phase_state,
+        },
+        project,
+    )
+    assert "Skip these completed phases" not in forced
+    assert "forced clean run" in forced
+

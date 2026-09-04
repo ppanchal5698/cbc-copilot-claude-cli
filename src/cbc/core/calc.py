@@ -19,6 +19,7 @@ calc-engine/server.py` is now an adapter over this module.
 from __future__ import annotations
 
 import json
+import math
 from decimal import ROUND_HALF_UP, Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -41,6 +42,26 @@ DEFAULT_BANDS = {
 # Sales tax applies only where CBC has nexus (.claude/memory/sales_tax_rules.md).
 # The JSON file is the source of truth; this is the fallback if it is missing.
 DEFAULT_TAX_RATES = {"OH": 0.08, "KY": 0.065}
+
+_STATE_ALIASES = {
+    "OHIO": "OH",
+    "KENTUCKY": "KY",
+}
+
+
+def normalise_state(state: str | None) -> str | None:
+    """Map full state names and abbreviations to the tax table's keys."""
+    if not state:
+        return None
+    cleaned = str(state).strip()
+    if not cleaned:
+        return None
+    upper = cleaned.upper()
+    if upper in _STATE_ALIASES:
+        return _STATE_ALIASES[upper]
+    if upper in DEFAULT_TAX_RATES or upper in tax_rates():
+        return upper
+    return upper if len(upper) == 2 else None
 
 
 def _money(value: float | Decimal) -> float:
@@ -108,10 +129,27 @@ def tax_rates() -> dict[str, float]:
 def calculate_line(cost: float, margin: float, quantity: float = 1) -> dict[str, Any]:
     if not 0 <= margin < 1:
         raise ValueError(f"margin must be a fraction in [0, 1), got {margin}")
+    # isfinite before the sign test: `nan < 0` is False, so a nan cost passed the
+    # negative check and came back out as `sale_ea: nan, priced: True`, which
+    # `compute_totals` then summed into grandTotal and `quote.persist` wrote to
+    # Mongo. An inf cost was worse still - Decimal raises InvalidOperation, an
+    # ArithmeticError, which the caller's `except (ValueError, TypeError)` did
+    # not catch, so one bad row took down the whole quote screen.
+    if not math.isfinite(cost):
+        raise ValueError(f"cost must be a finite number, got {cost}")
     if cost < 0:
         raise ValueError(f"cost must not be negative, got {cost}")
+    if not math.isfinite(quantity) or quantity < 0:
+        raise ValueError(f"quantity must be a non-negative finite number, got {quantity}")
     divisor = 1 - margin
-    sale_ea = _money(Decimal(str(cost)) / Decimal(str(divisor)))
+    exact_ea = Decimal(str(cost)) / Decimal(str(divisor))
+    sale_ea = _money(exact_ea)
+    # Round once, at the extension. Multiplying the already-rounded unit price
+    # put up to half a cent of error into every unit: 74.33 at 27% over three
+    # units extended to 305.46 where the arithmetic gives 305.47, and the error
+    # scales linearly with quantity - so the printed extensions stopped
+    # reconciling against a customer's own multiplication. `sale_ea` is still
+    # the cents figure shown per unit; only the extension is computed exactly.
     return {
         "cost": _money(cost),
         "margin": margin,
@@ -119,7 +157,7 @@ def calculate_line(cost: float, margin: float, quantity: float = 1) -> dict[str,
         "quantity": quantity,
         "sale_ea": sale_ea,
         "unit_sale_ea": sale_ea,
-        "ext_price": _money(Decimal(str(sale_ea)) * Decimal(str(quantity))),
+        "ext_price": _money(exact_ea * Decimal(str(quantity))),
         "formula": "sale_ea = cost / (1 - margin); ext_price = sale_ea * quantity",
     }
 
@@ -198,8 +236,8 @@ def compute_totals(
         bucket["subtotal"] = _money(bucket["subtotal"] + ext)
 
     subtotal = _money(sum(g["subtotal"] for g in groups.values()))
-    state = (project_state or "").upper()
-    tax_rate = tax_rates().get(state, 0.0)
+    state = normalise_state(project_state)
+    tax_rate = tax_rates().get(state or "", 0.0)
     tax = _money(subtotal * tax_rate)
 
     return {
@@ -264,4 +302,69 @@ def cost_from_list(
         "multiplier": multiplier,
         "cost": _money(list_total * Decimal(str(multiplier))),
         "formula": "cost = (list + adders) x multiplier",
+    }
+
+
+LITE_KIT_FILE = ROOT / "reference-library" / "adders" / "lite_kit_prices.json"
+
+
+@lru_cache(maxsize=4)
+def _lite_kit_data_at(_signature: tuple[int, int]) -> dict[str, Any]:
+    return json.loads(LITE_KIT_FILE.read_text(encoding="utf-8"))
+
+
+def _ceil_to_grid(value: float, keys: list[int]) -> int | None:
+    """Next-largest even inch per NGP lite-kit sizing rule."""
+    if not keys or value <= 0:
+        return None
+    target = int(math.ceil(value))
+    if target % 2 == 1:
+        target += 1
+    for key in sorted(keys):
+        if key >= target:
+            return key
+    return max(keys)
+
+
+def lookup_lite_kit_list_price(
+    width_in: float,
+    height_in: float,
+    pdf_page: int | None = None,
+) -> dict[str, Any]:
+    """NR-1: list price from lite_kit_prices.json for a width x height opening."""
+    if not LITE_KIT_FILE.exists():
+        return {"list_price": None, "note": "lite_kit_prices.json not found"}
+    if width_in <= 0 or height_in <= 0:
+        raise ValueError("width_in and height_in must be positive")
+
+    data = _lite_kit_data_at(_file_signature(LITE_KIT_FILE))
+    tables = data.get("tables") or []
+    if pdf_page is not None:
+        tables = [t for t in tables if t.get("pdf_page") == pdf_page] or tables
+
+    for table in tables:
+        widths = [int(w) for w in table.get("widths") or []]
+        prices = table.get("prices") or {}
+        height_key = _ceil_to_grid(height_in, sorted(int(h) for h in prices))
+        width_key = _ceil_to_grid(width_in, widths)
+        if height_key is None or width_key is None:
+            continue
+        row = prices.get(str(height_key), {})
+        list_price = row.get(str(width_key))
+        if list_price is None:
+            continue
+        return {
+            "list_price": float(list_price),
+            "width_used": width_key,
+            "height_used": height_key,
+            "pdf_page": table.get("pdf_page"),
+            "source": str(LITE_KIT_FILE.relative_to(ROOT)).replace("\\", "/"),
+            "note": "Apply vendor multiplier via cost_from_list; outside table range → vendor RFQ.",
+        }
+
+    return {
+        "list_price": None,
+        "width_in": width_in,
+        "height_in": height_in,
+        "note": "Outside printed lite-kit table range — mark VENDOR_RFQ (NR-8).",
     }

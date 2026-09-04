@@ -1,6 +1,7 @@
 """User administration — admin only."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -43,7 +44,7 @@ async def create_user(body: UserCreate, actor: Actor) -> dict:
         "name": body.name.strip(),
         "initials": body.initials.strip().upper(),
         "role": body.role,
-        "passwordHash": hash_password(body.password),
+        "passwordHash": await asyncio.to_thread(hash_password, body.password),
         "createdAt": _now(),
         "updatedAt": _now(),
     }
@@ -64,7 +65,9 @@ async def update_user(user_id: str, body: UserUpdate, actor: Actor) -> dict:
         return _public(user)
 
     if "password" in changes:
-        changes["passwordHash"] = hash_password(changes.pop("password"))
+        changes["passwordHash"] = await asyncio.to_thread(
+            hash_password, changes.pop("password")
+        )
     if "initials" in changes:
         changes["initials"] = changes["initials"].strip().upper()
     changes["updatedAt"] = _now()

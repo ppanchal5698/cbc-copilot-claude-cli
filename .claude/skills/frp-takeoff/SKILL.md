@@ -49,11 +49,6 @@ trim_sticks      = ceil(trim_lf / trim_stick_length)
 adhesive_units   = ceil(wall_area_sqft / adhesive_coverage_sqft_per_unit)
 ```
 
-## Rules
-
-- @.claude/rules/accuracy-trust.md
-- @.claude/rules/auditability.md
-
 ## Reference data
 
 - `references/frp_constants.md`

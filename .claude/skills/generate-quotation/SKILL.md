@@ -25,14 +25,15 @@ description: >
 8. **Commercial terms** - HP PO required, supply-only material, 30-day validity
 9. **Footer** - estimator name and contact
 
-## Steps
+## Where you stop
 
-1. Read `priced/line_items.json` and `priced/margin_applied.json`.
-2. Roll up with `mcp__calc-engine__compute_totals`, passing `project_state` so tax
-   is applied correctly - **do not total by hand**.
-3. Render `templates/quotation.html` with `scripts/render_quote.py`.
-4. Write via `mcp__artifact-storage__save_artifact` so the draft is versioned.
-5. **Stop.** The quotation is a draft. Do not convert, route, attach or send it.
+Run `python scripts/validate_and_render_quote.py <project>` to produce
+`quotation.html`. **If validation exits non-zero, stop** — report errors to
+pricing-engineer; never patch `priced/line_items.json` with ad-hoc scripts.
+
+After a successful render, version via `mcp__artifact-storage__save_artifact`
+(Read the file from disk first). **Stop.** Do not emit "Draft ready for
+estimator review" — delivery-agent owns that message.
 
 ## Lines that are not fully priced
 
@@ -44,11 +45,6 @@ Never hide them. Render them in place with:
 
 A quote with three visible gaps is useful. A quote with three silently guessed
 numbers is dangerous.
-
-## Rules
-
-- @.claude/rules/human-in-the-loop.md
-- @.claude/rules/auditability.md
 
 ## Reference data
 
@@ -63,5 +59,5 @@ python .claude/skills/generate-quotation/scripts/render_quote.py dutch_bros_maca
 
 ## Output
 
-`projects/{project}/quotation.html`. The pipeline then halts with
-**"Draft ready for estimator review"**.
+`projects/{project}/quotation.html`. Phase 6 delivery-agent emits
+**"Draft ready for estimator review"** after final deliverables exist.

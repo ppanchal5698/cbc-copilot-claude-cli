@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pymongo.errors import DuplicateKeyError
 
 from cbc.db import db, oid, serialise
-from apps.api.deps import Actor
+from apps.api.deps import Actor, AdminActor
 from cbc.schemas import ProductCreate, ProductUpdate
 from cbc.services import audit, catalog_search, pricing
 
@@ -95,7 +95,7 @@ def _coerce_book_id(changes: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.post("/products", status_code=201)
-async def create_product(body: ProductCreate, actor: Actor) -> dict:
+async def create_product(body: ProductCreate, actor: AdminActor) -> dict:
     document = _coerce_book_id(
         {**body.model_dump(exclude_none=True), "updatedAt": _now(), "updatedBy": actor}
     )
@@ -127,7 +127,7 @@ async def create_product(body: ProductCreate, actor: Actor) -> dict:
 
 
 @router.patch("/products/{product_id}")
-async def update_product(product_id: str, body: ProductUpdate, actor: Actor) -> dict:
+async def update_product(product_id: str, body: ProductUpdate, actor: AdminActor) -> dict:
     product = await db.products.find_one({"_id": oid(product_id)})
     if not product:
         raise HTTPException(404, "product not found")
@@ -151,7 +151,7 @@ async def update_product(product_id: str, body: ProductUpdate, actor: Actor) -> 
 
 
 @router.delete("/products/{product_id}", status_code=204)
-async def delete_product(product_id: str, actor: Actor) -> None:
+async def delete_product(product_id: str, actor: AdminActor) -> None:
     product = await db.products.find_one({"_id": oid(product_id)})
     if not product:
         raise HTTPException(404, "product not found")

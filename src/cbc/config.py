@@ -81,6 +81,9 @@ class Settings:
             insecure.append("APP_SECRET_KEY")
         if DEV_MONGO_PASSWORD in self.mongodb_uri:
             insecure.append("MONGODB_URI (still carries the local-dev password)")
+        readonly_password = os.environ.get("MONGODB_READONLY_PASSWORD", "cbc_catalog_ro_local_dev")
+        if readonly_password == "cbc_catalog_ro_local_dev":
+            insecure.append("MONGODB_READONLY_PASSWORD (still the repo default)")
 
         if insecure:
             raise RuntimeError(

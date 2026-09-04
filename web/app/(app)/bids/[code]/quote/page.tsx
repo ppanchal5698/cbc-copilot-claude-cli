@@ -33,7 +33,7 @@ export default async function QuotePage({ params }: { params: Promise<{ code: st
         code={project.code}
       />
       <StageBar project={project} current="quote" />
-      <QuoteClient code={project.code} initialJob={jobs[0] ?? null} />
+      <QuoteClient code={project.code} initialJob={jobs[0] ?? null} autopilot={Boolean(project.autopilot)} />
     </>
   );
 }

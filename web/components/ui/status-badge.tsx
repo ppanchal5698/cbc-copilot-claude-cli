@@ -1,36 +1,13 @@
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 const VARIANTS = {
-  action: {
-    color: "var(--app-accent)",
-    background: "var(--app-accent-soft)",
-    border: "var(--app-accent-line)",
-  },
-  review: {
-    color: "var(--app-neg)",
-    background: "var(--app-neg-soft)",
-    border: "var(--app-neg-line)",
-  },
-  progress: {
-    color: "var(--app-warn)",
-    background: "var(--app-warn-soft)",
-    border: "var(--app-warn-line)",
-  },
-  ok: {
-    color: "var(--app-pos)",
-    background: "var(--app-pos-soft)",
-    border: "1px solid transparent",
-  },
-  caution: {
-    color: "var(--app-warn)",
-    background: "transparent",
-    border: "var(--app-warn-line)",
-  },
-  neutral: {
-    color: "var(--app-tx-3)",
-    background: "var(--app-panel-2)",
-    border: "1px solid transparent",
-  },
+  action: "text-brand-primary bg-brand-soft border-brand-border",
+  review: "text-status-error bg-status-error-soft border-status-error/30",
+  progress: "text-status-warning bg-status-warning-soft border-status-warning/30",
+  ok: "text-status-success bg-status-success-soft border-transparent",
+  caution: "text-status-warning bg-transparent border-status-warning/30",
+  neutral: "text-tx-muted bg-panel-muted border-transparent",
 } as const;
 
 export type StatusBadgeVariant = keyof typeof VARIANTS;
@@ -46,15 +23,15 @@ export function StatusBadge({
   className?: string;
   dashed?: boolean;
 }) {
-  const style = VARIANTS[variant];
+  const variantClass = VARIANTS[variant];
   return (
     <span
-      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10.5px] font-semibold ${className}`}
-      style={{
-        color: style.color,
-        background: style.background,
-        border: dashed ? `1px dashed ${style.border}` : style.border,
-      }}
+      className={cn(
+        "inline-flex items-center rounded px-1.5 py-0.5 text-[10.5px] font-medium border shadow-sm",
+        variantClass,
+        dashed ? "border-dashed" : "border-solid",
+        className
+      )}
     >
       {children}
     </span>

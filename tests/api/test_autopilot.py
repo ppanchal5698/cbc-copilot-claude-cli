@@ -69,10 +69,11 @@ def test_the_prompt_delegates_to_every_phase_subagent() -> None:
     for subagent in (
         "intake-coordinator", "spec-scope-analyst", "takeoff-engineer",
         "frp-specialist", "product-matcher", "pricing-engineer",
-        "quote-builder", "quality-reviewer", "delivery-agent",
+        "quality-reviewer", "delivery-agent",
     ):
         assert subagent in prompt, f"{subagent} is never invoked"
         assert (ROOT / ".claude" / "agents" / f"{subagent}.md").exists()
+    assert "quote-builder" not in prompt
 
 
 def test_the_prompt_halts_without_sending(the_prompt=None) -> None:
@@ -81,7 +82,38 @@ def test_the_prompt_halts_without_sending(the_prompt=None) -> None:
 
     prompt = prompts.pipeline_for("projects/demo")
     assert "Draft ready for estimator review" in prompt
+    assert "delivery-agent" in prompt
     assert "Do NOT send anything" in prompt, "the shared preamble is missing"
+
+
+def test_the_prompt_waits_for_subagents_before_duplicating_work() -> None:
+    from apps.worker import prompts
+
+    prompt = prompts.pipeline_for("projects/demo")
+    assert "Wait for each subagent to finish" in prompt
+    assert "Never duplicate a subagent's work" in prompt
+    assert "one subagent at a time" in prompt.lower()
+
+
+def test_build_proposal_only_delivery_agent_halts() -> None:
+    from apps.worker import prompts
+
+    build = prompts.build({"type": "build_proposal", "payload": {}}, {"slug": "demo", "code": "DB-001"})
+    assert "Only the **delivery-agent** reports the final halt message" in build
+    assert "quote-builder" not in build
+    assert "do not write html" in build.lower()
+
+
+def test_match_prompt_forbids_ives_list_multiplier() -> None:
+    from apps.worker import prompts
+
+    match = prompts.build(
+        {"type": "match_and_price", "payload": {}},
+        {"slug": "demo", "code": "DB-001"},
+    )
+    assert "IVES" in match
+    assert "MANUAL" in match
+    assert "LIST_X_MULTIPLIER" in match
 
 
 def test_the_prompt_carries_the_shared_constraints() -> None:

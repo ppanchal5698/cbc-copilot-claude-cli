@@ -31,8 +31,20 @@ const DEV_ACCOUNTS: DevAccount[] = [
   },
 ];
 
-export function isDevQuickLoginEnabled(appEnv = process.env.APP_ENV): boolean {
-  return !["production", "prod", "staging"].includes((appEnv ?? "development").toLowerCase());
+export function isDevQuickLoginEnabled(
+  appEnv = process.env.APP_ENV,
+  nodeEnv = process.env.NODE_ENV,
+): boolean {
+  const declared = appEnv?.trim().toLowerCase();
+  if (declared) {
+    return !["production", "prod", "staging"].includes(declared);
+  }
+  // Unset must not mean "development". `(appEnv ?? "development")` failed open:
+  // a typoed or dropped APP_ENV enabled the quick-login buttons, and
+  // internal-api.ts defaults the same way, so one missing variable also skipped
+  // the committed-secrets check. Fail closed everywhere except an explicit
+  // `next dev` session, where NODE_ENV is development and no build is emitted.
+  return nodeEnv === "development";
 }
 
 /** The accounts to offer, or none at all outside local development. */

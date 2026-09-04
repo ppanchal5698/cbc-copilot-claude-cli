@@ -45,7 +45,12 @@ export default async function ExtractionPage({
         code={project.code}
       />
       <StageBar project={project} current="extraction" />
-      <ExtractionClient code={project.code} documents={documents} initialJob={jobs[0] ?? null} />
+      <ExtractionClient
+        code={project.code}
+        documents={documents}
+        initialJob={jobs[0] ?? null}
+        autopilot={Boolean(project.autopilot)}
+      />
     </>
   );
 }

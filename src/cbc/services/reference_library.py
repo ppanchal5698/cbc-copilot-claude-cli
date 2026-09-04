@@ -5,6 +5,8 @@ import json
 import os
 import re
 import tempfile
+from copy import deepcopy
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from cbc.core.paths import repo_root
@@ -51,9 +53,25 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
         raise
 
 
+def _file_signature(path: Path) -> tuple[int, int]:
+    """Cache key for a reference file: (mtime, size). Same pattern as core.calc."""
+    stat = path.stat()
+    return (stat.st_mtime_ns, stat.st_size)
+
+
+@lru_cache(maxsize=16)
+def _json_at(path_str: str, _signature: tuple[int, int]) -> dict[str, Any]:
+    return json.loads(Path(path_str).read_text(encoding="utf-8"))
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    """Re-read only when the file actually changes. Copied on the way out."""
+    return deepcopy(_json_at(str(path.resolve()), _file_signature(path)))
+
+
 def load_margins() -> dict[str, Any]:
     """The full margin framework document, structure preserved."""
-    return json.loads(MARGINS_FILE.read_text(encoding="utf-8"))
+    return _load_json(MARGINS_FILE)
 
 
 def update_margins(
@@ -95,7 +113,7 @@ def update_margins(
 
 def load_tax_rates() -> dict[str, Any]:
     """The full sales-tax document, structure preserved."""
-    return json.loads(TAX_FILE.read_text(encoding="utf-8"))
+    return _load_json(TAX_FILE)
 
 
 def update_tax_rates(
@@ -129,7 +147,7 @@ def update_tax_rates(
 
 def load_adders() -> dict[str, Any]:
     """The full manual-adders document, structure preserved."""
-    return json.loads(ADDERS_FILE.read_text(encoding="utf-8"))
+    return _load_json(ADDERS_FILE)
 
 
 def update_hager_adders(
@@ -174,7 +192,7 @@ def update_hager_adders(
 
 def load_special_margins() -> dict[str, Any]:
     """The full special-customer-margins document, structure preserved."""
-    return json.loads(SPECIAL_MARGINS_FILE.read_text(encoding="utf-8"))
+    return _load_json(SPECIAL_MARGINS_FILE)
 
 
 def update_special_margins(
@@ -255,7 +273,7 @@ def _parse_depth_inches(text: str) -> float:
 
 def load_finishes() -> dict[str, Any]:
     """The full finish-crosswalk document, structure preserved."""
-    return json.loads(FINISHES_FILE.read_text(encoding="utf-8"))
+    return _load_json(FINISHES_FILE)
 
 
 def update_finishes(
@@ -295,7 +313,7 @@ def update_finishes(
 
 def load_frame_depths() -> dict[str, Any]:
     """The full wall-type-to-depth document, structure preserved."""
-    return json.loads(FRAME_DEPTHS_FILE.read_text(encoding="utf-8"))
+    return _load_json(FRAME_DEPTHS_FILE)
 
 
 def update_frame_depths(
@@ -339,7 +357,7 @@ def update_frame_depths(
 
 def load_frp_constants() -> dict[str, Any]:
     """The full FRP conversion-constants document, structure preserved."""
-    return json.loads(FRP_CONSTANTS_FILE.read_text(encoding="utf-8"))
+    return _load_json(FRP_CONSTANTS_FILE)
 
 
 def update_frp_constants(values: dict[str, Any]) -> dict[str, Any]:
@@ -387,7 +405,7 @@ def load_stock_list(vendor_key: str) -> dict[str, Any] | None:
     path = stock_list_path(vendor_key)
     if not path.exists():
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+    return _load_json(path)
 
 
 def is_stock_part(vendor_key: str, part_number: str) -> dict[str, Any]:

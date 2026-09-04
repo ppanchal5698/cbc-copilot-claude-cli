@@ -40,8 +40,7 @@ make the boundaries explicit.
 8. Write `extracted/scope_summary.json`.
 
 ## Scope discipline
-Read @.claude/rules/scope-boundaries.md before deciding anything is in scope.
-Watch specifically for **Scranton** partitions (access lost - out of scope) and
+Scope boundaries are in the project rule `scope-boundaries.md`. Watch specifically for **Scranton** partitions (access lost - out of scope) and
 **American Dryer** (no longer used - substitute World Dryer or Excel XLERATOR and
 note it).
 
@@ -50,11 +49,6 @@ The spec's hardware schedule is the authority for **what is required**. CBC's
 reference library is the authority for **what is quoted**. Architects specify by
 part number and series - Hager 3400 is grade 1, 3500 is grade 2 - so carry the
 part number forward and let the product-matcher reconcile it.
-
-## Rules you must follow
-- @.claude/rules/scope-boundaries.md
-- @.claude/rules/auditability.md
-- @.claude/rules/accuracy-trust.md
 
 ## Reference data
 - @.claude/memory/process_flow.md

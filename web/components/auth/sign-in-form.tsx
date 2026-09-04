@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 
+import { safeRedirectPath } from "@/lib/safe-redirect";
+
 /** Passed in from the server page, which decides whether to offer them at all. */
 export interface QuickAccount {
   label: string;
@@ -43,10 +45,7 @@ export function SignInForm({ quickAccounts = [] }: { quickAccounts?: QuickAccoun
       return;
     }
 
-    // Only follow an in-app path. An open redirect here would let a crafted
-    // link bounce someone straight off this host after authenticating.
-    const target = from && from.startsWith("/") && !from.startsWith("//") ? from : "/dashboard";
-    router.push(target);
+    router.push(safeRedirectPath(from));
     router.refresh();
   }
 
@@ -62,20 +61,25 @@ export function SignInForm({ quickAccounts = [] }: { quickAccounts?: QuickAccoun
   }
 
   return (
-    <form onSubmit={onSubmit} className="mx-auto w-full max-w-[360px]">
-      <h2 className="text-[20px] font-semibold">Sign in</h2>
-      <p className="mt-1.5 text-[13px]" style={{ color: "var(--app-tx-2)" }}>
-        Use your Hamilton Parker address.
-      </p>
+    <form onSubmit={onSubmit} className="mx-auto w-full max-w-[400px] p-8 rounded-2xl bg-panel border border-subtle shadow-xl shadow-black/5 relative overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-brand-primary via-brand-primary/50 to-brand-primary"></div>
+      
+      <div className="mb-8 text-center">
+        <h2 className="text-[24px] font-bold tracking-tight text-tx-primary">Welcome back</h2>
+        <p className="mt-2 text-[14px] font-medium text-tx-secondary">
+          Sign in to your Hamilton Parker account
+        </p>
+      </div>
 
-      <label
-        htmlFor="signin-email"
-        className="mt-8 block text-[11.5px] uppercase tracking-[0.08em]"
-        style={{ color: "var(--app-tx-3)" }}
-      >
-        Email
-      </label>
-      <input
+      <div className="space-y-5">
+        <div>
+          <label
+            htmlFor="signin-email"
+            className="block text-[12px] font-bold uppercase tracking-widest text-tx-muted mb-2"
+          >
+            Email
+          </label>
+          <input
         id="signin-email"
         type="email"
         required
@@ -84,48 +88,38 @@ export function SignInForm({ quickAccounts = [] }: { quickAccounts?: QuickAccoun
         aria-describedby={error ? "signin-error" : undefined}
         value={email}
         onChange={(event) => setEmail(event.target.value)}
-        className="mt-1.5 w-full rounded-md px-3 py-2.5 text-[13.5px] outline-none focus:ring-2"
-        style={{
-          background: "var(--app-panel-2)",
-          border: "1px solid var(--app-line)",
-          color: "var(--app-tx)",
-        }}
+        className="w-full rounded-xl px-4 py-3 text-[14px] font-medium outline-none border border-subtle bg-background text-tx-primary placeholder:text-tx-muted focus:ring-2 focus:ring-brand-border focus:border-brand-primary transition-all shadow-sm"
+        placeholder="name@hamiltonparker.com"
       />
+      </div>
 
-      <label
-        htmlFor="signin-password"
-        className="mt-5 block text-[11.5px] uppercase tracking-[0.08em]"
-        style={{ color: "var(--app-tx-3)" }}
-      >
-        Password
-      </label>
-      <input
-        id="signin-password"
-        type="password"
-        required
-        autoComplete="current-password"
-        aria-invalid={!!error}
-        aria-describedby={error ? "signin-error" : undefined}
-        value={password}
-        onChange={(event) => setPassword(event.target.value)}
-        className="mt-1.5 w-full rounded-md px-3 py-2.5 text-[13.5px] outline-none focus:ring-2"
-        style={{
-          background: "var(--app-panel-2)",
-          border: "1px solid var(--app-line)",
-          color: "var(--app-tx)",
-        }}
-      />
+      <div>
+        <label
+          htmlFor="signin-password"
+          className="block text-[12px] font-bold uppercase tracking-widest text-tx-muted mb-2"
+        >
+          Password
+        </label>
+        <input
+          id="signin-password"
+          type="password"
+          required
+          autoComplete="current-password"
+          aria-invalid={!!error}
+          aria-describedby={error ? "signin-error" : undefined}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          className="w-full rounded-xl px-4 py-3 text-[14px] font-medium outline-none border border-subtle bg-background text-tx-primary placeholder:text-tx-muted focus:ring-2 focus:ring-brand-border focus:border-brand-primary transition-all shadow-sm"
+          placeholder="••••••••"
+        />
+      </div>
+      </div>
 
       {error && (
         <p
           id="signin-error"
           role="alert"
-          className="anim-fadein mt-4 rounded-md px-3 py-2 text-[12.5px]"
-          style={{
-            background: "var(--app-neg-soft)",
-            border: "1px solid var(--app-neg-line)",
-            color: "var(--app-neg)",
-          }}
+          className="animate-in fade-in slide-in-from-top-1 mt-6 rounded-xl px-4 py-3 text-[13px] font-medium bg-status-error-soft border border-status-error/30 text-status-error shadow-sm"
         >
           {error}
         </p>
@@ -134,48 +128,33 @@ export function SignInForm({ quickAccounts = [] }: { quickAccounts?: QuickAccoun
       <button
         type="submit"
         disabled={busy}
-        className="mt-7 w-full rounded-md py-2.5 text-[13.5px] font-semibold transition disabled:opacity-60"
-        style={{ background: "var(--app-accent)", color: "#fff" }}
+        className="mt-8 w-full rounded-xl py-3.5 text-[14px] font-bold tracking-wide transition-all shadow-md active:scale-[0.98] disabled:opacity-50 disabled:active:scale-100 bg-brand-primary text-white hover:bg-brand-primary/90 hover:shadow-brand-primary/20 hover:shadow-lg"
       >
         {busy ? "Signing in…" : "Sign in"}
       </button>
 
       {quickAccounts.length > 0 && (
-        <details
-          className="mt-6 rounded-md px-3 py-3"
-          style={{ background: "var(--app-panel)", border: "1px dashed var(--app-line)" }}
-        >
-          <summary
-            className="cursor-pointer text-[11.5px] font-medium uppercase tracking-[0.08em]"
-            style={{ color: "var(--app-tx-3)" }}
-          >
-            Developer sign-in
-          </summary>
-          <p className="mt-2 text-[11px]" style={{ color: "var(--app-tx-3)" }}>
-            Local development only — not available in production.
+        <div className="mt-8 pt-8 border-t border-subtle">
+          <p className="text-[12px] font-bold uppercase tracking-widest text-tx-muted mb-4 text-center">
+            Developer shortcuts
           </p>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {quickAccounts.map((account) => (
               <button
                 key={account.email}
                 type="button"
                 disabled={busy}
                 onClick={() => onQuickSignIn(account)}
-                className="rounded-md px-3 py-2.5 text-left transition disabled:opacity-60"
-                style={{
-                  background: "var(--app-panel-2)",
-                  border: "1px solid var(--app-line)",
-                  color: "var(--app-tx)",
-                }}
+                className="group flex flex-col items-start rounded-xl p-3 text-left transition-all border border-subtle bg-background hover:bg-panel-muted hover:border-brand-border disabled:opacity-50"
               >
-                <span className="block text-[13px] font-semibold">{account.label}</span>
-                <span className="mt-0.5 block text-[11.5px]" style={{ color: "var(--app-tx-2)" }}>
+                <span className="block text-[13.5px] font-bold text-tx-primary group-hover:text-brand-primary transition-colors">{account.label}</span>
+                <span className="mt-1 block text-[12px] font-medium text-tx-secondary truncate w-full">
                   {account.email}
                 </span>
               </button>
             ))}
           </div>
-        </details>
+        </div>
       )}
     </form>
   );

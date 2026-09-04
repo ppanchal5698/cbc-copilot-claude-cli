@@ -25,7 +25,7 @@ from tools import TOOLS  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from cbc.core import pdfpages, pdfrows  # noqa: E402
+from cbc.core import pdfpages, pdfrows, pdftext  # noqa: E402
 
 MAX_HITS = 200
 
@@ -40,6 +40,7 @@ MAX_HITS = 200
 # how to ask for them. Truncating a schedule without saying so would put missing
 # openings into a quote.
 MAX_TABLE_PAGES = 4
+MAX_TEXT_PAGES = 4
 MAX_ROWS_PER_PAGE = 300
 
 # What a Division 8/10 take-off is looking for on an architectural set.
@@ -86,7 +87,9 @@ def _parse_pages(doc: fitz.Document, spec: str | None) -> list[int]:
 
 
 def extract_text(
-    file_path: str, pages: list[int] | str | None = None
+    file_path: str,
+    pages: list[int] | str | None = None,
+    max_pages: int = MAX_TEXT_PAGES,
 ) -> dict[str, Any]:
     """Text per page, with the glyph offset repaired when the fonts need it.
 
@@ -103,19 +106,18 @@ def extract_text(
         else:
             wanted = list(range(doc.page_count))
 
+        reading, deferred = wanted[:max_pages], wanted[max_pages:]
         shift = pdfrows.detect_shift(doc, file_path)
         out = []
-        for index in wanted:
+        for index in reading:
             if not 0 <= index < doc.page_count:
                 continue
             page = doc[index]
-            text = page.get_text()
+            text = pdftext.shifted_page_text(file_path, index, page, shift)
             ocr_used = False
             if not text.strip():
                 text = pdfrows.ocr_page(page)
                 ocr_used = True
-            else:
-                text = pdfrows.shift_text(text, shift)
             out.append(
                 {
                     "source_page": index + 1,
@@ -136,6 +138,16 @@ def extract_text(
                 if shift
                 else None
             ),
+            "pages_read": [i + 1 for i in reading],
+            "pages_deferred": [i + 1 for i in deferred],
+            "note": (
+                f"{len(deferred)} of the {len(wanted)} requested pages were not read, "
+                f"to keep one call from spending the context the estimating needs. "
+                f"Ask for them explicitly, e.g. pages="
+                f"'{deferred[0] + 1}-{deferred[-1] + 1}'."
+                if deferred
+                else None
+            ),
             "pages": out,
         }
     finally:
@@ -147,6 +159,7 @@ def extract_tables(
     page_range: str | None = None,
     region: list[float] | None = None,
     max_pages: int = MAX_TABLE_PAGES,
+    include_cell_boxes: bool = True,
 ) -> dict[str, Any]:
     """Rows of cells clustered from positioned words, bounded per call.
 
@@ -162,13 +175,16 @@ def extract_tables(
         out = []
         for index in reading:
             page = doc[index]
-            rows = pdfrows.rows_from_words(page, region, shift)
+            rows = [dict(row) for row in pdftext.clustered_rows(file_path, index, page, region, shift)]
             # A dropped row is a missing opening in a quote, so a page that had to
             # be cut says so and says how much - never just a shorter list.
             total_rows = len(rows)
             truncated = total_rows > MAX_ROWS_PER_PAGE
             if truncated:
                 rows = rows[:MAX_ROWS_PER_PAGE]
+            if not include_cell_boxes:
+                for row in rows:
+                    row.pop("cell_boxes", None)
             if rows:
                 out.append(
                     {
@@ -229,7 +245,7 @@ def find_sheets(file_path: str, queries: list[str] | None = None) -> dict[str, A
         totals: dict[str, int] = {t: 0 for t in terms}
 
         for index in range(doc.page_count):
-            text = pdfrows.shift_text(doc[index].get_text(), shift).lower()
+            text = pdftext.shifted_page_text(file_path, index, doc[index], shift).lower()
             hits = {t: text.count(t.lower()) for t in terms}
             hits = {t: n for t, n in hits.items() if n}
             if not hits:
@@ -276,8 +292,9 @@ def get_page_image(
     page_number: int,
     dpi: int = 200,
     out_dir: str | None = None,
+    region: list[float] | None = None,
 ) -> dict[str, Any]:
-    return pdfpages.page_image(file_path, page_number, dpi, out_dir)
+    return pdfpages.page_image(file_path, page_number, dpi, out_dir, region)
 
 
 def search_pdf(
@@ -289,6 +306,10 @@ def search_pdf(
     context window is deliberately small - a search that returns the page is
     doing its job; extract_tables reads it.
     """
+    try:
+        capped_hits = max(1, min(int(max_hits), MAX_HITS))
+    except (TypeError, ValueError):
+        capped_hits = 40
     doc = _open(file_path)
     try:
         needle = query.lower()
@@ -299,10 +320,10 @@ def search_pdf(
         shift = pdfrows.detect_shift(doc, file_path)
         hits: list[dict[str, Any]] = []
         for index in range(doc.page_count):
-            text = pdfrows.shift_text(doc[index].get_text(), shift)
+            text = pdftext.shifted_page_text(file_path, index, doc[index], shift)
             lowered = text.lower()
             start = lowered.find(needle)
-            while start != -1 and len(hits) < max_hits:
+            while start != -1 and len(hits) < capped_hits:
                 left = max(0, start - half)
                 hits.append(
                     {
@@ -312,7 +333,7 @@ def search_pdf(
                     }
                 )
                 start = lowered.find(needle, start + 1)
-            if len(hits) >= MAX_HITS:
+            if len(hits) >= capped_hits:
                 break
         return {"file": file_path, "query": query, "hit_count": len(hits), "hits": hits}
     finally:

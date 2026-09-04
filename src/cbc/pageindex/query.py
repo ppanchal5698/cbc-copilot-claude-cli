@@ -10,7 +10,9 @@ follow the same trail. There is no embedding here and nothing to re-train.
 """
 from __future__ import annotations
 
+import copy
 import re
+from collections import OrderedDict
 from typing import Any
 
 from cbc.pageindex import store
@@ -19,6 +21,48 @@ from cbc.pageindex.models import PageEntry, PageIndexDocument
 # Where the vendor books live, relative to the repository root - which is what
 # pdf-tools resolves against.
 PRICEBOOK_DIR = "pricebooks"
+
+_FIND_PAGES_MAX = 256
+_api_find_cache: OrderedDict[tuple, dict[str, Any]] = OrderedDict()
+
+
+def headers_watermark(headers: list[dict[str, Any]]) -> str:
+    """max(builtAt) over catalog headers — cheap invalidation for C-07."""
+    if not headers:
+        return ""
+    return max(str(row.get("builtAt") or "") for row in headers)
+
+
+def find_pages_cache_key(
+    query: str, vendor: str | None, limit: int, watermark: str
+) -> tuple:
+    return (
+        str(query or "").strip().lower(),
+        str(vendor or "").strip().lower(),
+        int(limit),
+        watermark or "",
+    )
+
+
+def clear_find_pages_cache() -> None:
+    _api_find_cache.clear()
+
+
+def _cache_get(key: tuple) -> dict[str, Any] | None:
+    hit = _api_find_cache.get(key)
+    if hit is None:
+        return None
+    _api_find_cache.move_to_end(key)
+    return copy.deepcopy(hit)
+
+
+def _cache_put(key: tuple, payload: dict[str, Any]) -> dict[str, Any]:
+    _api_find_cache[key] = payload
+    _api_find_cache.move_to_end(key)
+    while len(_api_find_cache) > _FIND_PAGES_MAX:
+        _api_find_cache.popitem(last=False)
+    return copy.deepcopy(payload)
+
 
 # Words that match every page of every price book and so separate nothing.
 _STOPWORDS = frozenset(
@@ -200,12 +244,33 @@ async def find_pages(
     limit: int = 8,
 ) -> dict[str, Any]:
     """Pages worth opening, fetched with the application's own connection."""
+    import asyncio
+
+    headers = await store.list_catalogs(vendor)
+    if not vendor and len(headers) > 10:
+        return {
+            "query": query,
+            "count": 0,
+            "pages": [],
+            "note": (
+                "Too many catalogs to search without a vendor filter. "
+                "Pass vendor= to narrow the search."
+            ),
+        }
+
+    watermark = headers_watermark(headers)
+    key = find_pages_cache_key(query, vendor, limit, watermark)
+    cached = _cache_get(key)
+    if cached is not None:
+        return cached
+
     documents: list[PageIndexDocument] = []
-    for header in await store.list_catalogs(vendor):
+    for header in headers:
         document = await store.get(header["_id"])
         if document:
             documents.append(document)
-    return rank_pages(documents, query, limit=limit)
+    ranked = await asyncio.to_thread(rank_pages, documents, query, limit=limit)
+    return _cache_put(key, ranked)
 
 
 async def get_overview(catalog_id: str) -> dict[str, Any]:

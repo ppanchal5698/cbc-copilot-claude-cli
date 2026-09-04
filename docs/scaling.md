@@ -7,18 +7,19 @@ before multiple estimators can run the pipeline concurrently in production.
 
 | Layer | Constraint | Symptom |
 |-------|------------|---------|
-| Worker | Single `cbc-worker` container, serial `process()` loop | One Claude pass blocks all other jobs |
+| Worker | `WORKER_CONCURRENCY` (default 1); scale worker service only with shared `./projects` | One Claude pass used to block all other jobs |
+
 | Filesystem | `projects/` bind mount shared only between api + worker on one host | Second worker on another node cannot read PDFs |
 | MongoDB | Single instance, no sharding | Dashboard/list queries scale with bid count |
 | Job queue | Global FIFO (oldest queued job first) | Price book ingest waits behind long extractions |
 
-## Worker concurrency (recommended path)
+## Worker concurrency
 
-**Phase 1 — same host, typed concurrency**
+**Same host, typed concurrency (implemented)**
 
-- Run multiple worker processes in one container (or increase replicas with shared volume).
-- Keep `claim()` atomic; add optional `WORKER_CONCURRENCY` env (default `1`).
-- Partition by job type: allow `ingest_pricebook` while `extract_bid_set` runs, but keep one extraction per project (already enforced by partial unique index on `(projectId, type)` for active jobs).
+- `WORKER_CONCURRENCY` (default `1`) runs that many `process()` tasks in one worker process. `claim()` stays atomic; exclusive pipeline jobs per bid stay on the partial unique index.
+- The worker service has no `container_name`, so `docker compose up --scale worker=N` works on one host. `./projects` and `cbc_cache` are already shared bind/volume mounts — do not scale workers onto a second node until storage is shared (Phase 2 below).
+- Allow `ingest_pricebook` while an extraction runs; keep one extraction per project (already enforced).
 
 **Phase 2 — horizontal workers**
 
@@ -33,27 +34,28 @@ before multiple estimators can run the pipeline concurrently in production.
 
 ## Dashboard N+1 queries
 
-[`api/routers/projects.py`](../api/routers/projects.py) `_decorate()` runs ~6 queries per project on `GET /api/projects`. At 50 bids this is ~300 round-trips.
+[`apps/api/routers/projects.py`](../apps/api/routers/projects.py) `_decorate()` runs ~6 queries per project on `GET /api/projects`. At 50 bids this is ~300 round-trips.
 
 **Recommended fix**
 
 1. Add a `$lookup`-based aggregation on `list_projects` that returns counts in one pipeline.
-2. Or maintain denormalized counters on the project document, updated in [`api/services/sync.py`](../api/services/sync.py) after each import.
+2. Or maintain denormalized counters on the project document, updated in [`src/cbc/services/sync.py`](../src/cbc/services/sync.py) after each import.
 
-**Alternates listing** ([`api/routers/alternates.py`](../api/routers/alternates.py)) has a similar per-group loop; collapse with `$group` on `alternateGroup`.
+**Alternates listing** ([`apps/api/routers/alternates.py`](../apps/api/routers/alternates.py)) has a similar per-group loop; collapse with `$group` on `alternateGroup`.
 
 ## Price book ingest throughput
 
-[`worker/handlers/ingest.py`](../worker/handlers/ingest.py) upserts products one at a time. For large sheets, switch to `bulk_write` in batches of 500–1000 documents.
+[`apps/worker/handlers/ingest.py`](../apps/worker/handlers/ingest.py) upserts products one at a time. For large sheets, switch to `bulk_write` in batches of 500–1000 documents.
 
 ## MCP memory
 
-[`mcp-servers/pricebook/server.py`](../mcp-servers/pricebook/server.py) caches full PDF page text per process. Long pricing jobs with multiple large books should use an LRU byte cap or on-disk cache outside `pricebooks/`.
+There is a per-process PDF text cache at `.cache/pdftext.db` (WAL mode, shared `cbc_cache` volume). The five MCP servers (`pdf-tools`, `catalog`, `calc-engine`, `artifact-storage`, `p21-connector`) are stdio processes started per job. Catalog `find_pages` keeps an in-process LRU keyed on query + `builtAt`. Rendered pages are derived files under `/app/.cache`.
 
 ## Configuration reference
 
 | Variable | Default | Notes |
 |----------|---------|-------|
+| `WORKER_CONCURRENCY` | `1` | Jobs this process may run at once |
 | `WORKER_POLL_SECONDS` | `5` | Enqueue-to-start latency bound |
 | `WORKER_JOB_TIMEOUT_SECONDS` | `3600` | Raise for large CAD sets before blaming the model |
 | `WORKER_MAX_ATTEMPTS` | `3` | Failed jobs re-queue until cap |
@@ -61,5 +63,5 @@ before multiple estimators can run the pipeline concurrently in production.
 
 ## Security before production scale
 
-- API requires `X-Internal-Token` + `X-Actor` on all routes except `/api/health` and `/api/auth/verify` ([`api/deps.py`](../api/deps.py)).
+- API requires `X-Internal-Token` + `X-Actor` on all routes except `/api/health` and `/api/auth/verify` ([`apps/api/deps.py`](../apps/api/deps.py)).
 - Do not expose port `8001` publicly; only the Next.js proxy should reach the API.

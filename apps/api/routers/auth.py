@@ -5,6 +5,7 @@ good, and who is it?". Passwords are bcrypt-hashed and never leave the database.
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -65,7 +66,7 @@ async def verify(body: Credentials) -> dict:
     # Same response either way, and the same amount of work either way - do not
     # reveal whether an address is registered, by wording or by timing.
     hashed = user.get("passwordHash", "") if user else _DUMMY_HASH
-    correct = verify_password(body.password, hashed)
+    correct = await asyncio.to_thread(verify_password, body.password, hashed)
     if not user or not correct:
         raise HTTPException(401, "invalid email or password")
 

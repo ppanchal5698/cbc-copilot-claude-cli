@@ -7,20 +7,14 @@
 export default function BidStageLoading() {
   return (
     <>
-      <div
-        className="flex h-[54px] shrink-0 items-center gap-4 border-b px-5"
-        style={{ borderColor: "var(--app-line)", background: "var(--app-bg)" }}
-      >
+      <div className="flex h-[54px] shrink-0 items-center gap-4 border-b border-subtle px-5 bg-background">
         <span className="skeleton h-3 w-52" />
         <span className="flex-1" />
-        <span className="skeleton h-[34px] w-[200px]" />
+        <span className="skeleton h-[34px] w-[200px] rounded-lg" />
         <span className="skeleton h-8 w-8 rounded-full" />
       </div>
 
-      <div
-        className="flex shrink-0 items-center gap-4 border-b px-5 py-3"
-        style={{ borderColor: "var(--app-line)", background: "var(--app-bg)" }}
-      >
+      <div className="flex shrink-0 items-center gap-4 border-b border-subtle px-5 py-3 bg-background">
         <span className="flex w-[230px] shrink-0 flex-col gap-1.5">
           <span className="skeleton h-3 w-40" />
           <span className="skeleton h-2.5 w-28" />
@@ -35,16 +29,10 @@ export default function BidStageLoading() {
         </span>
       </div>
 
-      <main className="min-h-0 flex-1 overflow-hidden p-4" aria-busy="true" aria-live="polite">
+      <main className="min-h-0 flex-1 overflow-hidden p-6" aria-busy="true" aria-live="polite">
         <span className="sr-only">Loading this bid…</span>
-        <div
-          className="overflow-hidden rounded-xl"
-          style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-        >
-          <div
-            className="flex items-center gap-3 border-b px-4 py-3.5"
-            style={{ borderColor: "var(--app-line)" }}
-          >
+        <div className="overflow-hidden rounded-xl bg-panel border border-subtle shadow-sm">
+          <div className="flex items-center gap-4 border-b border-subtle px-5 py-4">
             <span className="skeleton h-8 w-8 rounded-lg" />
             <span className="flex flex-col gap-1.5">
               <span className="skeleton h-3.5 w-28" />
@@ -54,8 +42,7 @@ export default function BidStageLoading() {
           {Array.from({ length: 9 }).map((_, row) => (
             <div
               key={row}
-              className="flex items-center gap-3 border-b px-4 py-2.5 last:border-b-0"
-              style={{ borderColor: "var(--app-line)" }}
+              className="flex items-center gap-4 border-b border-subtle px-5 py-3 last:border-b-0"
             >
               <span className="skeleton h-4 w-4 shrink-0" />
               <span className="skeleton h-6 w-6 shrink-0 rounded-md" />

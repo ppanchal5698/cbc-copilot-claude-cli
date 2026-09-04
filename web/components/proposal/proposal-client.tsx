@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { JobFailedBanner } from "@/components/jobs/job-failed-banner";
 import { useUiState } from "@/components/shell/ui-state";
 import { formatMoney } from "@/lib/format";
+import { taxSummary } from "@/lib/tax-display";
 import type { EmailDraft, HandOffResult, Job, ProposalResponse } from "@/lib/types";
 
 import { endpoints } from "@/lib/endpoints";
@@ -58,27 +59,25 @@ export function ProposalClient({
 
   // A failed fetch used to fall into the same branch as a pending one, so any
   // API problem showed "Building the proposal…" for ever with no way out.
-  if (error) {
+    if (error) {
     return (
       <main className="grid flex-1 place-items-center p-6">
-        <div className="grid max-w-[440px] justify-items-center gap-2 text-center">
-          <WarningCircle size={24} weight="duotone" style={{ color: "var(--app-neg)" }} />
-          <span className="text-[14px] font-semibold">Could not build the proposal</span>
-          <span className="text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+        <div className="grid max-w-[440px] justify-items-center gap-3 text-center">
+          <WarningCircle size={32} weight="duotone" className="text-status-error" />
+          <span className="text-[16px] font-bold text-tx-primary tracking-tight">Could not build the proposal</span>
+          <span className="text-[13.5px] font-medium text-tx-secondary leading-relaxed">
             {errorMessage(error)}
           </span>
-          <div className="mt-2 flex gap-2">
+          <div className="mt-4 flex gap-3">
             <button
               onClick={() => mutate()}
-              className="rounded-md px-3 py-1.5 text-[12.5px] font-semibold"
-              style={{ background: "var(--app-accent)", color: "#fff" }}
+              className="rounded-lg px-4 py-2 text-[13px] font-bold bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors shadow-sm"
             >
               Try again
             </button>
             <a
               href={`/bids/${code}/quote`}
-              className="rounded-md px-3 py-1.5 text-[12.5px] no-underline"
-              style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+              className="rounded-lg px-4 py-2 text-[13px] font-bold no-underline border border-subtle bg-background text-tx-secondary hover:bg-panel-muted transition-colors shadow-sm"
             >
               Back to the quote
             </a>
@@ -91,7 +90,7 @@ export function ProposalClient({
   if (!data) {
     return (
       <main className="grid flex-1 place-items-center">
-        <span className="text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+        <span className="text-[14px] font-medium text-tx-muted animate-pulse">
           Building the proposal…
         </span>
       </main>
@@ -99,6 +98,7 @@ export function ProposalClient({
   }
 
   const { proposal, project, sections, totals, readiness } = data;
+  const tax = taxSummary(totals);
 
   async function setMarkup(markup: number) {
     try {
@@ -248,40 +248,29 @@ ${draft.body}`;
           )}
 
           {handOff && (
-            <div
-              className="anim-fadein mx-auto mb-3 flex max-w-[820px] items-start gap-3 rounded-xl px-4 py-3"
-              style={{
-                background: "var(--app-pos-soft)",
-                border: "1px solid var(--app-pos)",
-                color: "var(--app-pos)",
-              }}
-            >
-              <SealCheck size={18} weight="duotone" />
-              <span className="flex flex-1 flex-col leading-tight">
-                <span className="text-[13px] font-semibold">
+            <div className="anim-fadein mx-auto mb-4 flex max-w-[820px] items-start gap-4 rounded-xl px-5 py-4 bg-status-success-soft border border-status-success/30 text-status-success shadow-sm">
+              <SealCheck size={24} weight="fill" className="mt-0.5" />
+              <span className="flex flex-1 flex-col leading-tight gap-1">
+                <span className="text-[15px] font-bold tracking-tight">
                   {handOff.handedOffTo
                     ? `Handed to ${handOff.handedOffTo}`
                     : "Signed off — nobody to route to"}
                 </span>
-                <span className="text-[11.5px]">
+                <span className="text-[13px] font-medium opacity-90 leading-relaxed">
                   {handOff.message} The draft body is at {handOff.draftPath}.
                 </span>
               </span>
               <button
                 onClick={copyBody}
-                className="flex shrink-0 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11.5px]"
-                style={{ border: "1px solid var(--app-pos)", color: "var(--app-pos)" }}
+                className="flex shrink-0 items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-bold border border-status-success/40 bg-status-success text-white hover:bg-status-success/90 transition-colors shadow-sm"
               >
-                <Copy size={13} weight="duotone" />
+                <Copy size={16} weight="fill" />
                 Copy the email body
               </button>
             </div>
           )}
 
-          <article
-            className="mx-auto max-w-[820px] overflow-x-auto rounded-xl px-5 py-6 sm:px-10 sm:py-9"
-            style={{ background: "#ffffff", color: "#15151f", boxShadow: "var(--app-sh-2)" }}
-          >
+          <article className="mx-auto max-w-[820px] overflow-x-auto rounded-xl px-6 py-8 sm:px-12 sm:py-10 bg-white text-[#15151f] shadow-lg border border-subtle/50">
             <header className="flex items-start justify-between">
               <div>
                 <h1 className="text-[26px] font-semibold">Proposal</h1>
@@ -438,14 +427,14 @@ ${draft.body}`;
                   </tr>
                   <tr>
                     <td className="py-1" style={{ color: "#55556b" }}>
-                      Sales tax {totals.taxJurisdiction ? `(${totals.taxJurisdiction})` : ""}
+                      {tax.label}
+                      {totals.taxJurisdiction ? ` (${totals.taxJurisdiction})` : ""}
                     </td>
-                    <td className="tnum py-1 text-right">
-                      {totals.taxJurisdiction ? (
-                        `$${formatMoney(totals.tax)}`
-                      ) : (
-                        <span style={{ color: "#b45309" }}>UNRESOLVED</span>
-                      )}
+                    <td
+                      className="tnum py-1 text-right"
+                      style={{ color: tax.muted ? "#6e6e88" : undefined }}
+                    >
+                      {tax.value}
                     </td>
                   </tr>
                   <tr className="border-t-2" style={{ borderColor: "#0f3d2e" }}>
@@ -461,6 +450,11 @@ ${draft.body}`;
                   </tr>
                 </tbody>
               </table>
+              {tax.hint && (
+                <p className="mt-1 text-right text-[10px]" style={{ color: "#6e6e88" }}>
+                  {tax.hint}
+                </p>
+              )}
             </div>
 
             <footer className="mt-8 border-t pt-4 text-[10.5px]" style={{ borderColor: "#d6d9de", color: "#55556b" }}>
@@ -477,68 +471,52 @@ ${draft.body}`;
           </article>
         </section>
 
-        <aside
-          className="z-10 flex shrink-0 flex-col gap-3 xl:sticky xl:top-4 xl:w-[320px] xl:self-start"
-          style={{ background: "var(--app-bg)" }}
-        >
-          <div
-            className="rounded-xl p-4"
-            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-          >
-            <span
-              className="block text-[10.5px] uppercase tracking-[0.07em]"
-              style={{ color: "var(--app-tx-3)" }}
-            >
+        <aside className="z-10 flex shrink-0 flex-col gap-4 xl:sticky xl:top-4 xl:w-[340px] xl:self-start bg-background">
+          <div className="rounded-xl p-5 bg-panel border border-subtle shadow-sm">
+            <span className="block text-[11px] font-bold uppercase tracking-widest text-tx-muted">
               Proposal settings
             </span>
-            <span className="mt-3 block text-[12.5px] font-semibold">Presentation markup</span>
-            <div className="mt-2 flex gap-1">
+            <span className="mt-4 block text-[14px] font-bold text-tx-primary tracking-tight">Presentation markup</span>
+            <div className="mt-3 flex gap-2">
               {MARKUPS.map((option) => {
                 const active = Math.abs(proposal.markup - option.value) < 0.0001;
                 return (
                   <button
                     key={option.label}
                     onClick={() => setMarkup(option.value)}
-                    className="flex-1 rounded-md py-1.5 text-[12px]"
-                    style={{
-                      background: active ? "var(--app-panel-2)" : "transparent",
-                      color: active ? "var(--app-tx)" : "var(--app-tx-2)",
-                      border: `1px solid ${active ? "var(--app-line)" : "transparent"}`,
-                    }}
+                    className={`flex-1 rounded-lg py-2 text-[13px] font-bold transition-all shadow-sm ${
+                      active
+                        ? "bg-brand-primary/10 text-brand-primary border-brand-primary/20 border"
+                        : "bg-background text-tx-secondary border-subtle border hover:bg-panel-muted hover:text-tx-primary"
+                    }`}
                   >
                     {option.label}
                   </button>
                 );
               })}
             </div>
-            <p className="mt-2 text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+            <p className="mt-3 text-[12px] font-medium text-tx-muted leading-relaxed">
               The customer sees the sell price straight off the quote grid.
             </p>
           </div>
 
-          <div
-            className="rounded-xl p-4"
-            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-          >
-            <span
-              className="block text-[10.5px] uppercase tracking-[0.07em]"
-              style={{ color: "var(--app-tx-3)" }}
-            >
+          <div className="rounded-xl p-5 bg-panel border border-subtle shadow-sm">
+            <span className="block text-[11px] font-bold uppercase tracking-widest text-tx-muted">
               Sign-off
             </span>
-            <div className="mt-3 flex flex-col gap-3">
+            <div className="mt-4 flex flex-col gap-4">
               {signoff.map((entry) => (
-                <div key={entry.title} className="flex gap-2.5">
+                <div key={entry.title} className="flex gap-3">
                   {entry.state === "done" ? (
-                    <CheckCircle size={15} weight="fill" style={{ color: "var(--app-accent)" }} />
+                    <CheckCircle size={18} weight="fill" className="text-brand-primary mt-0.5" />
                   ) : entry.state === "warn" ? (
-                    <WarningCircle size={15} weight="fill" style={{ color: "var(--app-neg)" }} />
+                    <WarningCircle size={18} weight="fill" className="text-status-error mt-0.5" />
                   ) : (
-                    <Circle size={15} weight="duotone" style={{ color: "var(--app-tx-3)" }} />
+                    <Circle size={18} weight="duotone" className="text-tx-muted mt-0.5" />
                   )}
-                  <span className="flex flex-col leading-tight">
-                    <span className="text-[12.5px]">{entry.title}</span>
-                    <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                  <span className="flex flex-col leading-tight gap-1">
+                    <span className="text-[13.5px] font-bold text-tx-primary">{entry.title}</span>
+                    <span className="text-[12px] font-medium text-tx-muted">
                       {entry.detail}
                     </span>
                   </span>
@@ -547,19 +525,13 @@ ${draft.body}`;
             </div>
           </div>
 
-          <div
-            className="rounded-xl p-4"
-            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-          >
-            <span
-              className="block text-[10.5px] uppercase tracking-[0.07em]"
-              style={{ color: "var(--app-tx-3)" }}
-            >
+          <div className="rounded-xl p-5 bg-panel border border-subtle shadow-sm">
+            <span className="block text-[11px] font-bold uppercase tracking-widest text-tx-muted">
               Exclusions on the sheet
             </span>
-            <ul className="mt-2.5 flex flex-col gap-2">
+            <ul className="mt-4 flex flex-col gap-2.5">
               {proposal.exclusions.map((exclusion) => (
-                <li key={exclusion} className="text-[11.5px]" style={{ color: "var(--app-tx-2)" }}>
+                <li key={exclusion} className="text-[12.5px] font-medium text-tx-secondary pl-3 relative before:absolute before:left-0 before:top-2 before:h-1.5 before:w-1.5 before:rounded-full before:bg-brand-primary/40">
                   {exclusion}
                 </li>
               ))}
@@ -569,52 +541,42 @@ ${draft.body}`;
           <button
             onClick={markComplete}
             disabled={busy}
-            className="flex items-center justify-center gap-2 rounded-lg py-3 text-[13px] font-semibold disabled:opacity-60"
-            style={{ background: "var(--app-accent)", color: "#fff" }}
+            className="flex items-center justify-center gap-2 rounded-xl py-3.5 text-[14px] font-bold disabled:opacity-50 transition-all bg-brand-primary text-white hover:bg-brand-primary/90 shadow-md"
           >
             {project.initiator
               ? `Mark complete and route to ${project.initiator}`
               : "Mark complete and hand to sales"}
           </button>
-          <p className="text-center text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+          <p className="text-center text-[12px] font-medium text-tx-muted px-2">
             This records your sign-off and puts the bid in their queue. It does not send anything.
           </p>
         </aside>
       </main>
 
-      <footer
-        className="flex shrink-0 flex-wrap items-center gap-3 border-t px-5 py-3"
-        style={{ borderColor: "var(--app-line)", background: "var(--app-bg)" }}
-      >
+      <footer className="flex shrink-0 flex-wrap items-center gap-4 border-t border-subtle px-6 py-4 bg-background">
         <a
           href={`/bids/${code}/quote`}
-          className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] no-underline"
-          style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+          className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-bold no-underline border border-subtle bg-background text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm"
         >
-          <ArrowLeft size={14} weight="bold" />
+          <ArrowLeft size={16} weight="bold" />
           Back
         </a>
-        <span
-          className="min-w-[200px] flex-1 text-[12.5px]"
-          style={{ color: "var(--app-tx-2)" }}
-        >
+        <span className="min-w-[200px] flex-1 text-[13px] font-medium text-tx-secondary">
           The customer sees the marked-up total only. Nothing is sent from here.
         </span>
         <a
           href={`/api/proxy/projects/${code}/proposal/render`}
           target="_blank"
           rel="noreferrer"
-          className="flex items-center gap-1.5 rounded-md px-3 py-2 text-[12.5px] no-underline"
-          style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+          className="flex items-center gap-2 rounded-lg px-4 py-2.5 text-[13px] font-bold no-underline border border-subtle bg-background text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm"
         >
           Open printable view
         </a>
         <button
           onClick={downloadPdf}
-          className="flex items-center gap-1.5 rounded-md px-4 py-2 text-[12.5px] font-semibold"
-          style={{ background: "var(--app-accent)", color: "#fff" }}
+          className="flex items-center gap-2 rounded-lg px-5 py-2.5 text-[13px] font-bold transition-all bg-brand-primary text-white hover:bg-brand-primary/90 shadow-sm"
         >
-          <DownloadSimple size={14} weight="bold" />
+          <DownloadSimple size={16} weight="bold" />
           Download PDF
         </button>
       </footer>

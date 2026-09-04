@@ -7,6 +7,7 @@ import { CaretDown, CaretRight } from "@phosphor-icons/react/dist/ssr";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatMoneyShort } from "@/lib/format";
 import type { Project } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const STAGE_LABEL: Record<string, string> = {
   intake: "Intake",
@@ -51,12 +52,9 @@ export function BoardGroups({ projects }: { projects: Project[] }) {
 
   if (projects.length === 0) {
     return (
-      <div
-        className="grid place-items-center gap-2 rounded-xl px-6 py-16 text-center"
-        style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-      >
-        <span className="text-[14px] font-semibold">No bids here</span>
-        <span className="max-w-[420px] text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+      <div className="grid place-items-center gap-2 rounded-xl border border-subtle bg-panel px-6 py-16 text-center shadow-sm">
+        <span className="text-[14px] font-semibold text-tx-primary">No bids here</span>
+        <span className="max-w-[420px] text-[12.5px] text-tx-secondary">
           Create a bid, drop the plan set in, and the schedules are read for you.
         </span>
       </div>
@@ -64,7 +62,7 @@ export function BoardGroups({ projects }: { projects: Project[] }) {
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {[...groups.entries()]
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([brand, rows]) => {
@@ -75,8 +73,7 @@ export function BoardGroups({ projects }: { projects: Project[] }) {
           return (
             <div
               key={brand}
-              className="overflow-hidden rounded-xl"
-              style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
+              className="overflow-hidden rounded-xl border border-subtle bg-panel shadow-sm transition-colors hover:border-brand-border/50"
             >
               <button
                 onClick={() =>
@@ -87,22 +84,22 @@ export function BoardGroups({ projects }: { projects: Project[] }) {
                     return next;
                   })
                 }
-                className="flex w-full items-center gap-3 px-4 py-3 text-left"
+                className={cn(
+                  "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-panel-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-border",
+                  open && "border-b border-subtle bg-panel-muted"
+                )}
               >
                 {open ? (
-                  <CaretDown size={13} weight="bold" style={{ color: "var(--app-tx-3)" }} />
+                  <CaretDown size={14} weight="bold" className="text-tx-muted" />
                 ) : (
-                  <CaretRight size={13} weight="bold" style={{ color: "var(--app-tx-3)" }} />
+                  <CaretRight size={14} weight="bold" className="text-tx-muted" />
                 )}
-                <span
-                  className="grid h-7 w-7 place-items-center rounded-md text-[11px] font-bold"
-                  style={{ background: "var(--app-accent-soft)", color: "var(--app-accent)" }}
-                >
+                <span className="grid h-8 w-8 place-items-center rounded-md bg-brand-soft text-[11px] font-bold text-brand-primary shadow-sm border border-brand-border/20">
                   {initials(brand)}
                 </span>
                 <span className="flex flex-col leading-tight">
-                  <span className="text-[13.5px] font-semibold">{brand}</span>
-                  <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                  <span className="text-[14px] font-semibold text-tx-primary">{brand}</span>
+                  <span className="text-[11.5px] font-medium text-tx-muted mt-0.5">
                     {rows.length} in this programme
                   </span>
                 </span>
@@ -110,35 +107,25 @@ export function BoardGroups({ projects }: { projects: Project[] }) {
                 <span className="flex-1" />
 
                 {flags > 0 && (
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[11px]"
-                    style={{ background: "var(--app-neg-soft)", color: "var(--app-neg)" }}
-                  >
+                  <span className="rounded-full bg-status-error-soft px-2 py-0.5 text-[11px] font-semibold text-status-error shadow-sm border border-status-error/20">
                     {flags} flagged
                   </span>
                 )}
                 <span className="flex flex-col items-end leading-tight">
-                  <span
-                    className="text-[10px] uppercase tracking-[0.07em]"
-                    style={{ color: "var(--app-tx-3)" }}
-                  >
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-tx-muted">
                     Programme value
                   </span>
-                  <span className="tnum text-[13.5px] font-semibold">
+                  <span className="tnum text-[14px] font-semibold text-tx-primary mt-0.5">
                     {value ? formatMoneyShort(value) : "—"}
                   </span>
                 </span>
               </button>
 
               {open && (
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto bg-background">
                   <div
-                    className="grid min-w-[720px] gap-3 border-y px-4 py-2 text-[10.5px] uppercase tracking-[0.07em]"
-                    style={{
-                      gridTemplateColumns: "170px 1fr 110px 100px 90px 70px 110px",
-                      borderColor: "var(--app-line)",
-                      color: "var(--app-tx-3)",
-                    }}
+                    className="grid min-w-[720px] gap-3 border-b border-subtle px-4 py-2.5 text-[10.5px] font-bold uppercase tracking-widest text-tx-muted bg-panel/30"
+                    style={{ gridTemplateColumns: "170px 1fr 110px 100px 90px 70px 110px" }}
                   >
                     <span>Bid</span>
                     <span>Customer</span>
@@ -155,39 +142,30 @@ export function BoardGroups({ projects }: { projects: Project[] }) {
                       <Link
                         key={project.id}
                         href={`/bids/${project.code}/${project.stage}`}
-                        className="grid min-w-[720px] items-center gap-3 border-b px-4 py-2.5 no-underline last:border-b-0 hover:bg-[var(--app-panel-2)]"
-                        style={{
-                          gridTemplateColumns: "170px 1fr 110px 100px 90px 70px 110px",
-                          borderColor: "var(--app-line)",
-                        }}
+                        className="group grid min-w-[720px] items-center gap-3 border-b border-subtle px-4 py-3 no-underline last:border-b-0 hover:bg-panel-muted transition-colors"
+                        style={{ gridTemplateColumns: "170px 1fr 110px 100px 90px 70px 110px" }}
                       >
                         <span className="flex min-w-0 flex-col leading-tight">
-                          <span
-                            className="tnum truncate text-[12.5px] font-semibold"
-                            style={{ color: "var(--app-accent)" }}
-                          >
+                          <span className="tnum truncate text-[13px] font-semibold text-brand-primary transition-colors group-hover:text-brand-primary/80">
                             {project.code}
                           </span>
-                          <span
-                            className="truncate text-[10.5px]"
-                            style={{ color: "var(--app-tx-3)" }}
-                          >
+                          <span className="truncate text-[11px] font-medium text-tx-secondary mt-0.5">
                             {project.name}
                           </span>
                         </span>
-                        <span className="truncate text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+                        <span className="truncate text-[13px] font-medium text-tx-secondary">
                           {project.gc ?? "—"}
                         </span>
-                        <span className="text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                        <span className="tnum text-[12.5px] font-medium text-tx-muted">
                           {project.bidDue ? new Date(project.bidDue).toLocaleDateString() : "—"}
                         </span>
-                        <span className="tnum text-right text-[12.5px] font-semibold">
+                        <span className="tnum text-right text-[13px] font-semibold text-tx-primary">
                           {project.quoteTotal ? formatMoneyShort(project.quoteTotal) : "—"}
                         </span>
-                        <span className="text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+                        <span className="text-[12.5px] font-medium text-tx-secondary">
                           {STAGE_LABEL[project.stage]}
                         </span>
-                        <span className="tnum text-right text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+                        <span className="tnum text-right text-[12.5px] font-medium text-tx-muted">
                           v{project.version ?? 1}
                         </span>
                         <span>

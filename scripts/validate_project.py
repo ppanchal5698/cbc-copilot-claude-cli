@@ -31,6 +31,7 @@ sys.path.insert(0, str(ROOT / "src"))
 # command-line front for them, plus the pre-flight that checks this checkout -
 # servers present, hooks executable, reference data current - which is a
 # property of the working copy and not of any project.
+from cbc.services.freshness import load_sync  # noqa: E402
 from cbc.validation.artifacts import (  # noqa: E402
     ARTIFACT_CHECKS,
     BBOX_COVERAGE,
@@ -74,8 +75,6 @@ HOOKS = [
     "post_quote_format.py",
     "log_audit_trail.py",
 ]
-STALE_DAYS = 180
-
 REQUIRED_REFERENCE = [
     "hardware_sets/hager_top10_stock.json",
     "hardware_sets/allegion_stock.json",
@@ -134,7 +133,7 @@ def check_all() -> int:
                 warnings.append(f"{book['file']} has no effective date recorded")
                 continue
             age = (date.today() - datetime.fromisoformat(effective).date()).days
-            if age > STALE_DAYS:
+            if age > load_sync().catalog_stale_days:
                 warnings.append(f"{book['file']} is {age} days old (effective {effective})")
 
     for name in SERVERS:

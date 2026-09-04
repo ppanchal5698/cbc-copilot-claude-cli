@@ -36,7 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <UiStateProvider userRole={user.role}>
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-[var(--app-panel)] focus:px-3 focus:py-2 focus:text-[13px] focus:shadow-lg"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-panel focus:px-3 focus:py-2 focus:text-[13px] focus:shadow-lg"
       >
         Skip to main content
       </a>

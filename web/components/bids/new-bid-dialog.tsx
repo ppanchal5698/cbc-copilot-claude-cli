@@ -19,13 +19,13 @@ interface Field {
 }
 
 const FIELDS: Field[] = [
-  { key: "name", label: "Job name", placeholder: "Burger King #2379 — exterior & interior", required: true },
-  { key: "brand", label: "Brand", placeholder: "Burger King" },
-  { key: "location", label: "Location", placeholder: "Cortlandt Manor, NY" },
-  { key: "state", label: "State", placeholder: "NY", hint: "Two letters. Tax applies to OH and KY only." },
-  { key: "gc", label: "General contractor", placeholder: "Cortlandt Builders LLC" },
-  { key: "initiator", label: "Requested by", placeholder: "Rebecca Gabrich", hint: "The quote goes back to this person." },
-  { key: "architect", label: "Architect", placeholder: "Coralic LLC" },
+  { key: "name", label: "Job name", placeholder: "e.g. Burger King #2379 — exterior & interior", required: true },
+  { key: "brand", label: "Brand", placeholder: "e.g. Burger King" },
+  { key: "location", label: "Location", placeholder: "e.g. Cortlandt Manor, NY" },
+  { key: "state", label: "State", placeholder: "e.g. NY", hint: "Two letters. Tax applies to OH and KY only." },
+  { key: "gc", label: "General contractor", placeholder: "e.g. Cortlandt Builders LLC" },
+  { key: "initiator", label: "Requested by", placeholder: "e.g. Rebecca Gabrich", hint: "The quote goes back to this person." },
+  { key: "architect", label: "Architect", placeholder: "e.g. Coralic LLC" },
   { key: "bidDue", label: "Bid due", placeholder: "", type: "date" },
 ];
 
@@ -80,10 +80,9 @@ export function NewBidDialog() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-2 rounded-md px-3.5 py-2 text-[12.5px] font-semibold"
-        style={{ background: "var(--app-accent)", color: "#fff" }}
+        className="flex items-center gap-2 rounded-lg px-4 py-2 text-[13px] font-bold bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors shadow-sm"
       >
-        <Plus size={14} weight="bold" />
+        <Plus size={16} weight="bold" />
         New bid
       </button>
     );
@@ -91,8 +90,7 @@ export function NewBidDialog() {
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center overflow-auto p-4 sm:p-6"
-      style={{ background: "rgba(0,0,0,0.55)" }}
+      className="fixed inset-0 z-50 grid place-items-center overflow-auto p-4 sm:p-6 bg-black/55 backdrop-blur-sm"
       onClick={(event) => event.target === event.currentTarget && setOpen(false)}
     >
       <form
@@ -102,33 +100,25 @@ export function NewBidDialog() {
         role="dialog"
         aria-modal="true"
         aria-labelledby="new-bid-title"
-        className="anim-popin my-auto w-full max-w-[620px] rounded-xl p-5 sm:p-6"
-        style={{
-          background: "var(--app-panel)",
-          border: "1px solid var(--app-line)",
-          boxShadow: "var(--app-sh-3)",
-        }}
+        className="anim-popin my-auto w-full max-w-[620px] rounded-2xl p-6 sm:p-8 bg-panel border border-subtle shadow-2xl"
       >
-        <h2 id="new-bid-title" className="text-[16px] font-semibold">
+        <h2 id="new-bid-title" className="text-[18px] font-bold text-tx-primary tracking-tight">
           New bid
         </h2>
-        <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+        <p className="mt-1.5 text-[13px] font-medium text-tx-secondary leading-relaxed">
           A CBC number is assigned automatically. Everything else can be filled in later.
         </p>
 
-        <div className="mt-5 grid gap-x-4 gap-y-3.5 sm:grid-cols-2">
+        <div className="mt-6 grid gap-x-5 gap-y-4 sm:grid-cols-2">
           {FIELDS.map((field) => (
             <label
               key={field.key}
               htmlFor={`new-bid-${field.key}`}
               className={field.key === "name" ? "block sm:col-span-2" : "block"}
             >
-              <span
-                className="block text-[11px] uppercase tracking-[0.07em]"
-                style={{ color: "var(--app-tx-3)" }}
-              >
+              <span className="block text-[11px] font-bold uppercase tracking-widest text-tx-muted">
                 {field.label}
-                {field.required && <span style={{ color: "var(--app-neg)" }}> *</span>}
+                {field.required && <span className="text-status-error"> *</span>}
               </span>
               <input
                 id={`new-bid-${field.key}`}
@@ -153,18 +143,16 @@ export function NewBidDialog() {
                     });
                   }
                 }}
-                className="mt-1 w-full rounded-md px-2.5 py-2 text-[13px] outline-none focus:ring-2"
-                style={{
-                  background: "var(--app-panel-2)",
-                  border: `1px solid ${fieldErrors[field.key] ? "var(--app-neg-line)" : "var(--app-line)"}`,
-                  color: "var(--app-tx)",
-                }}
+                className={`mt-1.5 w-full rounded-lg px-3 py-2.5 text-[13.5px] font-medium outline-none placeholder:italic placeholder:opacity-50 transition-all shadow-sm ${
+                  fieldErrors[field.key]
+                    ? "bg-status-error-soft border border-status-error/30 text-status-error focus:ring-2 focus:ring-status-error/30"
+                    : "bg-background border border-subtle text-tx-primary focus:ring-2 focus:ring-brand-border focus:border-brand-primary/30"
+                }`}
               />
               {fieldErrors[field.key] && (
                 <span
                   id={`new-bid-${field.key}-error`}
-                  className="mt-1 block text-[11px]"
-                  style={{ color: "var(--app-neg)" }}
+                  className="mt-1.5 block text-[11.5px] font-medium text-status-error"
                 >
                   {fieldErrors[field.key]}
                 </span>
@@ -172,8 +160,7 @@ export function NewBidDialog() {
               {field.hint && (
                 <span
                   id={`new-bid-${field.key}-hint`}
-                  className="mt-1 block text-[10.5px]"
-                  style={{ color: "var(--app-tx-3)" }}
+                  className="mt-1.5 block text-[11px] font-medium text-tx-muted"
                 >
                   {field.hint}
                 </span>
@@ -183,18 +170,17 @@ export function NewBidDialog() {
         </div>
 
         <label
-          className="mt-5 flex cursor-pointer items-start gap-2.5 rounded-lg px-3 py-2.5"
-          style={{ background: "var(--app-panel-2)", border: "1px solid var(--app-line)" }}
+          className="mt-6 flex cursor-pointer items-start gap-3 rounded-xl px-4 py-3.5 bg-panel-muted border border-subtle hover:bg-background/50 transition-colors shadow-sm"
         >
           <input
             type="checkbox"
             checked={autopilot}
             onChange={(event) => setAutopilot(event.target.checked)}
-            className="mt-0.5"
+            className="mt-0.5 h-4 w-4 rounded border-subtle text-brand-primary focus:ring-brand-primary"
           />
-          <span className="flex flex-col leading-snug">
-            <span className="text-[12.5px] font-semibold">Run the whole pipeline on upload</span>
-            <span className="text-[11.5px]" style={{ color: "var(--app-tx-2)" }}>
+          <span className="flex flex-col leading-snug gap-1">
+            <span className="text-[13.5px] font-bold text-tx-primary tracking-tight">Run the whole pipeline on upload</span>
+            <span className="text-[12px] font-medium text-tx-secondary leading-relaxed">
               One pass from intake to a draft proposal, without stopping for you to
               confirm the openings. They are priced before anyone checks them, and
               anything uncertain is flagged for review at the end. Nothing is ever sent.
@@ -202,20 +188,18 @@ export function NewBidDialog() {
           </span>
         </label>
 
-        <div className="mt-6 flex items-center justify-end gap-2">
+        <div className="mt-8 flex items-center justify-end gap-3 pt-4 border-t border-subtle">
           <button
             type="button"
             onClick={() => setOpen(false)}
-            className="rounded-md px-3.5 py-2 text-[12.5px]"
-            style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+            className="rounded-lg px-4 py-2 text-[13px] font-bold border border-subtle bg-background text-tx-secondary hover:bg-panel-muted hover:text-tx-primary transition-colors shadow-sm"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={busy}
-            className="rounded-md px-3.5 py-2 text-[12.5px] font-semibold disabled:opacity-60"
-            style={{ background: "var(--app-accent)", color: "#fff" }}
+            className="rounded-lg px-5 py-2 text-[13px] font-bold disabled:opacity-50 bg-brand-primary text-white hover:bg-brand-primary/90 transition-colors shadow-sm"
           >
             {busy ? "Creating…" : "Create bid"}
           </button>

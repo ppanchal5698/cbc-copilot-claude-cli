@@ -16,21 +16,19 @@ import json
 import os
 import sys
 import urllib.error
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from _runtime import serve  # noqa: E402
 from tools import TOOLS  # noqa: E402
 from client import lookup_last_po as _http_lookup, search_item as _http_search  # noqa: E402
-
-# Freshness thresholds, in days (Requirements Matrix 6.2).
-FRESH_DAYS = 180  # under ~6 months
-UNRELIABLE_DAYS = 240  # ~6-8 months and beyond
-STALE_DAYS = 1095  # 3 years - discard
+from cbc.core.freshness import classify  # noqa: E402
+from cbc.services.freshness import load_sync  # noqa: E402
 
 BASE_URL = os.environ.get("P21_BASE_URL", "").strip()
 
@@ -62,32 +60,22 @@ def check_freshness(po_date: str) -> dict[str, Any]:
         raise ValueError(f"po_date must be an ISO date, got {po_date!r}") from exc
 
     age = (date.today() - purchased).days
-    if age < 0:
-        status, usable, guidance = "future_dated", False, "PO date is in the future - verify."
-    elif age <= FRESH_DAYS:
-        status, usable, guidance = "fresh", True, "Usable if there has been no price increase."
-    elif age <= UNRELIABLE_DAYS:
-        status, usable, guidance = (
-            "unreliable",
-            False,
-            "About 6-8 months old - re-verify against the vendor sheet before quoting.",
-        )
-    elif age <= STALE_DAYS:
-        status, usable, guidance = (
-            "unreliable",
-            False,
-            "Well past the freshness window - re-verify or price by list x multiplier.",
-        )
-    else:
-        status, usable, guidance = "stale", False, "3+ years old - discard. Do not quote from this."
+    bands = load_sync()
+    classified = classify(
+        age,
+        bands.fresh_days,
+        bands.discard_after_days,
+        fresh_months=bands.fresh_months,
+        discard_months=bands.discard_after_months,
+    )
 
     return {
         "po_date": po_date,
         "age_days": age,
-        "freshness_status": status,
-        "usable": usable,
-        "guidance": guidance,
-        "rule": "under ~6 months fresh; ~6-8 months+ unreliable; 3-4 years discard",
+        "freshness_status": classified["status"],
+        "usable": classified["usable"],
+        "guidance": classified["guidance"],
+        "rule": bands.rule,
     }
 
 
@@ -223,9 +211,9 @@ assert not [t for t in TOOLS if any(word in t["name"].lower() for word in _FORBI
 def _demo() -> None:
     """Runnable check: the freshness bands and the never-guess contract."""
     assert check_freshness(date.today().isoformat())["freshness_status"] == "fresh"
-    old = (date.today().replace(year=date.today().year - 2)).isoformat()
-    assert check_freshness(old)["usable"] is False
-    ancient = (date.today().replace(year=date.today().year - 5)).isoformat()
+    mid = (date.today() - timedelta(days=800)).isoformat()
+    assert check_freshness(mid)["freshness_status"] == "unreliable"
+    ancient = (date.today() - timedelta(days=1000)).isoformat()
     assert check_freshness(ancient)["freshness_status"] == "stale"
 
     result = lookup_last_po("3510", "hager")

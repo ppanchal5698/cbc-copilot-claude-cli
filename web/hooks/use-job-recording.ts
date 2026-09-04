@@ -22,6 +22,10 @@ interface TerminalReplay {
   status?: string | null;
 }
 
+function byteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
 export function useJobRecording(
   jobId: string,
   options?: {
@@ -34,10 +38,14 @@ export function useJobRecording(
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [state, setState] = useState<RecordingState>("connecting");
   const [reason, setReason] = useState<string | null>(null);
-  const [subscribedJob, setSubscribedJob] = useState(jobId);
+  const [activeJobId, setActiveJobId] = useState(jobId);
   const carried = useRef("");
+  const sessionCtx = useRef({ sessionInits: 0 });
   const rawCarried = useRef("");
   const offset = useRef(0);
+  const seenEntryIds = useRef(new Set<string>());
+  const endedRef = useRef(false);
+  const rawLogRef = useRef("");
 
   // Callbacks are read through refs so that a caller passing an inline function
   // does not tear down and re-open the EventSource on every render.
@@ -48,10 +56,9 @@ export function useJobRecording(
     onFinishedRef.current = onFinished;
   });
 
-  // A new job resets the transcript before its first paint, rather than showing
-  // the previous run's entries until an effect catches up.
-  if (subscribedJob !== jobId) {
-    setSubscribedJob(jobId);
+  // A new job clears the transcript before the subscription effect runs.
+  if (activeJobId !== jobId) {
+    setActiveJobId(jobId);
     setEntries([]);
     setState("connecting");
     setReason(null);
@@ -60,10 +67,69 @@ export function useJobRecording(
   useEffect(() => {
     let disposed = false;
     let source: EventSource | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     carried.current = "";
+    sessionCtx.current = { sessionInits: 0 };
     rawCarried.current = "";
     offset.current = 0;
+    seenEntryIds.current = new Set();
+    endedRef.current = false;
+    rawLogRef.current = "";
+
+    const appendRaw = (chunk: string) => {
+      if (chunk) rawLogRef.current += chunk;
+    };
+
+    const appendEntries = (incoming: LogEntry[]) => {
+      if (!incoming.length) return;
+      setEntries((prev) => {
+        const fresh = incoming.filter((entry) => {
+          if (seenEntryIds.current.has(entry.id)) return false;
+          seenEntryIds.current.add(entry.id);
+          return true;
+        });
+        return fresh.length ? mergeEntries(prev, fresh) : prev;
+      });
+    };
+
+    const openStream = () => {
+      if (disposed) return;
+      source?.close();
+      source = new EventSource(
+        `/api/proxy/jobs/${jobId}/terminal/stream?offset=${offset.current}`,
+      );
+      setState("live");
+
+      source.addEventListener("output", (event) => {
+        const chunk = decodeBase64Recording((event as MessageEvent).data);
+        offset.current += byteLength(chunk);
+        appendRaw(chunk);
+
+        if (parseEntries) {
+          const next = parseStream(chunk, carried.current, sessionCtx.current);
+          carried.current = next.remainder;
+          appendEntries(next.entries);
+        }
+
+        const rawNext = renderStream(chunk, rawCarried.current, true);
+        rawCarried.current = rawNext.remainder;
+        if (rawNext.lines) onRawChunkRef.current?.(rawNext.lines);
+      });
+
+      source.addEventListener("end", (event) => {
+        endedRef.current = true;
+        setState("ended");
+        source?.close();
+        onFinishedRef.current?.((event as MessageEvent).data);
+      });
+
+      source.onerror = () => {
+        source?.close();
+        if (disposed || endedRef.current) return;
+        reconnectTimer = setTimeout(openStream, 1500);
+      };
+    };
 
     (async () => {
       let replay: TerminalReplay;
@@ -93,60 +159,38 @@ export function useJobRecording(
 
       if (replay.data) {
         const decoded = decodeBase64Recording(replay.data);
+        appendRaw(decoded);
         if (parseEntries) {
-          const first = parseStream(decoded, "");
+          const first = parseStream(decoded, "", sessionCtx.current);
           carried.current = first.remainder;
-          setEntries(first.entries);
+          appendEntries(first.entries);
         }
         const rawFirst = renderStream(decoded, "", true);
         rawCarried.current = rawFirst.remainder;
         if (rawFirst.lines) onRawChunkRef.current?.(rawFirst.lines);
-        offset.current = replay.bytes ?? decoded.length;
+        offset.current = replay.bytes ?? byteLength(decoded);
       }
 
       if (replay.status && ["done", "failed", "cancelled"].includes(replay.status)) {
+        endedRef.current = true;
         setState("ended");
         return;
       }
 
-      source = new EventSource(
-        `/api/proxy/jobs/${jobId}/terminal/stream?offset=${offset.current}`,
-      );
-      setState("live");
-
-      source.addEventListener("output", (event) => {
-        const chunk = decodeBase64Recording((event as MessageEvent).data);
-        offset.current += chunk.length;
-
-        if (parseEntries) {
-          const next = parseStream(chunk, carried.current);
-          carried.current = next.remainder;
-          if (next.entries.length) {
-            setEntries((prev) => mergeEntries(prev, next.entries));
-          }
-        }
-
-        const rawNext = renderStream(chunk, rawCarried.current, true);
-        rawCarried.current = rawNext.remainder;
-        if (rawNext.lines) onRawChunkRef.current?.(rawNext.lines);
-      });
-
-      source.addEventListener("end", (event) => {
-        setState("ended");
-        source?.close();
-        onFinishedRef.current?.((event as MessageEvent).data);
-      });
-
-      source.onerror = () => {
-        if (source?.readyState === EventSource.CLOSED) setState("ended");
-      };
+      openStream();
     })();
 
     return () => {
       disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       source?.close();
     };
   }, [jobId, parseEntries]);
 
-  return { entries, state, reason };
+  return {
+    entries,
+    state,
+    reason,
+    getRawLog: () => rawLogRef.current,
+  };
 }

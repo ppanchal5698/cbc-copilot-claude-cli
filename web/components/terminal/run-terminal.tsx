@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
+import { Copy } from "@phosphor-icons/react/dist/ssr";
+import { toast } from "sonner";
 
 import { useJobRecording, type RecordingState } from "@/hooks/use-job-recording";
+import { formatEntriesForCopy } from "@/lib/claude-stream";
 import { recordingUnavailableMessage } from "@/lib/job-error";
 
 import { LogViewer } from "./log-viewer";
@@ -41,19 +44,44 @@ export function RunTerminal({
     }
   }, []);
 
-  const { entries, state, reason } = useJobRecording(jobId, {
+  const { entries, state, reason, getRawLog } = useJobRecording(jobId, {
     onFinished,
     onRawChunk: raw ? onRawChunk : undefined,
     parseEntries: !raw,
   });
 
+  const copyLogs = useCallback(async () => {
+    const text = raw ? getRawLog() : formatEntriesForCopy(entries);
+    if (!text.trim()) {
+      toast.error("Nothing to copy yet", {
+        description: state === "connecting" ? "Waiting for run output…" : "This run has no log events.",
+      });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Log copied to clipboard");
+    } catch {
+      toast.error("Clipboard blocked", {
+        description: "Select the text in the log view instead.",
+      });
+    }
+  }, [raw, getRawLog, entries, state]);
+
   return (
     <div className="flex h-full flex-col">
-      <StatusStrip state={state} status={status} reason={reason} raw={raw} />
-      <div className="min-h-0 flex-1" style={{ background: "var(--app-bg-2)" }}>
+      <StatusStrip
+        state={state}
+        status={status}
+        reason={reason}
+        raw={raw}
+        onCopy={copyLogs}
+        copyDisabled={state === "unavailable"}
+      />
+      <div className="min-h-0 flex-1 bg-background">
         {raw ? (
           state === "unavailable" ? (
-            <div className="px-3 py-4 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+            <div className="px-4 py-6 text-[13px] font-medium text-tx-muted text-center">
               {recordingUnavailableMessage(reason)}
             </div>
           ) : (
@@ -68,7 +96,7 @@ export function RunTerminal({
             />
           )
         ) : state === "unavailable" ? (
-          <div className="px-3 py-4 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+          <div className="px-4 py-6 text-[13px] font-medium text-tx-muted text-center">
             {recordingUnavailableMessage(reason)}
           </div>
         ) : (
@@ -84,26 +112,27 @@ function StatusStrip({
   status,
   reason,
   raw,
+  onCopy,
+  copyDisabled,
 }: {
   state: RecordingState;
   status?: string;
   reason: string | null;
   raw: boolean;
+  onCopy: () => void;
+  copyDisabled: boolean;
 }) {
   return (
-    <div
-      className="flex items-center gap-2 px-3 py-1.5 text-[11px]"
-      style={{ borderBottom: "1px solid var(--app-line)", color: "var(--app-tx-3)" }}
-    >
+    <div className="flex items-center gap-2 px-4 py-2 text-[11px] font-bold uppercase tracking-widest border-b border-subtle text-tx-muted bg-panel-muted/50">
       <span
-        className="h-1.5 w-1.5 rounded-full"
+        className="h-2 w-2 rounded-full shadow-sm"
         style={{
           background:
             state === "live"
-              ? "var(--app-accent)"
+              ? "var(--color-brand-primary)"
               : state === "ended"
-                ? "var(--app-tx-3)"
-                : "var(--app-warn)",
+                ? "var(--color-tx-muted)"
+                : "var(--color-status-warning)",
         }}
       />
       <span>
@@ -124,6 +153,16 @@ function StatusStrip({
                 : "connecting…"}
       </span>
       <span className="flex-1" />
+      <button
+        type="button"
+        onClick={onCopy}
+        disabled={copyDisabled}
+        aria-label="Copy entire run log to clipboard"
+        className="flex items-center gap-1.5 rounded-md px-2 py-1 normal-case tracking-normal font-bold text-tx-muted hover:bg-panel hover:text-tx-primary transition-colors disabled:opacity-40 disabled:pointer-events-none"
+      >
+        <Copy size={14} weight="bold" />
+        Copy log
+      </button>
       <span>read-only</span>
     </div>
   );
@@ -171,10 +210,10 @@ function RawXtermViewer({
         fontFamily:
           "var(--font-mono, ui-monospace), SFMono-Regular, Menlo, Consolas, monospace",
         theme: {
-          background: token("--app-bg-2", "#0b0d10"),
-          foreground: token("--app-tx", "#d8dde5"),
-          cursor: token("--app-accent", "#7aa2f7"),
-          selectionBackground: token("--app-accent-soft", "#24314d"),
+          background: token("--color-background", "#0b0d10"),
+          foreground: token("--color-tx-primary", "#d8dde5"),
+          cursor: token("--color-brand-primary", "#7aa2f7"),
+          selectionBackground: token("--color-brand-primary", "#24314d") + "33", // appending alpha
         },
       });
       const fitAddon = new FitAddon();

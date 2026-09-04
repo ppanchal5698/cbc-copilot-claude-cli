@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
+import { usePipelineJob } from "@/hooks/use-pipeline-job";
 import { toast } from "sonner";
 
 import {
@@ -99,9 +100,15 @@ export function CommandPalette({ code }: { code: string | null }) {
     action();
   }
 
+  const { running: pipelineRunning } = usePipelineJob(code ?? "", null);
+
   async function enqueue(path: string, success: string) {
     if (!code) {
       toast.error("Open a bid first");
+      return;
+    }
+    if (pipelineRunning) {
+      toast.error("A Claude run is already in progress for this bid");
       return;
     }
     try {
@@ -120,8 +127,7 @@ export function CommandPalette({ code }: { code: string | null }) {
   // reads an undefined store and takes the whole tree down on hydration.
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[10vh] sm:pt-[14vh]"
-      style={{ background: "rgba(0,0,0,0.55)" }}
+      className="fixed inset-0 z-50 flex justify-center px-4 pt-[10vh] sm:pt-[14vh] bg-black/50 backdrop-blur-sm transition-all"
       onClick={(event) => event.target === event.currentTarget && setPaletteOpen(false)}
     >
       <div
@@ -129,12 +135,7 @@ export function CommandPalette({ code }: { code: string | null }) {
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        className="anim-popin h-fit w-full max-w-[620px] overflow-hidden rounded-xl"
-        style={{
-          background: "var(--app-panel)",
-          border: "1px solid var(--app-line)",
-          boxShadow: "var(--app-sh-3)",
-        }}
+        className="animate-in fade-in zoom-in-95 duration-200 h-fit w-full max-w-[620px] overflow-hidden rounded-xl bg-panel border border-subtle shadow-2xl"
       >
         <Command shouldFilter>
       <CommandInput
@@ -145,34 +146,36 @@ export function CommandPalette({ code }: { code: string | null }) {
       <CommandList>
         <CommandEmpty>Nothing matches that.</CommandEmpty>
 
-        <CommandGroup heading="Bids">
-          {projectsError ? (
-            <div className="px-2 py-1">
-              <FetchError
-                title="Could not load bids"
-                error={projectsError}
-                onRetry={() => mutateProjects()}
-                compact
-              />
-            </div>
-          ) : (
-            (projectData?.projects ?? []).slice(0, 8).map((project) => (
-              <CommandItem
-                key={project.id}
-                value={`${project.code} ${project.name} ${project.brand ?? ""} ${project.gc ?? ""}`}
-                onSelect={() => run(() => router.push(`/bids/${project.code}/${project.stage}`))}
-              >
-                <span className="tnum mr-2" style={{ color: "var(--app-accent)" }}>
-                  {project.code}
-                </span>
-                <span className="flex-1 truncate">{project.name}</span>
-                <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
-                  {project.stage}
-                </span>
-              </CommandItem>
-            ))
-          )}
-        </CommandGroup>
+        {query.trim().length >= 1 && (
+          <CommandGroup heading="Bids">
+            {projectsError ? (
+              <div className="px-2 py-1">
+                <FetchError
+                  title="Could not load bids"
+                  error={projectsError}
+                  onRetry={() => mutateProjects()}
+                  compact
+                />
+              </div>
+            ) : (
+              (projectData?.projects ?? []).slice(0, 8).map((project) => (
+                <CommandItem
+                  key={project.id}
+                  value={`${project.code} ${project.name} ${project.brand ?? ""} ${project.gc ?? ""}`}
+                  onSelect={() => run(() => router.push(`/bids/${project.code}/${project.stage}`))}
+                >
+                  <span className="tnum mr-3 font-bold text-brand-primary">
+                    {project.code}
+                  </span>
+                  <span className="flex-1 truncate font-medium">{project.name}</span>
+                  <span className="text-[12px] font-medium text-tx-muted ml-2">
+                    {project.stage}
+                  </span>
+                </CommandItem>
+              ))
+            )}
+          </CommandGroup>
+        )}
 
         {code && (
           <CommandGroup heading={`Go to · ${code}`}>
@@ -196,11 +199,11 @@ export function CommandPalette({ code }: { code: string | null }) {
                 value={`part ${part.part} ${part.description}`}
                 onSelect={() => run(() => router.push(`/catalog?q=${encodeURIComponent(part.part)}`))}
               >
-                <span className="mr-2 font-semibold">{part.part}</span>
-                <span className="flex-1 truncate" style={{ color: "var(--app-tx-2)" }}>
+                <span className="mr-3 font-bold">{part.part}</span>
+                <span className="flex-1 truncate font-medium text-tx-secondary">
                   {part.description}
                 </span>
-                <span className="tnum text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                <span className="tnum text-[12px] font-bold text-tx-muted ml-2">
                   {part.cost === null ? "manual" : `$${formatMoney(part.cost)}`}
                 </span>
               </CommandItem>
@@ -214,9 +217,11 @@ export function CommandPalette({ code }: { code: string | null }) {
               <CommandItem
                 key={entry.path}
                 value={`run ${entry.label}`}
+                disabled={pipelineRunning}
                 onSelect={() => run(() => enqueue(entry.path, entry.success))}
               >
                 {entry.label}
+                {pipelineRunning ? " (run in progress)" : ""}
               </CommandItem>
             ))}
           </CommandGroup>

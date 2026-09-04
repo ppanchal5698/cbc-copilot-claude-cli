@@ -82,6 +82,11 @@ def get_catalog(catalog_id: str) -> dict[str, Any] | None:
 
 
 def all_catalogs(vendor: str | None = None) -> list[dict[str, Any]]:
-    """Full documents, pages included. Used by the page search."""
+    """Page documents for ranking, without profile or spreadsheet row ranges."""
     query = {"vendor": vendor.strip().lower()} if vendor else {}
-    return list(_collection().find(query).limit(50))
+    projection = {
+        "profile": 0,
+        "pages.rows": 0,
+        "pages.sheet": 0,
+    }
+    return list(_collection().find(query, projection).limit(50))

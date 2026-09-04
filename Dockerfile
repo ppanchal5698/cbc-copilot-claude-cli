@@ -15,10 +15,11 @@ ENV PYTHONUNBUFFERED=1 \
 # System packages, in one layer:
 #   - curl/ca-certificates/gnupg: fetching the NodeSource key
 #   - git: Claude Code shells out to it
+#   - poppler-utils: Claude Code's Read tool renders PDF pages via pdftoppm
 #   - libpango/libcairo/libgdk-pixbuf: WeasyPrint's native dependencies, so the
 #     proposal PDF renders here even though it cannot on a bare Windows host
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg git \
+        ca-certificates curl gnupg git poppler-utils \
         libpango-1.0-0 libpangoft2-1.0-0 libcairo2 libgdk-pixbuf-2.0-0 libffi8 \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \

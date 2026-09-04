@@ -71,7 +71,7 @@ async def get_terminal(job_id: str) -> dict:
             "data": "",
         }
 
-    payload = path.read_bytes()
+    payload = await asyncio.to_thread(path.read_bytes)
     return {
         "jobId": job_id,
         "status": job.get("status"),

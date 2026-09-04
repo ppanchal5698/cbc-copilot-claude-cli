@@ -55,26 +55,22 @@ export function AddToBid({ product }: { product: Product }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-md py-2 text-[12.5px] font-semibold"
-        style={{ background: "var(--app-accent-soft)", color: "var(--app-accent)", border: "1px solid var(--app-accent-line)" }}
+        className="mt-6 flex w-full items-center justify-center gap-1.5 rounded-md py-2.5 text-[13px] font-semibold bg-brand-soft border border-brand-border text-brand-primary shadow-sm hover:bg-brand-soft/80 transition-colors"
       >
-        <Plus size={14} weight="bold" />
+        <Plus size={16} weight="bold" />
         Add to a bid by hand
       </button>
     );
   }
 
   return (
-    <div
-      className="anim-fadein mt-4 rounded-lg p-3"
-      style={{ background: "var(--app-panel-2)", border: "1px solid var(--app-line)" }}
-    >
-      <span className="block text-[11px] uppercase tracking-[0.07em]" style={{ color: "var(--app-tx-3)" }}>
+    <div className="animate-fade-in mt-6 rounded-lg p-4 bg-panel border border-subtle shadow-sm">
+      <span className="block text-[11px] font-bold uppercase tracking-widest text-tx-muted mb-3">
         Add to which bid?
       </span>
 
       {!data && !error && isLoading ? (
-        <p className="mt-2 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+        <p className="mt-2 text-[12.5px] font-medium text-tx-muted">
           Loading bids…
         </p>
       ) : error ? (
@@ -85,25 +81,25 @@ export function AddToBid({ product }: { product: Product }) {
           compact
         />
       ) : candidates.length === 0 ? (
-        <p className="mt-2 text-[12px]" style={{ color: "var(--app-tx-2)" }}>
+        <p className="mt-2 text-[12.5px] font-medium text-tx-secondary">
           No open bids to add to. Bids at the proposal stage are excluded.
         </p>
       ) : (
-        <div className="mt-2 flex flex-col gap-1">
+        <div className="mt-2 flex flex-col gap-1 max-h-48 overflow-y-auto pr-1">
           {candidates.map((project) => (
             <button
               key={project.id}
               onClick={() => add(project)}
               disabled={busy}
-              className="flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12.5px] disabled:opacity-50 hover:bg-[var(--app-panel)]"
+              className="flex items-center gap-2.5 rounded-md px-3 py-2.5 text-left text-[13px] disabled:opacity-50 hover:bg-panel-muted transition-colors"
             >
-              <span className="tnum font-semibold" style={{ color: "var(--app-accent)" }}>
+              <span className="tnum font-bold text-brand-primary">
                 {project.code}
               </span>
-              <span className="min-w-0 flex-1 truncate" style={{ color: "var(--app-tx-2)" }}>
+              <span className="min-w-0 flex-1 truncate font-medium text-tx-secondary">
                 {project.name}
               </span>
-              <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+              <span className="text-[11.5px] font-medium text-tx-muted uppercase tracking-widest">
                 {project.stage}
               </span>
             </button>
@@ -113,8 +109,7 @@ export function AddToBid({ product }: { product: Product }) {
 
       <button
         onClick={() => setOpen(false)}
-        className="mt-2 w-full rounded-md py-1.5 text-[12px]"
-        style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+        className="mt-3 w-full rounded-md py-2 text-[12.5px] font-medium border border-subtle text-tx-secondary hover:bg-panel-muted transition-colors"
       >
         Cancel
       </button>

@@ -43,6 +43,10 @@ EXCLUSIVE_JOB_TYPES = (
     # the same run, not a second run over the same drawings.
     "run_full_pipeline",
 )
+
+# Estimators enqueue pipeline work; catalog and price-book maintenance is admin-only.
+ESTIMATOR_JOB_TYPES = frozenset(EXCLUSIVE_JOB_TYPES)
+ADMIN_JOB_TYPES = frozenset({"delete_catalog", "ingest_pricebook", "index_catalog"})
 CostSource = Literal[
     "P21_LAST_PO",
     "LIST_X_MULTIPLIER",

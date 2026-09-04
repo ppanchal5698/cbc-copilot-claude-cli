@@ -6,22 +6,33 @@
 # Stale price sheets drive wrong quotes. NFR-10 (data stewardship) is still OPEN -
 # no owner and no refresh cadence have been assigned - so this script is the
 # interim mitigation, not the control.
+#
+# With no --days, the threshold is the admin-configured catalog review window
+# (Settings → Price book freshness), falling back to 730 days when Mongo is
+# unreachable.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DAYS=180
+DAYS=""
 [[ "${1:-}" == "--days" ]] && DAYS="${2:?--days needs a number}"
 
 python - "$ROOT" "$DAYS" <<'PY'
-import json, sys
+import sys
 from datetime import date, datetime
 from pathlib import Path
 
-root, days = Path(sys.argv[1]), int(sys.argv[2])
+root = Path(sys.argv[1])
+sys.path.insert(0, str(root / "src"))
+
+from cbc.services.freshness import load_sync  # noqa: E402
+
+raw_days = sys.argv[2] if len(sys.argv) > 2 else ""
+days = int(raw_days) if raw_days else load_sync().catalog_stale_days
 index = root / "pricebooks" / "index.json"
 if not index.exists():
     sys.exit("pricebooks/index.json not found")
 
+import json
 books = json.loads(index.read_text(encoding="utf-8")).get("pricebooks", [])
 stale, undated, fresh = [], [], []
 for book in books:

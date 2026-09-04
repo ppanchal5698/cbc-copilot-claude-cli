@@ -9,21 +9,52 @@ import { NextRequest } from "next/server";
 import { auth } from "@/auth";
 import { API_BASE } from "@/lib/api";
 import { internalApiHeaders } from "@/lib/internal-api";
+import { buildProxyTarget, rejectUnsafeProxySegments } from "@/lib/proxy-path";
+
+const UPSTREAM_REQUEST_HEADERS = [
+  "accept",
+  "accept-language",
+  "content-type",
+  "if-none-match",
+  "range",
+] as const;
+
+const UPSTREAM_RESPONSE_HEADERS = [
+  "content-type",
+  "cache-control",
+  "etag",
+  "content-disposition",
+] as const;
 
 async function proxy(request: NextRequest, path: string[]) {
   const session = await auth();
   if (!session) return new Response("Unauthorized", { status: 401 });
 
-  const target = new URL(`${API_BASE}/api/${path.join("/")}`);
+  const unsafe = rejectUnsafeProxySegments(path);
+  if (unsafe) {
+    return Response.json({ detail: unsafe }, { status: 400 });
+  }
+
+  let target: URL;
+  try {
+    target = buildProxyTarget(API_BASE, path);
+  } catch {
+    return Response.json({ detail: "invalid proxy path" }, { status: 400 });
+  }
+
   request.nextUrl.searchParams.forEach((value, key) => {
     if (key !== "actor") {
       target.searchParams.set(key, value);
     }
   });
 
-  const headers = new Headers(request.headers);
-  headers.delete("host");
-  headers.delete("content-length");
+  const headers = new Headers();
+  for (const name of UPSTREAM_REQUEST_HEADERS) {
+    const value = request.headers.get(name);
+    if (value) {
+      headers.set(name, value);
+    }
+  }
   for (const [key, value] of Object.entries(internalApiHeaders(session.user?.email))) {
     headers.set(key, value);
   }
@@ -69,9 +100,13 @@ async function proxy(request: NextRequest, path: string[]) {
     );
   }
 
-  const responseHeaders = new Headers(upstream.headers);
-  responseHeaders.delete("content-encoding");
-  responseHeaders.delete("content-length");
+  const responseHeaders = new Headers();
+  for (const name of UPSTREAM_RESPONSE_HEADERS) {
+    const value = upstream.headers.get(name);
+    if (value) {
+      responseHeaders.set(name, value);
+    }
+  }
   return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
 }
 

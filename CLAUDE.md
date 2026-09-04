@@ -95,6 +95,7 @@ read - and `opshub_setup.md`, 13 KB about Docker ports and web-app
 troubleshooting, was inlined twice.
 
 - Process flow (Phase 0-6): @docs/cbc_process_flow.md
+- Process flow narrative: `docs/cbc_process_flow_narrative.md`
 - Guardrail mappings: `docs/guardrails.md`
 - Requirements matrix: `docs/requirements_matrix.md`
 - MCP contracts: `docs/mcp_server_contracts.md` (the tool schemas are already in
@@ -109,14 +110,8 @@ Both lists, with the reason each item is out, live in
 Restating them here put the same vendors in front of you twice every turn and gave
 two places for them to disagree.
 
-## Vendor priority (Phase 1: top-10 only, ~90%+ of quotes)
-Hager (~75% of volume) · Allegion (Von Duprin / LCN / Schlage / Ives — bought via Banner
-Solutions or SecLock, so **manual price entry**) · National Guard Products · PEMKO / Markar ·
-Rockwood · Bobrick · Bradley · ASI · World Dryer + Excel XLERATOR · Gamco.
-FRP: Marlite / NUDO / Midwest–East Coast.
-
 ## Manual cut-off (NR-13)
-@.claude/memory/manual_cutoff.md
+See `.claude/memory/manual_cutoff.md` and the accuracy-trust project rule.
 
 ## Alternates and addenda (FR-14) — interim only
 The base bid and each alternate are **distinct, comparable line groups**, and an

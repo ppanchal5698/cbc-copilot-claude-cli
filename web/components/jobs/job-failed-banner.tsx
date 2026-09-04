@@ -23,20 +23,13 @@ export function JobFailedBanner({
   if (!translated) return null;
 
   return (
-    <div
-      className="rounded-xl px-4 py-3 text-[12.5px]"
-      style={{
-        background: "var(--app-neg-soft)",
-        border: "1px solid var(--app-neg-line)",
-        color: "var(--app-neg)",
-      }}
-    >
-      <p className="font-semibold">{translated.title}</p>
-      <p className="mt-1 leading-relaxed" style={{ color: "var(--app-tx-2)" }}>
+    <div className="rounded-xl px-5 py-4 text-[13.5px] bg-status-error-soft border border-status-error/30 text-status-error shadow-sm">
+      <p className="font-bold text-[15px] tracking-tight">{translated.title}</p>
+      <p className="mt-1.5 font-medium leading-relaxed opacity-90">
         {translated.message}
       </p>
       {translated.actions.length > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-4 flex flex-wrap gap-2.5">
           {translated.actions.map((action) => {
             if (action.href?.startsWith("/") || action.href?.startsWith("#")) {
               if (action.href.startsWith("#")) {
@@ -45,12 +38,7 @@ export function JobFailedBanner({
                     key={action.label}
                     type="button"
                     onClick={() => onAction?.(action)}
-                    className="rounded-md px-2.5 py-1 text-[11.5px] font-semibold"
-                    style={{
-                      background: "var(--app-panel)",
-                      border: "1px solid var(--app-neg-line)",
-                      color: "var(--app-neg)",
-                    }}
+                    className="rounded-lg px-4 py-2 text-[12.5px] font-bold bg-panel border border-status-error/30 text-status-error hover:bg-panel-muted transition-colors shadow-sm"
                   >
                     {action.label}
                   </button>
@@ -60,12 +48,7 @@ export function JobFailedBanner({
                 <Link
                   key={action.label}
                   href={action.href}
-                  className="rounded-md px-2.5 py-1 text-[11.5px] font-semibold no-underline"
-                  style={{
-                    background: "var(--app-panel)",
-                    border: "1px solid var(--app-neg-line)",
-                    color: "var(--app-neg)",
-                  }}
+                  className="rounded-lg px-4 py-2 text-[12.5px] font-bold no-underline bg-panel border border-status-error/30 text-status-error hover:bg-panel-muted transition-colors shadow-sm"
                 >
                   {action.label}
                 </Link>
@@ -76,12 +59,7 @@ export function JobFailedBanner({
                 key={action.label}
                 type="button"
                 onClick={() => onAction?.(action)}
-                className="rounded-md px-2.5 py-1 text-[11.5px] font-semibold"
-                style={{
-                  background: "var(--app-panel)",
-                  border: "1px solid var(--app-neg-line)",
-                  color: "var(--app-neg)",
-                }}
+                className="rounded-lg px-4 py-2 text-[12.5px] font-bold bg-panel border border-status-error/30 text-status-error hover:bg-panel-muted transition-colors shadow-sm"
               >
                 {action.label}
               </button>
@@ -90,21 +68,11 @@ export function JobFailedBanner({
         </div>
       )}
       {isAdminRole(role) && translated.technical && (
-        <details className="mt-3">
-          <summary
-            className="cursor-pointer text-[11px] font-medium"
-            style={{ color: "var(--app-tx-3)" }}
-          >
+        <details className="mt-4">
+          <summary className="cursor-pointer text-[12px] font-bold uppercase tracking-widest opacity-80 hover:opacity-100 transition-opacity outline-none">
             Technical details
           </summary>
-          <pre
-            className="mt-1.5 overflow-x-auto whitespace-pre-wrap rounded-md p-2 text-[10.5px] font-mono"
-            style={{
-              background: "var(--app-panel)",
-              border: "1px solid var(--app-line)",
-              color: "var(--app-tx-2)",
-            }}
-          >
+          <pre className="mt-2.5 overflow-x-auto whitespace-pre-wrap rounded-lg p-3 text-[11px] font-mono bg-black/5 border border-black/10 text-status-error/90">
             {translated.technical}
           </pre>
         </details>

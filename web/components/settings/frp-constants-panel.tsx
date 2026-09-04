@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { errorMessage, proxyFetcher, proxyMutate } from "@/lib/proxy-fetcher";
 import type { FrpConstants } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 const FRP_URL = "/api/proxy/reference/frp-constants";
 
@@ -81,63 +82,57 @@ export function FrpConstantsPanel() {
   const isSet = data?.status === "SET";
 
   return (
-    <section
-      className="rounded-xl"
-      style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-    >
-      <div className="border-b px-4 py-3.5" style={{ borderColor: "var(--app-line)" }}>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <GridNine size={16} weight="duotone" style={{ color: "var(--app-accent)" }} />
-            <h2 className="text-[15px] font-semibold">FRP conversion constants</h2>
+    <section className="rounded-xl bg-panel border border-subtle shadow-sm flex flex-col h-full">
+      <div className="border-b border-subtle px-5 py-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <GridNine size={18} weight="bold" className="text-brand-primary" />
+            <h2 className="text-[16px] font-bold text-tx-primary tracking-tight">FRP conversion constants</h2>
           </div>
           {data && (
             <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-              style={
+              className={cn(
+                "rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-widest",
                 isSet
-                  ? { background: "var(--app-pos-soft, var(--app-accent-soft))", color: "var(--app-pos, var(--app-accent))" }
-                  : { background: "var(--app-warn-soft, var(--app-neg-soft))", color: "var(--app-warn, var(--app-neg))" }
-              }
+                  ? "bg-status-success-soft text-status-success"
+                  : "bg-status-warning-soft text-status-warning"
+              )}
             >
               {isSet ? "Set" : "Pending"}
             </span>
           )}
         </div>
-        <p className="mt-1 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
-          Geometry-to-quantity conversion for FRP panels (Open Item 5). Administrators only.
+        <p className="mt-1.5 text-[13px] font-medium text-tx-secondary">
+          Geometry-to-quantity conversion for FRP panels. Administrators only.
         </p>
       </div>
 
       {error && (
-        <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-neg)" }}>
+        <p className="px-5 py-6 text-[13px] font-medium text-status-error">
           Could not read the constants: {errorMessage(error)}
         </p>
       )}
       {isLoading && !data && (
-        <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+        <p className="px-5 py-6 text-[13px] font-medium text-tx-muted">
           Loading…
         </p>
       )}
 
       {data && !isSet && (
-        <p
-          className="mx-4 mt-3 rounded-md px-3 py-2 text-[11px]"
-          style={{ background: "var(--app-warn-soft, var(--app-neg-soft))", border: "1px solid var(--app-neg-line)", color: "var(--app-warn, var(--app-neg))" }}
-        >
+        <p className="mx-5 mt-4 rounded-lg px-4 py-3 text-[12.5px] font-medium leading-relaxed bg-status-warning-soft border border-status-warning/30 text-status-warning shadow-sm">
           Until every constant is set, the FRP take-off reports geometry only and leaves quantities
           null. It will not guess.
         </p>
       )}
 
       {data && (
-        <div className="flex flex-col gap-3 p-4">
+        <div className="flex flex-col gap-4 p-5 flex-1 overflow-y-auto">
           {FIELDS.map((field) => {
             const current = data[field.key] as string | number | null;
             const note = data[field.noteKey] as string | undefined;
             return (
-              <label key={field.key} className="flex flex-col gap-1">
-                <span className="text-[12px] font-medium">{field.label}</span>
+              <label key={field.key} className="flex flex-col gap-1.5">
+                <span className="text-[12.5px] font-semibold text-tx-primary">{field.label}</span>
                 <input
                   key={`${field.key}-${current ?? ""}`}
                   type={field.numeric ? "number" : "text"}
@@ -148,15 +143,10 @@ export function FrpConstantsPanel() {
                   placeholder={field.placeholder}
                   aria-label={field.label}
                   onBlur={(event) => commit(field.key, field.numeric, event.target.value, current)}
-                  className="rounded-md px-2.5 py-1.5 text-[12.5px] outline-none focus:ring-2"
-                  style={{
-                    background: "var(--app-panel-2)",
-                    border: "1px solid var(--app-line)",
-                    color: "var(--app-tx)",
-                  }}
+                  className="rounded-md px-3 py-2 text-[13px] font-medium outline-none border border-subtle bg-background text-tx-primary placeholder:text-tx-muted focus:ring-1 focus:ring-brand-border transition-colors shadow-sm"
                 />
                 {note && (
-                  <span className="text-[10.5px]" style={{ color: "var(--app-tx-3)" }}>
+                  <span className="text-[12px] font-medium text-tx-muted mt-0.5">
                     {note}
                   </span>
                 )}

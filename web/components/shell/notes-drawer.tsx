@@ -104,41 +104,27 @@ export function NotesDrawer({ code }: { code: string | null }) {
       aria-modal="true"
       aria-label="Log a call or note"
     >
-      <div className="flex-1" style={{ background: "rgba(0,0,0,0.5)" }} onClick={closeNotes} />
+      <div className="flex-1 bg-black/50 backdrop-blur-sm transition-all" onClick={closeNotes} />
 
-      <aside
-        className="flex w-full max-w-[460px] flex-col"
-        style={{
-          background: "var(--app-bg-2)",
-          borderLeft: "1px solid var(--app-line)",
-          boxShadow: "var(--app-sh-3)",
-          animation: "slidein 0.18s ease both",
-        }}
-      >
-        <div
-          className="flex items-center gap-3 border-b px-5 py-4"
-          style={{ borderColor: "var(--app-line)" }}
-        >
-          <span
-            className="grid h-8 w-8 place-items-center rounded-lg"
-            style={{ background: "var(--app-accent-soft)", color: "var(--app-accent)" }}
-          >
-            <PhoneCall size={17} weight="duotone" />
+      <aside className="flex w-full max-w-[460px] flex-col bg-panel border-l border-subtle shadow-2xl animate-in slide-in-from-right-full duration-300">
+        <div className="flex items-center gap-4 border-b border-subtle px-6 py-5 bg-panel-muted">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-brand-primary/10 text-brand-primary border border-brand-primary/20 shadow-sm">
+            <PhoneCall size={20} weight="duotone" />
           </span>
-          <span className="flex flex-1 flex-col leading-tight">
-            <span className="text-[14px] font-semibold">Log a call or note</span>
-            <span className="text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
+          <span className="flex flex-1 flex-col leading-tight gap-1">
+            <span className="text-[16px] font-bold tracking-tight text-tx-primary">Log a call or note</span>
+            <span className="text-[12.5px] font-medium text-tx-muted">
               {code
                 ? `Saved against ${code} · travels with the estimate`
                 : "Open a bid to log against it"}
             </span>
           </span>
-          <button onClick={closeNotes} aria-label="Close" style={{ color: "var(--app-tx-3)" }}>
-            <X size={16} weight="bold" />
+          <button onClick={closeNotes} aria-label="Close" className="text-tx-muted hover:text-tx-primary hover:bg-background p-1.5 rounded-md transition-colors focus:ring-2 focus:ring-brand-border outline-none">
+            <X size={18} weight="bold" />
           </button>
         </div>
 
-        <div className="border-b px-5 py-4" style={{ borderColor: "var(--app-line)" }}>
+        <div className="border-b border-subtle px-6 py-5 bg-panel">
           <div className="flex gap-1.5">
             {KINDS.map((entry) => {
               const on = entry.key === kind;
@@ -146,14 +132,13 @@ export function NotesDrawer({ code }: { code: string | null }) {
                 <button
                   key={entry.key}
                   onClick={() => setKind(entry.key)}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-[12.5px]"
-                  style={{
-                    background: on ? "var(--app-accent-soft)" : "transparent",
-                    color: on ? "var(--app-accent)" : "var(--app-tx-2)",
-                    border: `1px solid ${on ? "var(--app-accent-line)" : "var(--app-line)"}`,
-                  }}
+                  className={`flex flex-1 items-center justify-center gap-2 rounded-lg py-2 text-[13px] font-bold transition-all shadow-sm ${
+                    on 
+                      ? "bg-brand-primary/10 text-brand-primary border border-brand-primary/20" 
+                      : "bg-background text-tx-secondary border border-subtle hover:bg-panel-muted hover:text-tx-primary"
+                  }`}
                 >
-                  <entry.Icon size={14} weight="duotone" />
+                  <entry.Icon size={16} weight={on ? "fill" : "duotone"} />
                   {entry.label}
                 </button>
               );
@@ -165,12 +150,7 @@ export function NotesDrawer({ code }: { code: string | null }) {
             onChange={(event) => setOrg(event.target.value)}
             placeholder="Who it was with — GC, architect, vendor"
             aria-label="Who it was with"
-            className="mt-2.5 w-full rounded-md px-2.5 py-2 text-[12.5px] outline-none focus:ring-2"
-            style={{
-              background: "var(--app-panel-2)",
-              border: "1px solid var(--app-line)",
-              color: "var(--app-tx)",
-            }}
+            className="mt-4 w-full rounded-lg px-3 py-2.5 text-[13.5px] font-medium outline-none border border-subtle bg-background text-tx-primary placeholder:text-tx-muted focus:ring-2 focus:ring-brand-border transition-colors shadow-sm"
           />
 
           <textarea
@@ -179,44 +159,37 @@ export function NotesDrawer({ code }: { code: string | null }) {
             placeholder={active.placeholder}
             aria-label={`${active.label} text`}
             rows={4}
-            className="mt-2 w-full resize-none rounded-md px-2.5 py-2 text-[12.5px] outline-none focus:ring-2"
-            style={{
-              background: "var(--app-panel-2)",
-              border: "1px solid var(--app-line)",
-              color: "var(--app-tx)",
-            }}
+            className="mt-3 w-full resize-none rounded-lg px-3 py-2.5 text-[13.5px] font-medium outline-none border border-subtle bg-background text-tx-primary placeholder:text-tx-muted focus:ring-2 focus:ring-brand-border transition-colors shadow-sm"
           />
 
-          <div className="mt-2.5 flex items-center gap-2">
-            <span className="flex-1 text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+          <div className="mt-4 flex items-center gap-3">
+            <span className="flex-1 text-[12px] font-medium text-tx-muted">
               Logged against {notesRef ?? stageFromPath(pathname)}
             </span>
             <button
               onClick={closeNotes}
-              className="rounded-md px-3 py-1.5 text-[12px]"
-              style={{ border: "1px solid var(--app-line)", color: "var(--app-tx-2)" }}
+              className="rounded-md px-4 py-2 text-[13px] font-bold border border-subtle bg-background text-tx-secondary hover:bg-panel-muted transition-colors shadow-sm"
             >
               Cancel
             </button>
             <button
               onClick={submit}
               disabled={busy || !text.trim()}
-              className="flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50"
-              style={{ background: "var(--app-accent)", color: "#fff" }}
+              className="flex items-center gap-2 rounded-md px-4 py-2 text-[13px] font-bold disabled:opacity-50 transition-all bg-brand-primary text-white hover:bg-brand-primary/90 shadow-sm"
             >
-              <PaperPlaneTilt size={13} weight="duotone" />
+              <PaperPlaneTilt size={16} weight="fill" />
               Log it
             </button>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto px-5 py-3">
+        <div className="min-h-0 flex-1 overflow-auto px-6 py-4 bg-background">
           {error ? (
-            <p className="py-8 text-center text-[12px]" style={{ color: "var(--app-neg)" }}>
+            <p className="py-10 text-center text-[13px] font-medium text-status-error bg-status-error-soft rounded-lg border border-status-error/30 mt-4">
               Could not load what has been logged: {errorMessage(error)}
             </p>
           ) : (data?.calls ?? []).length === 0 ? (
-            <p className="py-8 text-center text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+            <p className="py-12 text-center text-[13.5px] font-medium text-tx-muted">
               Nothing logged on this bid yet.
             </p>
           ) : (
@@ -226,33 +199,29 @@ export function NotesDrawer({ code }: { code: string | null }) {
               return (
                 <div
                   key={entry.id}
-                  className="border-b py-3 last:border-b-0"
-                  style={{ borderColor: "var(--app-line)" }}
+                  className="border-b border-subtle py-4 last:border-b-0 group"
                 >
-                  <div className="flex items-start gap-2.5">
+                  <div className="flex items-start gap-3">
                     <meta.Icon
-                      size={15}
+                      size={18}
                       weight="duotone"
-                      style={{ color: open ? "var(--app-warn)" : "var(--app-tx-3)" }}
+                      className={`mt-0.5 ${open ? "text-status-warning" : "text-tx-muted"}`}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-2">
-                        <span className="text-[12.5px] font-semibold">{entry.who}</span>
+                        <span className="text-[14px] font-bold text-tx-primary">{entry.who}</span>
                         {open && (
-                          <span
-                            className="rounded px-1.5 text-[10px]"
-                            style={{ background: "var(--app-warn-soft)", color: "var(--app-warn)" }}
-                          >
+                          <span className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest bg-status-warning-soft text-status-warning">
                             open RFI
                           </span>
                         )}
                       </div>
-                      <div className="text-[10.5px]" style={{ color: "var(--app-tx-3)" }}>
+                      <div className="text-[12px] font-medium text-tx-muted mt-0.5">
                         {entry.org ? `${entry.org} · ` : ""}
                         {new Date(entry.createdAt).toLocaleString()}
                         {entry.ref ? ` · ${entry.ref}` : ""}
                       </div>
-                      <p className="mt-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+                      <p className="mt-2 text-[13.5px] font-medium text-tx-secondary leading-relaxed">
                         {entry.text}
                       </p>
                     </div>
@@ -261,9 +230,9 @@ export function NotesDrawer({ code }: { code: string | null }) {
                         onClick={() => resolve(entry)}
                         title="Mark this RFI answered"
                         aria-label={`Mark the RFI from ${entry.who} answered`}
-                        style={{ color: "var(--app-pos)" }}
+                        className="text-tx-muted hover:text-status-success transition-colors p-1.5 rounded-md hover:bg-status-success-soft"
                       >
-                        <CheckCircle size={15} weight="duotone" />
+                        <CheckCircle size={20} weight="fill" />
                       </button>
                     )}
                   </div>

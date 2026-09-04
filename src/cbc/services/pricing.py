@@ -51,11 +51,23 @@ def price_line(
     """
     if cost is None:
         return {"sell": None, "extended": None, "margin": margin, "priced": False}
+    if qty is None:
+        # `float(qty or 0)` used to turn a stored null into 0, so the line came
+        # back `extended: 0.0, priced: True` - not counted in unpricedLines
+        # (cost is not None), carrying no priceError, and rolling the bid up
+        # short by the whole line. A quantity we do not have is unpriced (NFR-2).
+        return {
+            "sell": None,
+            "extended": None,
+            "margin": margin,
+            "priced": False,
+            "error": "quantity is missing",
+        }
 
     applied = default_margin(division) if margin is None else float(margin)
     try:
-        line = calc.calculate_line(cost=float(cost), margin=applied, quantity=float(qty or 0))
-    except (ValueError, TypeError) as exc:
+        line = calc.calculate_line(cost=float(cost), margin=applied, quantity=float(qty))
+    except (ArithmeticError, ValueError, TypeError) as exc:
         # Schema bounds stop new bad values; this catches the ones already stored
         # and anything a pipeline run wrote straight into Mongo. An unpriceable
         # line is reported as unpriced, not raised - the caller is looping over

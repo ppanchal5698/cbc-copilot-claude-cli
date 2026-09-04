@@ -73,54 +73,47 @@ export function MarginFrameworkPanel() {
   ];
 
   return (
-    <section
-      className="rounded-xl"
-      style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-    >
-      <div className="border-b px-4 py-3.5" style={{ borderColor: "var(--app-line)" }}>
-        <div className="flex items-center gap-2">
-          <Percent size={16} weight="duotone" style={{ color: "var(--app-accent)" }} />
-          <h2 className="text-[15px] font-semibold">Margin framework</h2>
+    <section className="rounded-xl bg-panel border border-subtle shadow-sm flex flex-col h-full">
+      <div className="border-b border-subtle px-5 py-4">
+        <div className="flex items-center gap-2.5">
+          <Percent size={18} weight="bold" className="text-brand-primary" />
+          <h2 className="text-[16px] font-bold text-tx-primary tracking-tight">Margin framework</h2>
         </div>
-        <p className="mt-1 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+        <p className="mt-1.5 text-[13px] font-medium text-tx-secondary">
           The product-type margin applied as the editable default on every line. Sale = cost ÷ (1 −
           margin). Below-band lines are flagged, never blocked (NFR-8). Administrators only.
         </p>
       </div>
 
       {error && (
-        <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-neg)" }}>
+        <p className="px-5 py-6 text-[13px] font-medium text-status-error">
           Could not read the margin framework: {errorMessage(error)}
         </p>
       )}
       {isLoading && !data && (
-        <p className="px-4 py-6 text-[12.5px]" style={{ color: "var(--app-tx-3)" }}>
+        <p className="px-5 py-6 text-[13px] font-medium text-tx-muted">
           Loading…
         </p>
       )}
 
       {data && (
-        <div className="divide-y" style={{ borderColor: "var(--app-line)" }}>
+        <div className="divide-y divide-subtle flex-1 overflow-y-auto">
           {rows.map((row) => {
             const divisor = Math.round((1 - row.margin) * 10000) / 10000;
             return (
               <div
                 key={row.key}
-                className="flex items-center gap-4 px-4 py-3"
-                style={{ borderColor: "var(--app-line)" }}
+                className="flex items-center gap-4 px-5 py-3 hover:bg-panel-muted transition-colors"
               >
                 <div className="min-w-0 flex-1">
-                  <span className="block text-[13px] font-medium">{row.name}</span>
+                  <span className="block text-[13.5px] font-semibold text-tx-primary">{row.name}</span>
                   {row.examples && row.examples.length > 0 && (
-                    <span className="block truncate text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                    <span className="block truncate text-[12px] font-medium text-tx-muted mt-0.5">
                       {row.examples.join(", ")}
                     </span>
                   )}
                 </div>
-                <span
-                  className="tnum shrink-0 text-[11.5px]"
-                  style={{ color: "var(--app-tx-3)", width: "104px", textAlign: "right" }}
-                >
+                <span className="tnum shrink-0 text-[12.5px] font-medium text-tx-muted w-[104px] text-right">
                   {asPercent(row.margin)} · ÷ {divisor}
                 </span>
                 <input
@@ -133,12 +126,7 @@ export function MarginFrameworkPanel() {
                   disabled={busy}
                   aria-label={`${row.name} margin fraction`}
                   onBlur={(event) => commit(row.key, row.name, event.target.value, row.margin)}
-                  className="tnum w-23 shrink-0 rounded-md px-2.5 py-1.5 text-right text-[12.5px] outline-none focus:ring-2"
-                  style={{
-                    background: "var(--app-panel-2)",
-                    border: "1px solid var(--app-line)",
-                    color: "var(--app-tx)",
-                  }}
+                  className="tnum w-24 shrink-0 rounded-md px-3 py-1.5 text-right text-[13px] outline-none border border-subtle bg-background text-tx-primary focus:ring-1 focus:ring-brand-border transition-colors shadow-sm"
                 />
               </div>
             );
@@ -147,10 +135,7 @@ export function MarginFrameworkPanel() {
       )}
 
       {data && (
-        <p
-          className="border-t px-4 py-2.5 text-[11px]"
-          style={{ borderColor: "var(--app-line)", color: "var(--app-tx-3)" }}
-        >
+        <p className="border-t border-subtle bg-panel-muted px-5 py-3 text-[11.5px] font-medium text-tx-muted rounded-b-xl">
           {data.source ? `${data.source}. ` : ""}
           Enter a fraction (0.27 = 27%). Saved on blur; the pricing engine picks up the change on the
           next line priced.

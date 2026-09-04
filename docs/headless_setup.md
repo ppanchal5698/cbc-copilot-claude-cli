@@ -10,6 +10,7 @@ How to run the copilot unattended, and what keeps it safe when nobody is watchin
 | Claude Code CLI on `PATH` | override with `CLAUDE_BIN` |
 | `mcp`, `pdfplumber`, `PyMuPDF`, `jinja2`, `openpyxl`, `pandas`, `Pillow` | `python -m pip install -e mcp-servers` |
 | Bash | Git Bash on Windows; the scripts are POSIX sh |
+| `poppler-utils` (`pdftoppm`) | Claude Code's Read tool on PDFs; in Docker this is in the image |
 
 Optional: `pytesseract` plus the tesseract binary, for scanned bid sets. Without
 it, OCR degrades with an explicit message rather than a silent empty string.
@@ -155,7 +156,7 @@ Draft ready for estimator review. Nothing has been sent.
 ```
 
 Pre-flight warnings about stale price books are expected today - 11 of 26 books are
-past 180 days. They are surfaced, not suppressed (NFR-10).
+past the 24-month review window. They are surfaced, not suppressed (NFR-10).
 
 ## Troubleshooting
 

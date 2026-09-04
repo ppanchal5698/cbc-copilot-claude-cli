@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
 from cbc.core.paths import repo_root
@@ -109,15 +110,20 @@ def config_for(job_type: str) -> str:
     for name in names:
         if name not in SERVERS:
             continue
-        entry: dict[str, Any] = {"command": "python", "args": [SERVERS[name]]}
+        # sys.executable, not bare "python". On an image whose interpreter is
+        # python3, or with a venv that is not first on the subprocess PATH, every
+        # server failed to start - and a run with no tools does not error, it
+        # writes every line MANUAL and reports success. services/render.py has
+        # always done it this way.
+        entry: dict[str, Any] = {"command": sys.executable, "args": [SERVERS[name]]}
         env: dict[str, str] = {}
-        if name == "catalog":
-            # The page index lives in MongoDB, and this is the one credential a
-            # run is given for it: read-only, and no fallback to the writable
-            # string. `provider.WITHHELD` keeps MONGODB_URI out of the subprocess
-            # entirely, because pymongo is in the image and one Bash call with the
-            # root URI would go straight past every read-only assertion the tools
-            # make about themselves.
+        if name in ("catalog", "p21-connector"):
+            # The page index and the freshness settings live in MongoDB, and this
+            # is the one credential a run is given for them: read-only, and no
+            # fallback to the writable string. `provider.WITHHELD` keeps
+            # MONGODB_URI out of the subprocess entirely, because pymongo is in
+            # the image and one Bash call with the root URI would go straight
+            # past every read-only assertion the tools make about themselves.
             readonly = _readonly_uri()
             if readonly:
                 env["MONGODB_READONLY_URI"] = readonly

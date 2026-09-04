@@ -69,26 +69,21 @@ export default async function IntakePage({ params }: { params: Promise<{ code: s
             <VersionsPanel code={project.code} />
           </div>
 
-          <aside
-            className="h-fit rounded-xl"
-            style={{ background: "var(--app-panel)", border: "1px solid var(--app-line)" }}
-          >
-            <div className="border-b px-4 py-3.5" style={{ borderColor: "var(--app-line)" }}>
-              <span className="text-[15px] font-semibold">Job record</span>
+          <aside className="h-fit overflow-hidden rounded-xl bg-panel border border-subtle shadow-sm">
+            <div className="border-b border-subtle px-4 py-3.5">
+              <span className="text-[15px] font-semibold text-tx-primary">Job record</span>
             </div>
             <div className="px-4 py-2">
               {record.map(([label, value]) => (
                 <div
                   key={label}
-                  className="flex items-baseline justify-between gap-3 border-b py-2 last:border-b-0"
-                  style={{ borderColor: "var(--app-line)" }}
+                  className="grid grid-cols-[110px_1fr] items-baseline gap-3 border-b border-subtle py-2 last:border-b-0"
                 >
-                  <span className="text-[11.5px]" style={{ color: "var(--app-tx-3)" }}>
-                    {label}
-                  </span>
+                  <span className="text-[11.5px] text-tx-muted">{label}</span>
                   <span
-                    className="text-right text-[12.5px]"
-                    style={{ color: value ? "var(--app-tx)" : "var(--app-tx-3)" }}
+                    className={`text-right text-[12.5px] ${
+                      value ? "text-tx-primary" : "text-tx-muted"
+                    }`}
                   >
                     {value ?? "not recorded"}
                   </span>
@@ -96,14 +91,7 @@ export default async function IntakePage({ params }: { params: Promise<{ code: s
               ))}
             </div>
             {!project.state && (
-              <p
-                className="mx-4 mb-4 rounded-md px-3 py-2 text-[11.5px]"
-                style={{
-                  background: "var(--app-warn-soft)",
-                  border: "1px solid var(--app-warn-line)",
-                  color: "var(--app-warn)",
-                }}
-              >
+              <p className="mx-4 mb-4 rounded-md border border-status-warning/30 bg-status-warning-soft px-3 py-2 text-[11.5px] text-status-warning">
                 No ship-to state recorded, so sales tax stays unresolved on the quote. Tax applies
                 to Ohio and Kentucky only.
               </p>
@@ -117,19 +105,15 @@ export default async function IntakePage({ params }: { params: Promise<{ code: s
         </div>
       </main>
 
-      <footer
-        className="flex shrink-0 items-center gap-3 border-t px-5 py-3"
-        style={{ borderColor: "var(--app-line)", background: "var(--app-bg)" }}
-      >
-        <span className="flex-1 text-[12.5px]" style={{ color: "var(--app-tx-2)" }}>
+      <footer className="flex shrink-0 items-center gap-3 border-t border-subtle bg-background px-5 py-3">
+        <span className="flex-1 text-[12.5px] text-tx-secondary">
           {documents.length === 0
             ? "Add the plan set to start. Claude reads it as soon as it lands."
             : `${documents.length} document${documents.length === 1 ? "" : "s"} on file.`}
         </span>
         <Link
           href={`/bids/${project.code}/extraction`}
-          className="flex items-center gap-1.5 rounded-md px-4 py-2 text-[12.5px] font-semibold no-underline"
-          style={{ background: "var(--app-accent)", color: "#fff" }}
+          className="flex items-center gap-1.5 rounded-md bg-brand-primary px-4 py-2 text-[12.5px] font-semibold text-white no-underline hover:bg-brand-primary/90"
         >
           Go to Extraction & entry
           <ArrowRight size={14} weight="bold" />

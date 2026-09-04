@@ -31,11 +31,13 @@ def _tracked_mode(path: str) -> str:
         cwd=ROOT,
         capture_output=True,
         text=True,
-        check=True,
-    ).stdout.strip()
-    if not out:
+        check=False,
+    )
+    if out.returncode == 128:
+        pytest.skip(f"{path}: git is unavailable in this build context")
+    if out.returncode != 0 or not out.stdout.strip():
         pytest.skip(f"{path} is not tracked by git here")
-    return out.split()[0]
+    return out.stdout.strip().split()[0]
 
 
 def test_the_entrypoint_is_executable_in_git() -> None:

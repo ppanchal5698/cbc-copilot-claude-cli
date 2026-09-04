@@ -12,11 +12,28 @@ through. `validate_job_artifacts` is the worker's gate and raises on problems.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
-from datetime import date, datetime
+import sys
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+class ArtifactValidationError(ValueError):
+    """A job's artifacts failed the worker gate. Do not retry the whole run."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        phase: str | None = None,
+        phase_state: dict[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.phase = phase
+        self.phase_state = phase_state or {}
 
 import fitz
 
@@ -172,6 +189,79 @@ def _normalize_opening(opening: dict[str, Any]) -> dict[str, Any]:
     if opening.get("door_number") is None and opening.get("mark"):
         opening["door_number"] = opening["mark"]
     return opening
+def _no_scope_declared(payload: Any) -> str:
+    """However a take-off says "this set has no Division 08 scope".
+
+    Read the finding, do not demand a spelling of it. A real run wrote
+    `door_schedule_found: false` with `door_schedule_pages: []` and a list of
+    existing-to-remain doors - unambiguous, and rejected for the wrong word.
+    """
+    if not isinstance(payload, dict):
+        return ""
+    reason = str(payload.get("no_scope_reason") or "").strip()
+    if reason:
+        return reason
+    for field in ("door_schedule_found", "schedule_found", "has_division_08_scope"):
+        if payload.get(field) is False:
+            return f"{field}: false"
+    return ""
+
+
+def _extraction_found_no_scope(project: str) -> bool:
+    """True when the take-off recorded an empty set that nothing contradicts.
+
+    Read from the artifact rather than passed down, because the pricing and
+    proposal gates run as independent checks and must reach the same verdict the
+    extraction gate did.
+    """
+    path = ROOT / "projects" / project / "extracted" / "door_schedule.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if isinstance(payload, list):
+        openings: Any = payload
+    elif isinstance(payload, dict):
+        openings = payload.get("openings")
+        if not openings and isinstance(payload.get("lines"), list):
+            openings = payload["lines"]
+        openings = openings or []
+    else:
+        return False
+    if openings:
+        return False
+    # A schedule the pre-pass found and the take-off did not read is a missed
+    # read, and must not silence the pricing gate too.
+    return not _sheetmap_says_a_schedule_exists(project)
+
+
+def _sheetmap_says_a_schedule_exists(project: str) -> list[int]:
+    """Pages the deterministic pre-pass found a schedule marker on.
+
+    This is the evidence that separates "the set has no doors" from "the take-off
+    missed the schedule". Absent or unreadable, it claims nothing: an older
+    sheet map without these keys must not turn a correct run into a failure.
+    """
+    path = ROOT / "projects" / project / "extracted" / "_sheetmap.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    pages: list[int] = []
+    for entry in (payload.get("files") or []) if isinstance(payload, dict) else []:
+        if not isinstance(entry, dict):
+            continue
+        recorded = entry.get("schedule_pages")
+        if isinstance(recorded, list):
+            pages.extend(int(p) for p in recorded if isinstance(p, (int, float)))
+            continue
+        # Older map: derive it from the per-page kind rather than claiming none.
+        for page in entry.get("pages") or []:
+            if isinstance(page, dict) and page.get("kind") == "schedule":
+                pages.append(int(page["source_page"]))
+    return sorted(set(pages))
+
+
 def check_extraction(project: str, *, require_scope: bool = False) -> tuple[list[str], list[str]]:
     """Return (problems, warnings) for extraction artifacts."""
     problems: list[str] = []
@@ -214,8 +304,33 @@ def check_extraction(project: str, *, require_scope: bool = False) -> tuple[list
     else:
         problems.append(f"{project}: door_schedule.json must be a JSON object or an array")
         return problems, warnings
+    # A bid set with no Division 08 openings is a finding, not a failed read.
+    #
+    # A Dunkin' remodel came through as tile, paint and vinyl wall covering, and
+    # the estimator was shown "Automatic read didn't finish". Requiring the file
+    # to exist fixed half of it; then the take-off wrote a thorough one saying
+    # `door_schedule_found: false` and the gate rejected it for not using the
+    # word `no_scope_reason`. A gate that demands a particular spelling of a
+    # finding it can already read is stricter than the thing it guards.
+    #
+    # So the evidence decides, not the vocabulary. The one case that genuinely
+    # is a failed read - the sheet map found a schedule and the take-off returned
+    # nothing - is the one that still fails.
     if not openings:
-        problems.append(f"{project}: door_schedule.json contains no openings")
+        declared = _no_scope_declared(payload)
+        missed = _sheetmap_says_a_schedule_exists(project)
+        if missed:
+            problems.append(
+                f"{project}: door_schedule.json has no openings, but the sheet map "
+                f"found a schedule on page(s) {missed}. Re-read those pages; an "
+                "empty take-off over a set that has a schedule is a missed read, "
+                "not a no-scope bid."
+            )
+        else:
+            warnings.append(
+                f"{project}: no Division 08 openings - "
+                f"{declared or 'no reason recorded'}"
+            )
 
     for opening in openings:
         opening = _normalize_opening(opening)
@@ -277,6 +392,17 @@ def check_pricing(project: str, *, require_hardware_sets: bool = False) -> tuple
     warnings: list[str] = []
     root = ROOT / "projects" / project
 
+    # Nothing in scope means nothing to price, and that is not a pricing failure.
+    # Fixing this only at extraction left the same bug one layer down: a
+    # finishes-only bid passed its take-off and then failed the pipeline at
+    # pricing for the empty quote that take-off had correctly predicted.
+    if _extraction_found_no_scope(project):
+        warnings.append(
+            f"{project}: nothing priced - the take-off found no Division 08 "
+            "openings in this bid set"
+        )
+        return problems, warnings
+
     if require_hardware_sets:
         hw_path = root / "extracted" / "hardware_sets.json"
         if not hw_path.exists():
@@ -305,7 +431,7 @@ def check_pricing(project: str, *, require_hardware_sets: bool = False) -> tuple
 
     priced_count = 0
     for index, line in enumerate(lines, start=1):
-        label = line.get("line_id") or line.get("description", f"line {index}")[:40]
+        label = line.get("line_id") or (line.get("description") or f"line {index}")[:40]
         for field in PRICING_LINE_FIELDS:
             if line.get(field) is None or line.get(field) == "":
                 problems.append(f"{project}: priced line {label} is missing {field}")
@@ -472,6 +598,14 @@ def check_proposal(project: str) -> tuple[list[str], list[str]]:
     warnings: list[str] = []
     root = ROOT / "projects" / project
 
+    # Same reasoning as check_pricing: there is no quotation to render for a bid
+    # CBC is not quoting. The estimator gets the no_scope review flag instead.
+    if _extraction_found_no_scope(project):
+        warnings.append(
+            f"{project}: no proposal - the take-off found no Division 08 openings"
+        )
+        return problems, warnings
+
     if not (root / "quotation.html").exists():
         problems.append(f"{project}: quotation.html not written")
     if not (root / "review" / "review_flags.json").exists():
@@ -503,28 +637,100 @@ ARTIFACT_CHECKS: dict[str, tuple] = {
         check_proposal,
     ),
 }
+PHASE_LABELS: dict[str, tuple[str, ...]] = {
+    "extract_bid_set": ("extraction",),
+    "rerun_extraction": ("extraction",),
+    "match_and_price": ("pricing",),
+    "build_proposal": ("proposal",),
+    "run_full_pipeline": ("extraction", "pricing", "proposal"),
+}
+PHASE_ARTIFACTS: dict[str, tuple[str, ...]] = {
+    "extraction": (
+        "extracted/door_schedule.json",
+        "extracted/scope_metadata.json",
+        "extracted/scope_summary.json",
+        "extracted/frp_takeoff.json",
+        "extracted/hardware_sets.json",
+    ),
+    "pricing": (
+        "priced/line_items.json",
+        "priced/margin_applied.json",
+        "extracted/hardware_sets.json",
+    ),
+    "proposal": (
+        "quotation.html",
+        "review/review_flags.json",
+        "review/quotation_email_draft.md",
+    ),
+}
 UNCHECKED_JOB_TYPES = frozenset(
     {"ingest_pricebook", "ingest_addendum", "index_catalog", "delete_catalog"}
 )
-def validate_job_artifacts(job_type: str, project_slug: str) -> None:
-    """Raise ValueError if job artifacts fail validation (worker gate)."""
+
+
+def _file_sha(project: str, relative: str) -> str | None:
+    path = ROOT / "projects" / project / relative
+    if not path.is_file():
+        return None
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _phase_record(project: str, phase: str) -> dict[str, Any]:
+    artifacts = {}
+    for relative in PHASE_ARTIFACTS.get(phase, ()):
+        sha = _file_sha(project, relative)
+        if sha:
+            artifacts[relative] = sha
+    return {
+        "passed": True,
+        "validatedAt": datetime.now(timezone.utc).isoformat(),
+        "artifacts": artifacts,
+    }
+
+
+def validate_job_artifacts(job_type: str, project_slug: str) -> dict[str, Any] | None:
+    """Raise ArtifactValidationError if job artifacts fail validation (worker gate).
+
+    `run_full_pipeline` is fail-fast: extraction, then pricing, then proposal.
+    The first failing phase is named in the error; later checks do not run.
+    Passing phases are returned (and attached to the error) as `phaseState`.
+    """
     problems: list[str] = []
     warnings: list[str] = []
+    phase_state: dict[str, Any] = {}
 
     checks = ARTIFACT_CHECKS.get(job_type)
     if checks is None:
         if job_type not in UNCHECKED_JOB_TYPES:
             # Better a loud failure than a job quietly skipping its own gate.
-            raise ValueError(
+            raise ArtifactValidationError(
                 f"job type {job_type!r} has no entry in ARTIFACT_CHECKS and is not "
                 "listed as unchecked - add it to one or the other"
             )
-        return
+        return None
 
-    for check in checks:
+    labels = PHASE_LABELS.get(job_type, ())
+    fail_fast = job_type == "run_full_pipeline"
+
+    for index, check in enumerate(checks):
+        phase = labels[index] if index < len(labels) else f"check_{index}"
         p, w = check(project_slug)
-        problems.extend(p)
         warnings.extend(w)
+        if p:
+            detail = "; ".join(p[:5])
+            if len(p) > 5:
+                detail += f" (+{len(p) - 5} more)"
+            if fail_fast:
+                for warning in warnings:
+                    print(f"WARN  {warning}", file=sys.stderr)
+                raise ArtifactValidationError(
+                    f"artifact validation failed at {phase}: {detail}",
+                    phase=phase,
+                    phase_state=phase_state,
+                )
+            problems.extend(p)
+            continue
+        phase_state[phase] = _phase_record(project_slug, phase)
 
     for warning in warnings:
         print(f"WARN  {warning}", file=sys.stderr)
@@ -533,4 +739,8 @@ def validate_job_artifacts(job_type: str, project_slug: str) -> None:
         detail = "; ".join(problems[:5])
         if len(problems) > 5:
             detail += f" (+{len(problems) - 5} more)"
-        raise ValueError(f"artifact validation failed: {detail}")
+        raise ArtifactValidationError(
+            f"artifact validation failed: {detail}",
+            phase_state=phase_state,
+        )
+    return phase_state or None

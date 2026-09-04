@@ -5,6 +5,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from pymongo import UpdateOne
+
 from bson import ObjectId
 
 from cbc.pageindex import basis
@@ -65,6 +67,7 @@ async def ingest_pricebook(job: dict) -> str:
         payload.get("filename") or book.get("filename"), book.get("vendor")
     )
     written = 0
+    bulk: list[UpdateOne] = []
     for product in data.get("products", []):
         if not product.get("part"):
             continue
@@ -73,31 +76,36 @@ async def ingest_pricebook(job: dict) -> str:
         # sheet overwrite Hager's costs for every number they happen to share.
         manufacturer = product.get("manufacturer")
         list_price, cost, multiplier = _prices_for(sheet_basis, product)
-        await db.products.update_one(
-            {"part": product["part"], "manufacturer": manufacturer},
-            {
-                "$set": {
-                    "description": product.get("description", ""),
-                    "division": product.get("division"),
-                    "listPrice": list_price,
-                    "multiplier": multiplier,
-                    "cost": cost,
-                    "priceBasis": sheet_basis,
-                    "priceBookId": book_id,
-                    "sourcePage": product.get("source_page"),
-                    "seedSource": "price book ingest",
-                    "updatedAt": _now(),
-                    "updatedBy": "claude",
+        bulk.append(
+            UpdateOne(
+                {"part": product["part"], "manufacturer": manufacturer},
+                {
+                    "$set": {
+                        "description": product.get("description", ""),
+                        "division": product.get("division"),
+                        "listPrice": list_price,
+                        "multiplier": multiplier,
+                        "cost": cost,
+                        "priceBasis": sheet_basis,
+                        "priceBookId": book_id,
+                        "sourcePage": product.get("source_page"),
+                        "seedSource": "price book ingest",
+                        "updatedAt": _now(),
+                        "updatedBy": "claude",
+                    },
+                    "$setOnInsert": {
+                        "part": product["part"],
+                        "manufacturer": manufacturer,
+                        "createdAt": _now(),
+                    },
                 },
-                "$setOnInsert": {
-                    "part": product["part"],
-                    "manufacturer": manufacturer,
-                    "createdAt": _now(),
-                },
-            },
-            upsert=True,
+                upsert=True,
+            )
         )
         written += 1
+
+    for start in range(0, len(bulk), 500):
+        await db.products.bulk_write(bulk[start : start + 500], ordered=False)
 
     # An effective date is only written when the ingest actually read one. Setting
     # it unconditionally wrote null over a date purchasing had entered by hand,

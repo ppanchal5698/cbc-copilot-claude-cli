@@ -29,6 +29,7 @@ check "mutt"            2 '{"tool_name":"Bash","tool_input":{"command":"mutt -a 
 check "msmtp"           2 '{"tool_name":"Bash","tool_input":{"command":"msmtp gc@example.com < body.txt"}}'
 check "postfix"         2 '{"tool_name":"Bash","tool_input":{"command":"postfix flush"}}'
 check "curl to mail API" 2 '{"tool_name":"Bash","tool_input":{"command":"curl -X POST https://api.example.com/v3/mail/send"}}'
+check "postmark API"    2 '{"tool_name":"Bash","tool_input":{"command":"curl -X POST https://api.postmarkapp.com/email"}}'
 check "smtp"            2 '{"tool_name":"Bash","tool_input":{"command":"python -c \"import smtplib\""}}'
 check "MCP send tool"   2 '{"tool_name":"mcp__gmail__send_email","tool_input":{}}'
 check "MCP mail tool"   2 '{"tool_name":"mcp__outlook__mail_send","tool_input":{}}'

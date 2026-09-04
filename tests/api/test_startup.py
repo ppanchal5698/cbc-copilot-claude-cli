@@ -103,6 +103,10 @@ def test_production_starts_on_real_secrets(monkeypatch) -> None:
     monkeypatch.setenv("APP_SECRET_KEY", "a-real-secret-from-secrets-manager")
     monkeypatch.setenv("INTERNAL_API_TOKEN", "another-real-secret")
     monkeypatch.setenv("MONGODB_URI", "mongodb://cbc:s3cr3t@mongo:27017/cbc_opshub")
+    # The catalog server's read-only credential is checked too, and a production
+    # deployment that leaves it at the repo default is exactly what that check is
+    # for. Without it here the test asserted the opposite of what it says.
+    monkeypatch.setenv("MONGODB_READONLY_PASSWORD", "a-real-readonly-secret")
 
     assert Settings().app_env == "production"
 
@@ -113,3 +117,25 @@ def test_development_keeps_working_with_no_configuration(monkeypatch) -> None:
     from cbc.config import DEV_SECRET, Settings
 
     assert Settings().internal_api_token == DEV_SECRET
+
+
+def test_the_seed_accounts_are_not_created_outside_development(monkeypatch):
+    """admin@cbc.com / opshub is in this repository.
+
+    docker/entrypoint.sh runs bootstrap.py whenever AUTO_BOOTSTRAP is not 0, and
+    compose leaves it unset, so the first start of any deployment against an
+    empty database created a known-password admin. _assert_production_secrets
+    does not cover it - it gates secrets, not seeded accounts, and runs after.
+    """
+    from scripts.bootstrap import _may_seed_accounts
+
+    for declared in ("production", "prod", "staging", "", "  "):
+        monkeypatch.setenv("APP_ENV", declared)
+        assert _may_seed_accounts() is False, declared
+
+    monkeypatch.delenv("APP_ENV", raising=False)
+    assert _may_seed_accounts() is False, "an undeclared environment must not seed"
+
+    for declared in ("development", "DEV", " local "):
+        monkeypatch.setenv("APP_ENV", declared)
+        assert _may_seed_accounts() is True, declared

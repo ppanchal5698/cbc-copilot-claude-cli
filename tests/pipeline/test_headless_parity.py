@@ -80,3 +80,81 @@ def test_a_solo_provider_is_not_told_to_delegate(name: str) -> None:
     body = SPAWNING_SCRIPTS[name]
     assert "CBC_SOLO" in body, f"{name} assumes every provider can delegate"
     assert "--solo" in body, f"{name} never asks prompts.py for the solo preamble"
+
+
+@pytest.mark.parametrize("name", sorted(SPAWNING_SCRIPTS))
+def test_the_scope_guard_cannot_fail_open(name: str) -> None:
+    """Scoping the run is only a guard if failing to scope it stops the run.
+
+    `mapfile -t scope < <(python -m cbc.core.toolsets ...)` reports mapfile's own
+    status, never the command's, and `set -euo pipefail` does not cover process
+    substitution. A failed toolsets call therefore left `scope` empty and the CLI
+    was spawned with no --strict-mcp-config and no --disallowed-tools, under
+    --dangerously-skip-permissions: every server in .mcp.json plus WebSearch and
+    WebFetch, which is exactly what the lines above it exist to prevent.
+    """
+    # Code only. The note explaining this bug names the broken form.
+    source = SPAWNING_SCRIPTS[name].splitlines()
+    body = "\n".join(line for line in source if not line.lstrip().startswith("#"))
+
+    assert "mapfile" in body, f"{name} no longer reads a scope at all"
+    assert not re.search(r"mapfile[^\n]*<\s*<\(", body), (
+        f"{name} reads the tool scope through process substitution, whose exit "
+        "status mapfile discards - the guard falls open to an unrestricted run"
+    )
+    assert re.search(r"\$\{#\w*[Ss][Cc][Oo][Pp][Ee]\[@\]\}", body), (
+        f"{name} does not check that the scope it got is non-empty"
+    )
+
+
+@pytest.mark.parametrize("name,turns", [("_phase.sh", "60"), ("run_full_pipeline.sh", "200")])
+def test_headless_spawn_sets_max_turns(name: str, turns: str) -> None:
+    spawn = re.search(r'"\$\{CLAUDE_BIN\}"[^\n]*', SPAWNING_SCRIPTS[name])
+    assert spawn, f"{name} no longer spawns the CLI"
+    assert f"--max-turns {turns}" in spawn.group(0), spawn.group(0)
+
+
+def test_phase_sh_requests_the_job_template() -> None:
+    assert "--job-type" in PHASE_SH
+    assert "apps.worker.prompts" in PHASE_SH
+
+
+def test_job_type_cli_prints_extract_and_match_bodies() -> None:
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(ROOT), str(ROOT / "src")])}
+    extract = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "apps.worker.prompts",
+            "--job-type",
+            "extract_bid_set",
+            "projects/demo",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    assert "_sheetmap.json" in extract.stdout or "find_sheets" in extract.stdout
+    match = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "apps.worker.prompts",
+            "--job-type",
+            "match_and_price",
+            "projects/demo",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=env,
+        check=True,
+    )
+    assert "find_pages" in match.stdout
+

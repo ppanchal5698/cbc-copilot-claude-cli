@@ -16,9 +16,10 @@ from fastapi.responses import FileResponse, Response
 from cbc.config import settings
 from cbc.db import db, oid, serialise
 from apps.api.deps import Actor
+from apps.api.pipeline_jobs import enqueue_pipeline, reserve
 from apps.api.routers.projects import load
 from apps.api.routers.versions import snapshot
-from cbc.services import audit, jobs, pdf, storage
+from cbc.services import audit, pdf, storage
 
 router = APIRouter(prefix="/api/projects/{code}/documents", tags=["documents"])
 
@@ -44,6 +45,18 @@ async def upload_document(
     kind: str = Form("plan"),
 ) -> dict:
     project = await load(code)
+
+    # Which job this upload becomes, decided before anything is written so the
+    # conflict check can refuse without leaving a file, a document row and a
+    # version behind it.
+    job_type = (
+        "ingest_addendum"
+        if kind == "addendum"
+        else "run_full_pipeline"
+        if project.get("autopilot")
+        else "extract_bid_set"
+    )
+    superseded = await reserve(project["_id"], job_type)
 
     storage.scaffold(project["slug"])
     target = storage.unique_filename(storage.raw_dir(project["slug"]), file.filename or "upload.pdf")
@@ -83,11 +96,11 @@ async def upload_document(
     # priced, so the current state is frozen into a new version first and the
     # differences are flagged rather than merged (Matrix 4.1 is still open).
     version = None
-    if kind == "addendum":
+    if job_type == "ingest_addendum":
         version = await snapshot(project, f"Addendum: {target.name}", actor)
-        job = await jobs.enqueue(
+        job = await enqueue_pipeline(
             "ingest_addendum",
-            project_id=project["_id"],
+            project["_id"],
             payload={
                 "documentId": str(result.inserted_id),
                 "filename": target.name,
@@ -95,21 +108,21 @@ async def upload_document(
             },
             actor=actor,
         )
-    elif project.get("autopilot"):
+    elif job_type == "run_full_pipeline":
         # Phase 0-6 in one session. Delayed a little so the rest of a multi-file
         # bid set lands first - the run reads the whole of uploads/raw/, and one
         # that started on this file alone would not see the others.
-        job = await jobs.enqueue(
+        job = await enqueue_pipeline(
             "run_full_pipeline",
-            project_id=project["_id"],
+            project["_id"],
             payload={"documentId": str(result.inserted_id), "filename": target.name},
             actor=actor,
             delay_seconds=PIPELINE_DEBOUNCE_SECONDS,
         )
     else:
-        job = await jobs.enqueue(
+        job = await enqueue_pipeline(
             "extract_bid_set",
-            project_id=project["_id"],
+            project["_id"],
             payload={"documentId": str(result.inserted_id), "filename": target.name},
             actor=actor,
         )
@@ -126,21 +139,48 @@ async def upload_document(
         "job": serialise(job),
         "autopilot": bool(project.get("autopilot")) and kind != "addendum",
         "version": version["version"] if version else None,
-        "note": (
-            "Prior work was snapshotted; differences will be flagged, not merged."
-            if version
-            else None
-        ),
+        "note": "; ".join(
+            note
+            for note in (
+                "Prior work was snapshotted; differences will be flagged, not merged."
+                if version
+                else None,
+                # Never cancel an estimator's run without saying so.
+                f"A queued {superseded['type']} run was superseded and must be "
+                "re-started once the differences have been reviewed."
+                if superseded
+                else None,
+            )
+            if note
+        )
+        or None,
     }
+
+
+async def _document(code: str, document_id: str) -> dict:
+    """The document, scoped to the bid in the URL.
+
+    Every one of these routes used to look up `{"_id": oid(document_id)}` alone.
+    `await load(code)` proved the project existed and its _id was then never
+    used, so any signed-in estimator could read or DELETE a document belonging
+    to a different bid by id - another customer's drawings, on a system whose
+    whole point is that a bid set is confidential. Every sibling router already
+    filters on projectId (line_items.py, quote.py, calls.py); one helper here
+    means a fifth route cannot quietly regress.
+    """
+    project = await load(code)
+    document = await db.documents.find_one(
+        {"_id": oid(document_id), "projectId": project["_id"]}
+    )
+    if not document:
+        raise HTTPException(404, "document not found")
+    return document
 
 
 @router.get("/{document_id}/file")
 async def get_file(code: str, document_id: str) -> FileResponse:
     """Serve the raw PDF so the reviewer sees the actual drawing, not a re-rendering."""
-    await load(code)
-    document = await db.documents.find_one({"_id": oid(document_id)})
-    if not document:
-        raise HTTPException(404, "document not found")
+    document = await _document(code, document_id)
 
     path = storage.absolute(document["path"])
     if not path.exists():
@@ -157,10 +197,7 @@ async def get_file(code: str, document_id: str) -> FileResponse:
 @router.get("/{document_id}/page/{page_number}")
 async def get_page(code: str, document_id: str, page_number: int, dpi: int = 110) -> Response:
     """A rendered page image, for viewers that cannot run pdf.js."""
-    await load(code)
-    document = await db.documents.find_one({"_id": oid(document_id)})
-    if not document:
-        raise HTTPException(404, "document not found")
+    document = await _document(code, document_id)
 
     try:
         image = await asyncio.to_thread(
@@ -179,10 +216,7 @@ async def get_page(code: str, document_id: str, page_number: int, dpi: int = 110
 @router.get("/{document_id}/page/{page_number}/size")
 async def get_page_size(code: str, document_id: str, page_number: int) -> dict:
     """Page dimensions in PDF points - the frame every stored bbox is measured against."""
-    await load(code)
-    document = await db.documents.find_one({"_id": oid(document_id)})
-    if not document:
-        raise HTTPException(404, "document not found")
+    document = await _document(code, document_id)
     return await asyncio.to_thread(
         pdf.page_size, storage.absolute(document["path"]), page_number
     )
@@ -191,16 +225,13 @@ async def get_page_size(code: str, document_id: str, page_number: int) -> dict:
 @router.delete("/{document_id}", status_code=204)
 async def delete_document(code: str, document_id: str, actor: Actor) -> None:
     """Detach a document from the bid. The file itself stays - raw uploads are immutable."""
-    project = await load(code)
-    document = await db.documents.find_one({"_id": oid(document_id)})
-    if not document:
-        raise HTTPException(404, "document not found")
+    document = await _document(code, document_id)
 
     await db.documents.delete_one({"_id": document["_id"]})
     await audit.record(
         "document.delete",
         actor,
-        {"projectId": project["_id"], "documentId": document["_id"]},
+        {"projectId": document["projectId"], "documentId": document["_id"]},
         before=document.get("filename"),
         note="file retained on disk",
     )

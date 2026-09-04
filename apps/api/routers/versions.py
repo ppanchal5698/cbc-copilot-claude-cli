@@ -11,7 +11,8 @@ from cbc.db import db, serialise
 from apps.api.deps import Actor
 from cbc.schemas import VersionCreate
 from apps.api.routers.projects import load
-from cbc.services import audit, jobs
+from apps.api.pipeline_jobs import enqueue_pipeline, reserve
+from cbc.services import audit
 
 router = APIRouter(prefix="/api/projects/{code}", tags=["versions"])
 
@@ -99,7 +100,9 @@ async def list_versions(code: str) -> dict[str, Any]:
         .sort("version", -1)
         .to_list(50)
     )
-    unreconciled = sum(1 for v in found if not v.get("reconciled"))
+    unreconciled = await db.versions.count_documents(
+        {"projectId": project["_id"], "reconciled": {"$ne": True}}
+    )
     return {
         "versions": serialise(found),
         "current": project.get("version", 1),
@@ -120,13 +123,18 @@ async def get_version(code: str, version: int) -> dict[str, Any]:
 @router.post("/versions", status_code=201)
 async def create_version(code: str, body: VersionCreate, actor: Actor) -> dict:
     project = await load(code)
+
+    # Before the snapshot, not after it: a 409 raised from the enqueue below used
+    # to leave a frozen version behind that no job would ever read.
+    superseded = await reserve(project["_id"], "ingest_addendum") if body.documentId else None
+
     document = await snapshot(project, body.reason, actor)
 
     job = None
     if body.documentId:
-        job = await jobs.enqueue(
+        job = await enqueue_pipeline(
             "ingest_addendum",
-            project_id=project["_id"],
+            project["_id"],
             payload={
                 "documentId": body.documentId,
                 "version": document["version"],
@@ -138,6 +146,7 @@ async def create_version(code: str, body: VersionCreate, actor: Actor) -> dict:
     return {
         "version": serialise({k: v for k, v in document.items() if k != "snapshot"}),
         "job": serialise(job) if job else None,
+        "superseded": serialise(superseded) if superseded else None,
         "pending": PENDING_NOTE,
     }
 

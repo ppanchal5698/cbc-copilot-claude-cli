@@ -20,12 +20,8 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "cost_from_list",
         "description": (
-            "Cost on the list x multiplier path, with any adders applied in the "
-            "right order. Adders go on the LIST price and the multiplier applies "
-            "to the sum - the price book states this outright. Adding one to the "
-            "cost instead overcharges by the whole discount: a 57.13 adder at a "
-            "0.29 tier is 16.57 of cost, not 57.13. Every adder is itemised in "
-            "the result, because carrying one is a recorded act."
+            "List price x multiplier cost with adders on the list first. "
+            "See price-line-item skill for adder order."
         ),
         "inputSchema": {
             "type": "object",
@@ -45,6 +41,25 @@ TOOLS: list[dict[str, Any]] = [
                 },
             },
             "required": ["list_price", "multiplier"],
+        },
+    },
+    {
+        "name": "lookup_lite_kit_list_price",
+        "description": (
+            "NR-1 lite-kit list price for width x height from lite_kit_prices.json. "
+            "Apply vendor multiplier separately via cost_from_list."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "width_in": {"type": "number", "description": "Opening width in inches"},
+                "height_in": {"type": "number", "description": "Opening height in inches"},
+                "pdf_page": {
+                    "type": "integer",
+                    "description": "Optional vendor table page (e.g. 30 for NGP)",
+                },
+            },
+            "required": ["width_in", "height_in"],
         },
     },
     {

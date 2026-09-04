@@ -25,6 +25,8 @@ x-app-env: &app-env
   MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
   # Host Ollama when api/worker run in Docker (native dev uses localhost:11434).
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+  # Built-in Anthropic ↔ Workers AI bridge (Cloudflare workers route, no custom URL).
+  WORKERS_AI_BRIDGE_URL: ${WORKERS_AI_BRIDGE_URL:-http://workers-ai-bridge:8787}
 
 services:
   mongo:
@@ -101,16 +103,25 @@ services:
       # deliberate human-initiated act the file-safety rule permits, and it goes
       # through this service. A pipeline run must still never write here.
       - ./pricebooks:/app/pricebooks
+      # Shared with the worker: rendered pages are derived data, keyed on file
+      # SHA-256, and both processes must see the same PNG.
+      - cbc_cache:/app/.cache
       # The bid-set fixtures the test suite reads. Mounted rather than baked so
       # the in-image test run is the same run as on the host - four PDF tests
       # skip silently without it, which is the worst way for a gap to appear.
       - ./tests/fixtures/pdfs:/app/tests/fixtures/pdfs:ro
       - claude_home:/home/cbc/.claude
+      # Settings writes Bedrock keys here. Must be a file on the host — if it
+      # is missing Docker creates a directory and the write fails. Copy
+      # .env.example to .env first.
+      - ./.env:/app/.env
       # Mounted read-write even though the API only reads: a WAL reader has to map
       # the -shm file, so `mode=ro` on the file cannot open a live WAL database at
       # all. Read-only is enforced on the connection instead (PRAGMA query_only).
     depends_on:
       mongo:
+        condition: service_healthy
+      workers-ai-bridge:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -122,17 +133,47 @@ services:
       retries: 5
       start_period: 20s
 
+  workers-ai-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cbc-opshub-app:latest
+    container_name: cbc-workers-ai-bridge
+    restart: unless-stopped
+    command: ["python", "-m", "cbc.workers_ai_bridge"]
+    environment:
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_AIG_TOKEN: ${CLOUDFLARE_AIG_TOKEN:-}
+      CLOUDFLARE_WORKERAI_API_TOKEN: ${CLOUDFLARE_WORKERAI_API_TOKEN:-}
+      CLOUDFLARE_BASE_API_URL: ${CLOUDFLARE_BASE_API_URL:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      WORKERS_AI_BRIDGE_HOST: "0.0.0.0"
+      WORKERS_AI_BRIDGE_PORT: "8787"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      # Same .env the Settings screen writes so account/token stay in sync.
+      - ./.env:/app/.env:ro
+    ports:
+      - "127.0.0.1:8787:8787"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=4).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   worker:
     build:
       context: .
       dockerfile: Dockerfile
     image: cbc-opshub-app:latest
-    container_name: cbc-worker
     restart: unless-stopped
     command: ["python", "apps/worker/main.py"]
     environment:
       <<: *app-env
       WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-1}
       # A 30-page CAD set is minutes of LLM work; raise this before blaming the model.
       WORKER_JOB_TIMEOUT_SECONDS: ${WORKER_JOB_TIMEOUT_SECONDS:-3600}
       WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-3}
@@ -144,11 +185,15 @@ services:
       - ./.claude:/app/.claude:ro
       - ./reference-library:/app/reference-library:ro
       - claude_home:/home/cbc/.claude
+      - ./.env:/app/.env:ro
+      - cbc_cache:/app/.cache
       # The worker is the only writer to the index.
     depends_on:
       mongo:
         condition: service_healthy
       api:
+        condition: service_healthy
+      workers-ai-bridge:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -203,3 +248,6 @@ volumes:
   # Claude Code's credentials, shared so a sign-in on the settings page (served
   # by the API) is the same sign-in the worker runs jobs with.
   claude_home:
+  # Rendered PDF pages. Named so it survives `compose up --build` and is shared
+  # by api and worker — the cache in pdfpages is otherwise per-container.
+  cbc_cache:

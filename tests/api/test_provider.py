@@ -58,9 +58,81 @@ def test_bedrock_sets_its_flag_and_never_leaves_the_region_to_chance():
     env, _ = provider.build_env({"mode": provider.BEDROCK})
     assert env["CLAUDE_CODE_USE_BEDROCK"] == "1"
     assert env["AWS_REGION"] == "us-east-1"
+    assert env["ANTHROPIC_BEDROCK_REGION_PREFIX"] == "us"
 
     env, _ = provider.build_env({"mode": provider.BEDROCK, "awsRegion": "eu-west-1"})
     assert env["AWS_REGION"] == "eu-west-1"
+    assert env["ANTHROPIC_BEDROCK_REGION_PREFIX"] == "eu"
+
+
+def test_bedrock_rewrites_a_foundation_id_in_india_to_the_global_profile():
+    """ap-south-1 has Claude only through Global CRIS, not apac. geo profiles."""
+    env, _ = provider.build_env(
+        {
+            "mode": provider.BEDROCK,
+            "awsRegion": "ap-south-1",
+            "model": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "smallFastModel": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+        }
+    )
+    profile = "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    assert env["ANTHROPIC_MODEL"] == profile
+    assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == profile
+    assert env["ANTHROPIC_BEDROCK_REGION_PREFIX"] == "global"
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == profile
+    assert env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == profile
+    assert env["CLAUDE_CODE_SUBAGENT_MODEL"] == profile
+
+
+def test_bedrock_rewrites_a_foundation_id_in_us_east_to_the_us_profile():
+    env, _ = provider.build_env(
+        {
+            "mode": provider.BEDROCK,
+            "awsRegion": "us-east-1",
+            "model": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+        }
+    )
+    profile = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    assert env["ANTHROPIC_MODEL"] == profile
+    assert env["ANTHROPIC_BEDROCK_REGION_PREFIX"] == "us"
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == profile
+    assert env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == profile
+    assert env["CLAUDE_CODE_SUBAGENT_MODEL"] == profile
+    assert "ANTHROPIC_DEFAULT_HAIKU_MODEL" not in env
+
+
+def test_bedrock_leaves_prefixed_ids_and_aliases_alone():
+    env, _ = provider.build_env(
+        {
+            "mode": provider.BEDROCK,
+            "awsRegion": "ap-south-1",
+            "model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        }
+    )
+    assert env["ANTHROPIC_MODEL"] == "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    assert env["ANTHROPIC_BEDROCK_REGION_PREFIX"] == "global"
+
+    env, _ = provider.build_env(
+        {"mode": provider.BEDROCK, "awsRegion": "ap-south-1", "model": "sonnet"}
+    )
+    assert env["ANTHROPIC_MODEL"] == "sonnet"
+    assert env["ANTHROPIC_BEDROCK_REGION_PREFIX"] == "global"
+    assert "ANTHROPIC_DEFAULT_SONNET_MODEL" not in env
+    assert "ANTHROPIC_DEFAULT_OPUS_MODEL" not in env
+    assert "CLAUDE_CODE_SUBAGENT_MODEL" not in env
+
+
+def test_bedrock_describe_warns_when_a_foundation_id_was_rewritten():
+    described = provider.describe(
+        {
+            "mode": provider.BEDROCK,
+            "awsRegion": "ap-south-1",
+            "model": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+        }
+    )
+    assert described["model"] == "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    assert described["region"] == "ap-south-1"
+    assert any("rewritten" in warning for warning in described["warnings"])
 
 
 def test_ollama_mode_sets_anthropic_compatible_env():
@@ -101,6 +173,23 @@ def test_ollama_defaults_haiku_and_subagents_to_main_model_when_unset():
     assert env["CLAUDE_CODE_SUBAGENT_MODEL"] == "gemma4:31b-cloud"
 
 
+def test_bedrock_keeps_a_distinct_haiku_and_does_not_invent_one():
+    env, _ = provider.build_env(
+        {
+            "mode": provider.BEDROCK,
+            "awsRegion": "us-east-1",
+            "model": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "smallFastModel": "anthropic.claude-haiku-4-5-20251001-v1:0",
+        }
+    )
+    assert env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == (
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    )
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == (
+        "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+    )
+
+
 def test_ollama_clears_stale_subscription_key(monkeypatch):
     monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat-stale")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-stale")
@@ -118,6 +207,174 @@ def test_ollama_defaults_base_url_from_ollama_base_url_env(monkeypatch):
     env, _ = provider.build_env({"mode": provider.OLLAMA, "model": "qwen3.5"})
 
     assert env["ANTHROPIC_BASE_URL"] == "http://host.docker.internal:11434"
+
+
+def test_cloudflare_anthropic_route_builds_the_gateway_url_and_custom_header():
+    env, _ = provider.build_env(
+        {
+            "mode": provider.CLOUDFLARE,
+            "accountId": "acc123",
+            "gatewayId": "cbc-claude",
+            "gatewayToken": "cf-aig-test-token",
+            "cfRoute": "anthropic",
+            "model": "claude-sonnet-4-5",
+        }
+    )
+    assert env["ANTHROPIC_BASE_URL"] == (
+        "https://gateway.ai.cloudflare.com/v1/acc123/cbc-claude/anthropic"
+    )
+    assert env["ANTHROPIC_API_KEY"] == "cf-aig-test-token"
+    assert env["ANTHROPIC_CUSTOM_HEADERS"] == "cf-aig-authorization: Bearer cf-aig-test-token"
+    assert "CLAUDE_CODE_USE_BEDROCK" not in env
+    assert "CLAUDE_CODE_USE_VERTEX" not in env
+    assert provider.supports_subagents(
+        {"mode": provider.CLOUDFLARE, "cfRoute": "anthropic"}
+    )
+
+
+def test_cloudflare_bedrock_route_skips_aws_auth_and_sets_the_bedrock_base_url():
+    env, _ = provider.build_env(
+        {
+            "mode": provider.CLOUDFLARE,
+            "accountId": "acc123",
+            "gatewayId": "cbc-claude",
+            "gatewayToken": "cf-aig-test-token",
+            "cfRoute": "bedrock",
+            "awsRegion": "us-west-2",
+            "model": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+        }
+    )
+    assert env["CLAUDE_CODE_USE_BEDROCK"] == "1"
+    assert env["CLAUDE_CODE_SKIP_BEDROCK_AUTH"] == "1"
+    assert env["ANTHROPIC_BEDROCK_BASE_URL"] == (
+        "https://gateway.ai.cloudflare.com/v1/acc123/cbc-claude/"
+        "aws-bedrock/bedrock-runtime/us-west-2/"
+    )
+    assert env["ANTHROPIC_CUSTOM_HEADERS"] == "cf-aig-authorization: Bearer cf-aig-test-token"
+    assert "ANTHROPIC_BASE_URL" not in env
+    assert "AWS_BEARER_TOKEN_BEDROCK" not in env
+
+
+def test_cloudflare_vertex_route_skips_gcp_auth():
+    env, _ = provider.build_env(
+        {
+            "mode": provider.CLOUDFLARE,
+            "accountId": "acc123",
+            "gatewayId": "cbc-claude",
+            "gatewayToken": "cf-aig-test-token",
+            "cfRoute": "vertex",
+            "vertexProject": "my-gcp-project",
+            "vertexRegion": "us-east5",
+            "model": "claude-sonnet-4-5",
+        }
+    )
+    assert env["CLAUDE_CODE_USE_VERTEX"] == "1"
+    assert env["CLAUDE_CODE_SKIP_VERTEX_AUTH"] == "1"
+    assert env["ANTHROPIC_VERTEX_BASE_URL"] == (
+        "https://gateway.ai.cloudflare.com/v1/acc123/cbc-claude/google-vertex-ai/v1"
+    )
+    assert env["ANTHROPIC_VERTEX_PROJECT_ID"] == "my-gcp-project"
+    assert env["CLOUD_ML_REGION"] == "us-east5"
+    assert env["ANTHROPIC_CUSTOM_HEADERS"] == "cf-aig-authorization: Bearer cf-aig-test-token"
+    assert "ANTHROPIC_BASE_URL" not in env
+
+
+def test_cloudflare_workers_route_pins_aliases_and_does_not_support_subagents():
+    env, _ = provider.build_env(
+        {
+            "mode": provider.CLOUDFLARE,
+            "cfRoute": "workers",
+            "baseUrl": "https://claude-bridge.example.workers.dev",
+            "gatewayToken": "cf-aig-test-token",
+            "model": "@cf/meta/llama-3.1-8b-instruct",
+        }
+    )
+    assert env["ANTHROPIC_BASE_URL"] == "https://claude-bridge.example.workers.dev"
+    assert env["ANTHROPIC_API_KEY"] == "cf-aig-test-token"
+    assert "ANTHROPIC_CUSTOM_HEADERS" not in env
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "@cf/meta/llama-3.1-8b-instruct"
+    assert env["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "@cf/meta/llama-3.1-8b-instruct"
+    assert env["CLAUDE_CODE_SUBAGENT_MODEL"] == "@cf/meta/llama-3.1-8b-instruct"
+    assert "ANTHROPIC_DEFAULT_HAIKU_MODEL" not in env
+    described = provider.describe(
+        {
+            "mode": provider.CLOUDFLARE,
+            "cfRoute": "workers",
+            "baseUrl": "https://claude-bridge.example.workers.dev",
+            "model": "@cf/meta/llama-3.1-8b-instruct",
+        }
+    )
+    assert described["supportsSubagents"] is False
+    assert any("Agent" in warning for warning in described["warnings"])
+
+
+def test_cloudflare_workers_route_auto_points_at_built_in_bridge():
+    """Account + token with no custom URL → local Anthropic↔Workers AI bridge."""
+    env, _ = provider.build_env(
+        {
+            "mode": provider.CLOUDFLARE,
+            "cfRoute": "workers",
+            "accountId": "acc123",
+            "gatewayToken": "cfut-test-token",
+            "model": "@cf/moonshotai/kimi-k2.7-code",
+        }
+    )
+    assert env["ANTHROPIC_BASE_URL"] == provider.DEFAULT_WORKERS_AI_BRIDGE_URL
+    assert env["ANTHROPIC_API_KEY"] == "cfut-test-token"
+    assert "ANTHROPIC_CUSTOM_HEADERS" not in env
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "@cf/moonshotai/kimi-k2.7-code"
+
+
+def test_cloudflare_workers_route_honours_WORKERS_AI_BRIDGE_URL(monkeypatch):
+    monkeypatch.setenv("WORKERS_AI_BRIDGE_URL", "http://workers-ai-bridge:8787")
+    env, _ = provider.build_env(
+        {
+            "mode": provider.CLOUDFLARE,
+            "cfRoute": "workers",
+            "accountId": "acc123",
+            "gatewayToken": "tok",
+            "model": "@cf/meta/llama-3.1-8b-instruct",
+        }
+    )
+    assert env["ANTHROPIC_BASE_URL"] == "http://workers-ai-bridge:8787"
+
+
+def test_cloudflare_workerai_token_alias_fills_gateway_token(monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_WORKERAI_API_TOKEN", "cfut-alias-token")
+    env, sources = provider.build_env(
+        {
+            "mode": provider.CLOUDFLARE,
+            "cfRoute": "workers",
+            "accountId": "acc123",
+            "model": "@cf/meta/llama-3.1-8b-instruct",
+        }
+    )
+    assert env["CLOUDFLARE_AIG_TOKEN"] == "cfut-alias-token"
+    assert env["ANTHROPIC_API_KEY"] == "cfut-alias-token"
+    assert env["ANTHROPIC_BASE_URL"] == provider.DEFAULT_WORKERS_AI_BRIDGE_URL
+    assert sources["gatewayToken"] == "env"
+    assert "cfut-alias-token" in provider.secret_values(
+        {"mode": provider.CLOUDFLARE, "cfRoute": "workers", "accountId": "acc123"}
+    )
+
+
+def test_workers_ai_bridge_host_is_an_allowed_provider_host():
+    provider.check_base_url("http://workers-ai-bridge:8787")
+    provider.check_base_url("http://127.0.0.1:8787")
+
+
+def test_cloudflare_unknown_route_falls_back_to_anthropic():
+    env, _ = provider.build_env(
+        {
+            "mode": provider.CLOUDFLARE,
+            "accountId": "acc123",
+            "gatewayId": "cbc-claude",
+            "gatewayToken": "tok",
+            "cfRoute": "not-a-route",
+        }
+    )
+    assert env["CLOUDFLARE_ROUTE"] == "anthropic"
+    assert env["ANTHROPIC_BASE_URL"].endswith("/anthropic")
 
 
 def test_switching_provider_clears_the_previous_one(monkeypatch):
@@ -259,6 +516,86 @@ def test_saving_a_credential_returns_it_masked_and_never_in_the_clear(client):
     assert body["fields"]["baseUrl"]["value"] == "http://litellm:4000"
 
 
+def test_saving_bedrock_settings_round_trips(client):
+    """The stored model stays as typed; rewrite happens at spawn, not on save."""
+    response = client.put(
+        "/api/settings/claude",
+        json={
+            "mode": "bedrock",
+            "awsRegion": "ap-south-1",
+            "bedrockApiKey": "ABSK-test-bedrock-key-valueWT0=",
+            "model": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+            "smallFastModel": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+        },
+    )
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["mode"] == "bedrock"
+    assert "ABSK-test-bedrock-key-valueWT0=" not in response.text
+    assert body["fields"]["bedrockApiKey"]["configured"] is True
+    assert body["fields"]["awsRegion"]["value"] == "ap-south-1"
+    assert body["fields"]["model"]["value"] == "anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+    from pymongo import MongoClient
+
+    from cbc.config import settings as app_settings
+
+    raw = MongoClient(app_settings.mongodb_uri)
+    try:
+        stored = raw[TEST_DB]["settings"].find_one({"_id": "claude"})
+    finally:
+        raw.close()
+
+    assert secrets.decrypt(stored["bedrockApiKey"]) == "ABSK-test-bedrock-key-valueWT0="
+    assert stored["model"] == "anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+    from cbc.core import envfile
+
+    on_disk = envfile.read()
+    assert on_disk["AWS_BEARER_TOKEN_BEDROCK"] == "ABSK-test-bedrock-key-valueWT0="
+    assert on_disk["AWS_REGION"] == "ap-south-1"
+    assert on_disk["CLAUDE_CODE_USE_BEDROCK"] == "1"
+    assert on_disk["ANTHROPIC_MODEL"] == "anthropic.claude-sonnet-4-5-20250929-v1:0"
+    assert body["fields"]["bedrockApiKey"]["locked"] is False
+
+
+def test_dotenv_beats_mongo_and_does_not_lock_the_field(tmp_path, monkeypatch):
+    from cbc.core import envfile
+
+    envfile.upsert({"AWS_BEARER_TOKEN_BEDROCK": "ABSK-from-dotenv-fileWT0=", "AWS_REGION": "ap-south-1"})
+    env, sources = provider.build_env({"mode": provider.BEDROCK, "bedrockApiKey": secrets.encrypt("ABSK-from-mongoWT0=")})
+    assert env["AWS_BEARER_TOKEN_BEDROCK"] == "ABSK-from-dotenv-fileWT0="
+    assert sources["bedrockApiKey"] == "dotenv"
+    assert provider.public_config({"mode": provider.BEDROCK})["fields"]["bedrockApiKey"]["locked"] is False
+
+
+def test_process_env_still_beats_the_dotenv_file(monkeypatch):
+    from cbc.core import envfile
+
+    envfile.upsert({"AWS_BEARER_TOKEN_BEDROCK": "ABSK-from-dotenv-fileWT0="})
+    monkeypatch.setenv("AWS_BEARER_TOKEN_BEDROCK", "ABSK-from-process-envWT0=")
+    env, sources = provider.build_env({"mode": provider.BEDROCK})
+    assert env["AWS_BEARER_TOKEN_BEDROCK"] == "ABSK-from-process-envWT0="
+    assert sources["bedrockApiKey"] == "env"
+    assert provider.public_config({"mode": provider.BEDROCK})["fields"]["bedrockApiKey"]["locked"] is True
+
+
+def test_envfile_upsert_preserves_unrelated_keys_and_comments(tmp_path, monkeypatch):
+    from cbc.core import envfile
+
+    target = tmp_path / ".env"
+    target.write_text("# keep me\nMONGODB_DB=cbc_opshub\nAWS_REGION=us-east-1\n", encoding="utf-8")
+    monkeypatch.setenv("CBC_ENV_FILE", str(target))
+    envfile.upsert({"AWS_BEARER_TOKEN_BEDROCK": "ABSK-secretWT0=", "AWS_REGION": "ap-south-1"})
+    text = target.read_text(encoding="utf-8")
+    assert "# keep me" in text
+    assert "MONGODB_DB=cbc_opshub" in text
+    assert "AWS_REGION=ap-south-1" in text
+    assert "us-east-1" not in text
+    assert "ABSK-secretWT0=" in text
+
+
 def test_saving_ollama_settings_round_trips(client):
     response = client.put(
         "/api/settings/claude",
@@ -277,6 +614,77 @@ def test_saving_ollama_settings_round_trips(client):
     assert body["fields"]["model"]["value"] == "qwen2.5-coder:32b"
     assert body["fields"]["smallFastModel"]["value"] == "qwen2.5-coder:7b"
     assert "ollama" in body["modes"]
+
+
+def test_saving_cloudflare_settings_writes_constructed_claude_vars(client):
+    response = client.put(
+        "/api/settings/claude",
+        json={
+            "mode": "cloudflare",
+            "cfRoute": "anthropic",
+            "accountId": "acc123",
+            "gatewayId": "cbc-claude",
+            "gatewayToken": "cf-aig-save-token",
+            "model": "claude-sonnet-4-5",
+        },
+    )
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["mode"] == "cloudflare"
+    assert "cf-aig-save-token" not in response.text
+    assert body["fields"]["accountId"]["value"] == "acc123"
+    assert body["fields"]["gatewayId"]["value"] == "cbc-claude"
+    assert body["fields"]["cfRoute"]["value"] == "anthropic"
+    assert body["fields"]["gatewayToken"]["configured"] is True
+    assert "cloudflare" in body["modes"]
+
+    from cbc.core import envfile
+
+    on_disk = envfile.read()
+    assert on_disk["ANTHROPIC_BASE_URL"] == (
+        "https://gateway.ai.cloudflare.com/v1/acc123/cbc-claude/anthropic"
+    )
+    assert on_disk["ANTHROPIC_CUSTOM_HEADERS"] == (
+        "cf-aig-authorization: Bearer cf-aig-save-token"
+    )
+    assert on_disk["ANTHROPIC_API_KEY"] == "cf-aig-save-token"
+    assert on_disk["CLOUDFLARE_ROUTE"] == "anthropic"
+    assert on_disk["CLOUDFLARE_AIG_TOKEN"] == "cf-aig-save-token"
+
+
+def test_switching_away_from_cloudflare_clears_the_gateway_header(client):
+    client.put(
+        "/api/settings/claude",
+        json={
+            "mode": "cloudflare",
+            "cfRoute": "anthropic",
+            "accountId": "acc123",
+            "gatewayId": "cbc-claude",
+            "gatewayToken": "cf-aig-save-token",
+        },
+    )
+    response = client.put(
+        "/api/settings/claude",
+        json={"mode": "anthropic_api", "apiKey": "sk-ant-after-cloudflare"},
+    )
+    assert response.status_code == 200
+
+    from cbc.core import envfile
+
+    on_disk = envfile.read()
+    assert "ANTHROPIC_CUSTOM_HEADERS" not in on_disk
+    assert "CLOUDFLARE_AIG_TOKEN" not in on_disk
+    assert on_disk["ANTHROPIC_API_KEY"] == "sk-ant-after-cloudflare"
+
+
+def test_an_unknown_cloudflare_route_is_rejected(client):
+    response = client.put(
+        "/api/settings/claude",
+        json={"mode": "cloudflare", "cfRoute": "not-a-route", "accountId": "acc123"},
+    )
+    assert response.status_code == 400
+    assert "Cloudflare route" in response.json()["detail"]
 
 
 def test_a_masked_value_sent_back_unedited_keeps_the_stored_credential(client):

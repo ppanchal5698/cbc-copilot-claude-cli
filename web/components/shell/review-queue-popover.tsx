@@ -49,15 +49,11 @@ export function ReviewQueuePopover({
             : "Review queue — nothing flagged"
         }
         title="Review queue"
-        className="relative grid h-8 w-8 place-items-center rounded-md border-0 bg-transparent p-0"
-        style={{ color: "var(--app-tx-2)" }}
+        className="relative grid h-9 w-9 place-items-center rounded-lg border border-transparent bg-transparent p-0 text-tx-secondary hover:bg-panel-muted hover:border-subtle transition-all"
       >
-        <Bell size={16} weight="duotone" />
+        <Bell size={18} weight="duotone" />
         {!!reviewCount && !focusMode && (
-          <span
-            className="tnum absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-semibold"
-            style={{ background: "var(--app-neg)", color: "#fff" }}
-          >
+          <span className="tnum absolute -right-1 -top-1 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-status-error px-1 text-[10px] font-bold text-white shadow-sm ring-2 ring-background">
             {reviewCount}
           </span>
         )}
@@ -65,23 +61,18 @@ export function ReviewQueuePopover({
       <PopoverContent
         align="end"
         sideOffset={8}
-        className="w-80 p-0"
-        style={{
-          background: "var(--app-panel)",
-          border: "1px solid var(--app-line)",
-          color: "var(--app-tx)",
-        }}
+        className="w-80 p-0 rounded-xl bg-panel border border-subtle shadow-xl shadow-black/10 text-tx-primary"
       >
-        <PopoverHeader className="border-b px-3 py-2.5" style={{ borderColor: "var(--app-line)" }}>
-          <PopoverTitle className="text-[13px] font-semibold">Review queue</PopoverTitle>
-          <p className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+        <PopoverHeader className="border-b border-subtle px-4 py-3 bg-panel-muted rounded-t-xl">
+          <PopoverTitle className="text-[14px] font-bold tracking-tight">Review queue</PopoverTitle>
+          <p className="text-[12px] font-medium text-tx-muted mt-0.5">
             Lines flagged for your review across open bids
           </p>
         </PopoverHeader>
 
-        <div className="max-h-64 overflow-auto py-1">
+        <div className={`overflow-auto py-1.5 ${flagged.length === 0 ? "" : "max-h-64"}`}>
           {flagged.length === 0 ? (
-            <p className="px-3 py-4 text-[12px]" style={{ color: "var(--app-tx-3)" }}>
+            <p className="px-4 py-3 text-[13px] font-medium text-tx-muted text-center">
               Nothing flagged for review
             </p>
           ) : (
@@ -90,34 +81,30 @@ export function ReviewQueuePopover({
                 key={project.id}
                 href={`/bids/${project.code}/extraction`}
                 onClick={() => setOpen(false)}
-                className="flex items-center gap-2 px-3 py-2.5 no-underline transition hover:bg-[var(--app-panel-2)]"
+                className="flex items-center gap-3 px-4 py-3 no-underline transition-colors hover:bg-panel-muted group"
               >
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[12.5px] font-medium" style={{ color: "var(--app-tx)" }}>
+                  <span className="block truncate text-[13.5px] font-bold text-tx-primary group-hover:text-brand-primary transition-colors">
                     {project.jobName ?? project.name}
                   </span>
-                  <span className="text-[11px]" style={{ color: "var(--app-tx-3)" }}>
+                  <span className="text-[12px] font-medium text-tx-muted mt-0.5 block">
                     {project.code}
                   </span>
                 </span>
-                <span
-                  className="tnum shrink-0 rounded-full px-2 py-0.5 text-[10.5px] font-semibold"
-                  style={{ background: "var(--app-neg-soft)", color: "var(--app-neg)" }}
-                >
+                <span className="tnum shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold bg-status-error-soft text-status-error">
                   {project.counts.needsLook}
                 </span>
-                <CaretRight size={12} style={{ color: "var(--app-tx-3)" }} />
+                <CaretRight size={14} className="text-tx-muted group-hover:text-tx-primary transition-colors" />
               </Link>
             ))
           )}
         </div>
 
-        <div className="border-t px-3 py-2" style={{ borderColor: "var(--app-line)" }}>
+        <div className="border-t border-subtle bg-panel-muted px-4 py-3 rounded-b-xl">
           <Link
             href="/bids?stage=extraction"
             onClick={() => setOpen(false)}
-            className="text-[11.5px] font-medium no-underline"
-            style={{ color: "var(--app-accent)" }}
+            className="text-[12px] font-bold no-underline text-brand-primary hover:text-brand-primary/80 transition-colors"
           >
             View all bids
           </Link>

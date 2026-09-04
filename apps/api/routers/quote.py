@@ -15,7 +15,8 @@ from cbc.db import db, oid, serialise
 from apps.api.deps import Actor
 from cbc.schemas import QuoteLineCreate, QuoteLineUpdate, QuoteSettings
 from apps.api.routers.projects import load
-from cbc.services import audit, jobs, quote as quote_service, sync
+from apps.api.pipeline_jobs import enqueue_pipeline
+from cbc.services import audit, freshness as freshness_settings, jobs, quote as quote_service, sync
 
 router = APIRouter(prefix="/api/projects/{code}/quote", tags=["quote"])
 
@@ -24,14 +25,11 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-STALE_DAYS = 180
-
-
 async def _lines(project_id) -> list[dict[str, Any]]:
     return await quote_service.lines_for(project_id)
 
 
-def _lapsed(line: dict[str, Any]) -> bool:
+def _lapsed(line: dict[str, Any], stale_days: int) -> bool:
     """True when the sheet this cost came from is past the review window.
 
     A lapsed price is not wrong, but it is unverified - the estimator decides.
@@ -40,7 +38,7 @@ def _lapsed(line: dict[str, Any]) -> bool:
     if not effective:
         return False
     try:
-        return (date.today() - date.fromisoformat(str(effective))).days > STALE_DAYS
+        return (date.today() - date.fromisoformat(str(effective))).days > stale_days
     except ValueError:
         return False
 
@@ -56,7 +54,11 @@ async def get_quote(code: str) -> dict[str, Any]:
     # Computed, not stored. This is a GET; it used to write a row per line and
     # upsert the totals on every page load and every four-second poll.
     totals, raw = await quote_service.totals_for(project)
-    lines = [{**serialise(line), "lapsed": _lapsed(line)} for line in raw]
+    bands = await freshness_settings.load()
+    lines = [
+        {**serialise(line), "lapsed": _lapsed(line, bands.catalog_stale_days)}
+        for line in raw
+    ]
 
     groups: dict[str, dict[str, Any]] = {}
     for line in lines:
@@ -78,6 +80,7 @@ async def get_quote(code: str) -> dict[str, Any]:
             "firstId": edited[0]["id"] if edited else None,
         },
         "lapsedCount": sum(1 for line in lines if line["lapsed"]),
+        "reviewWindowMonths": bands.catalog_stale_months,
     }
 
 
@@ -204,6 +207,6 @@ async def continue_to_proposal(code: str, actor: Actor) -> dict:
     await _recompute(project, actor)
     await sync.export_quote_lines(project)
 
-    job = await jobs.enqueue("build_proposal", project["_id"], actor=actor)
+    job = await enqueue_pipeline("build_proposal", project["_id"], actor=actor)
     await audit.record("project.continue_to_proposal", actor, {"projectId": project["_id"]})
     return {"job": serialise(job)}

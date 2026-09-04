@@ -20,8 +20,10 @@ MONGODB_READONLY_URI and refuses to fall back to the writable string.
 """
 from __future__ import annotations
 
+import copy
 import json
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -38,10 +40,11 @@ from cbc.pageindex import models as page_models  # noqa: E402
 from cbc.pageindex import query as page_query  # noqa: E402
 from cbc.pageindex import reader  # noqa: E402
 
+from cbc.services.freshness import load_sync  # noqa: E402
+
 TIERS_FILE = ROOT / "reference-library" / "multipliers" / "vendor_tiers.json"
 SPECIAL_NETS_FILE = ROOT / "reference-library" / "multipliers" / "hager_special_nets.json"
 STOCK_LIST_DIR = ROOT / "reference-library" / "hardware_sets"
-STALE_DAYS = 180
 
 _special_nets: dict[str, dict[str, Any]] | None = None
 _special_nets_meta: dict[str, Any] | None = None
@@ -79,6 +82,7 @@ def list_catalogs(vendor: str | None = None) -> dict[str, Any]:
         return _unavailable(exc)
 
     catalogs = []
+    stale_days = load_sync().catalog_stale_days
     for row in rows:
         effective = row.get("effectiveDate")
         age = None
@@ -97,7 +101,7 @@ def list_catalogs(vendor: str | None = None) -> dict[str, Any]:
                 "pages": row.get("pageCount", 0),
                 "effective_date": effective,
                 "age_days": age,
-                "stale": age is not None and age > STALE_DAYS,
+                "stale": age is not None and age > stale_days,
                 "undated": effective is None,
             }
         )
@@ -145,18 +149,52 @@ def get_catalog_overview(catalog_id: str) -> dict[str, Any]:
     }
 
 
+def _rank_uncached(query: str, vendor: str | None, limit: int) -> dict[str, Any]:
+    documents = [
+        page_models.PageIndexDocument.from_mongo(row)
+        for row in reader.all_catalogs(vendor)
+    ]
+    return page_query.rank_pages(documents, query, limit=limit)
+
+
+@lru_cache(maxsize=256)
+def _rank_cached(
+    query_norm: str, vendor_key: str, limit: int, watermark: str
+) -> dict[str, Any]:
+    vendor = vendor_key or None
+    return _rank_uncached(query_norm, vendor, limit)
+
+
+def clear_find_pages_cache() -> None:
+    _rank_cached.cache_clear()
+
+
 def find_pages(query: str, vendor: str | None = None, limit: int = 8) -> dict[str, Any]:
     """Pages worth opening. Read the price off the page, not out of this."""
     if not str(query or "").strip():
         return {"error": "query is required", "count": 0, "pages": []}
     try:
-        documents = [
-            page_models.PageIndexDocument.from_mongo(row)
-            for row in reader.all_catalogs(vendor)
-        ]
+        headers = reader.list_catalogs(vendor)
+        if not vendor and len(headers) > 10:
+            return {
+                "query": query,
+                "count": 0,
+                "pages": [],
+                "note": (
+                    "Too many catalogs to search without a vendor filter. "
+                    "Pass vendor= to narrow the search."
+                ),
+            }
+        watermark = page_query.headers_watermark(headers)
+        ranked = _rank_cached(
+            str(query).strip().lower(),
+            str(vendor or "").strip().lower(),
+            _clamp(limit),
+            watermark,
+        )
+        return copy.deepcopy(ranked)
     except Exception as exc:
         return _unavailable(exc)
-    return page_query.rank_pages(documents, query, limit=_clamp(limit))
 
 
 def get_page(catalog_id: str, pdf_page: int) -> dict[str, Any]:
@@ -287,7 +325,7 @@ def get_multiplier(vendor: str, category: str | None = None) -> dict[str, Any]:
     needle = str(vendor or "").strip().lower()
     for record in data.get("vendors", []):
         names = {str(record.get("key", "")).lower(), str(record.get("name", "")).lower()}
-        if needle not in names and needle not in str(record.get("name", "")).lower():
+        if needle not in names:
             continue
         categories = record.get("categories") or {}
         if category and categories:

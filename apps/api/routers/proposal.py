@@ -207,10 +207,14 @@ async def render_proposal(code: str, autoprint: bool = False) -> HTMLResponse:
     autoprint opens the browser print dialog, which is the fallback path to a PDF
     when no local renderer is installed.
     """
-    from jinja2 import Environment, FileSystemLoader, select_autoescape
-
     project = await load(code)
     data = await _proposal_payload(project)
+    html = await asyncio.to_thread(_render_proposal_html, project, data, autoprint)
+    return HTMLResponse(html)
+
+
+def _render_proposal_html(project: dict[str, Any], data: dict[str, Any], autoprint: bool) -> str:
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
 
     env = Environment(
         loader=FileSystemLoader(str(settings.templates_dir)),
@@ -272,7 +276,7 @@ async def render_proposal(code: str, autoprint: bool = False) -> HTMLResponse:
     )
     if autoprint:
         html += "<script>window.addEventListener('load',()=>window.print())</script>"
-    return HTMLResponse(html)
+    return html
 
 
 @router.get("/pdf")

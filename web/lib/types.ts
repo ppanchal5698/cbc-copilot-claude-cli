@@ -181,6 +181,7 @@ export interface QuoteResponse {
   lineCount: number;
   edited?: { count: number; firstId: string | null };
   lapsedCount?: number;
+  reviewWindowMonths?: number;
 }
 
 export interface Product {
@@ -336,7 +337,7 @@ export interface ProviderField {
 }
 
 export interface ClaudeSettings {
-  mode: "subscription" | "anthropic_api" | "bedrock" | "gateway" | "ollama";
+  mode: "subscription" | "anthropic_api" | "bedrock" | "cloudflare" | "gateway" | "ollama";
   modes: string[];
   fields: Record<string, ProviderField>;
   /** Field shape for every mode, so an unsaved provider still renders a form. */
@@ -356,6 +357,7 @@ export interface ProviderTest {
     baseUrl: string | null;
     region: string | null;
     credentialSource: Record<string, string>;
+    warnings?: string[];
   };
 }
 
@@ -621,6 +623,17 @@ export interface PipelineSettings {
   updatedBy?: string | null;
 }
 
+export interface FreshnessSettings {
+  catalogStaleMonths: number;
+  discardAfterMonths: number;
+  catalogStaleDays: number;
+  discardAfterDays: number;
+  rule?: string;
+  note?: string;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
 export interface IntegrationStatus {
   connected: boolean;
   path?: number;
@@ -629,6 +642,7 @@ export interface IntegrationStatus {
   title: string;
   summary: string;
   note: string;
+  adminNote?: string | null;
   fallbacks?: string[];
 }
 

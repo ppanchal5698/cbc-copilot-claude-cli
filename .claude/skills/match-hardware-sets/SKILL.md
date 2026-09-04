@@ -18,11 +18,13 @@ Run in order. Stop at the first tier that produces a match.
 | 1 | Exact part number in the reference library, all attributes agree | 0.95 - 1.00 |
 | 2 | Exact part number, one soft attribute differs (finish, size) | 0.75 - 0.94 |
 | 3 | Series match (e.g. `3500` for `3547`), function inferable | 0.55 - 0.74 |
-| 4 | Fuzzy description match via `mcp__catalog__find_pages` | 0.40 - 0.54 |
+| 4 | Fuzzy description match via `mcp__catalog__find_pages` (page index ranking) | 0.40 - 0.54 |
 | 5 | No usable match, or a MANUAL cut-off trigger | 0.00 |
 
-Fuzzy matching uses stdlib `difflib` inside the pricebook server - it is
-containment-first, so exact part numbers always win.
+Catalog `find_pages` routes to vendor PDF pages — it does not return prices.
+
+Read `extracted/_matchcache.json` when present. Reuse matches at confidence
+≥ 0.75; rematch only uncached items. Do not reuse a cached entry below 0.75.
 
 ## Hard constraints - these are not soft attributes
 
@@ -53,11 +55,6 @@ Emit `confidence: 0.0`, `cost_source: "MANUAL"` and a plain-language reason when
 the item is a custom size, an unusual prep, an option not sold in years, a
 distributor-bought line, or simply absent from every price book. Do not
 substitute the nearest stock item to avoid an empty cell.
-
-## Rules
-
-- @.claude/rules/accuracy-trust.md
-- @.claude/rules/scope-boundaries.md
 
 ## Reference data
 
@@ -91,7 +88,7 @@ Write to `projects/{project}/extracted/hardware_sets.json`:
           },
           "confidence": 0.95,
           "match_tier": 1,
-          "cost_path": "DISTRIBUTOR_MANUAL",
+          "cost_source": "DISTRIBUTOR_MANUAL",
           "substitution_note": null,
           "flags": []
         }

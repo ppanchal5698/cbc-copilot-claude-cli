@@ -46,6 +46,11 @@ TOOLS: list[dict[str, Any]] = [
                     "items": {"type": "integer"},
                     "description": "Optional 1-indexed page numbers. Omit for all pages.",
                 },
+                "max_pages": {
+                    "type": "integer",
+                    "default": 4,
+                    "description": "Cap on pages read in one call (default 4).",
+                },
             },
             "required": ["file_path"],
         },
@@ -71,6 +76,16 @@ TOOLS: list[dict[str, Any]] = [
                     "items": {"type": "number"},
                     "description": "Optional [x0, y0, x1, y1] clip in PDF points",
                 },
+                "max_pages": {
+                    "type": "integer",
+                    "default": 4,
+                    "description": "Cap on pages read in one call (default 4).",
+                },
+                "include_cell_boxes": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Include per-cell bboxes. Default true.",
+                },
             },
             "required": ["file_path"],
         },
@@ -79,7 +94,8 @@ TOOLS: list[dict[str, Any]] = [
         "name": "get_page_image",
         "description": (
             "Render one PDF page to a PNG image for visual drawing take-off. "
-            "Writes the PNG next to the project's processed uploads and returns its path."
+            "Writes the PNG to .cache/pdf-pages (or out_dir) and returns its path. "
+            "Full-page renders clamp the long edge to 1568 px; a region crop may exceed that."
         ),
         "inputSchema": {
             "type": "object",
@@ -88,6 +104,11 @@ TOOLS: list[dict[str, Any]] = [
                 "page_number": {"type": "integer", "description": "1-indexed"},
                 "dpi": {"type": "integer", "default": 200},
                 "out_dir": {"type": "string", "description": "Optional output directory"},
+                "region": {
+                    "type": "array",
+                    "items": {"type": "number"},
+                    "description": "Optional [x0, y0, x1, y1] clip in PDF points",
+                },
             },
             "required": ["file_path", "page_number"],
         },
@@ -119,7 +140,8 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "file_path": {"type": "string"},
                 "query": {"type": "string"},
-                "context_chars": {"type": "integer", "default": 500},
+                "context_chars": {"type": "integer", "default": 160},
+                "max_hits": {"type": "integer", "default": 40},
             },
             "required": ["file_path", "query"],
         },

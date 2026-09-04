@@ -10,6 +10,12 @@ from _runtime import load_server  # noqa: E402
 from tests.shared import FIXTURE_PDF, ROOT, SCHEDULE_PAGE
 
 
+@pytest.fixture(autouse=True)
+def isolate_dotenv(tmp_path, monkeypatch):
+    """Never let a test Save write the developer's real `.env`."""
+    monkeypatch.setenv("CBC_ENV_FILE", str(tmp_path / ".env"))
+
+
 @pytest.fixture(scope="session")
 def root() -> Path:
     return ROOT

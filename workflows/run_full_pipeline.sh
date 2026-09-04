@@ -51,12 +51,19 @@ PROMPT="$(PYTHONPATH="${ROOT}:${ROOT}/src" python -m apps.worker.prompts "${PROM
 # and NotebookEdit are removed here too. This used to spawn with no scoping at
 # all, which is how a headless pipeline ended up with a wider tool surface than
 # the same pipeline started from the Ops-Hub.
-mapfile -t SCOPE < <(PYTHONPATH="${ROOT}:${ROOT}/src" python -m cbc.core.toolsets run_full_pipeline) || {
+# See the note in _phase.sh: `mapfile < <(cmd)` cannot fail, so this guard used
+# to fall open to an unrestricted run rather than closed.
+SCOPE_TEXT="$(PYTHONPATH="${ROOT}:${ROOT}/src" python -m cbc.core.toolsets run_full_pipeline)" || {
   echo "Could not read the tool scope for run_full_pipeline" >&2
   exit 1
 }
+mapfile -t SCOPE <<< "${SCOPE_TEXT}"
+if [[ "${#SCOPE[@]}" -eq 0 || -z "${SCOPE[0]}" ]]; then
+  echo "Empty tool scope for run_full_pipeline - refusing to run unrestricted." >&2
+  exit 1
+fi
 
-"${CLAUDE_BIN}" --print "${SCOPE[@]}" --dangerously-skip-permissions "${PROMPT}"
+"${CLAUDE_BIN}" --print "${SCOPE[@]}" --max-turns 200 --dangerously-skip-permissions "${PROMPT}"
 
 echo
 echo "[$(date -Iseconds)] Pipeline finished."

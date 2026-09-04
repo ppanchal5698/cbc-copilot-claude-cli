@@ -16,7 +16,7 @@ gap rather than papering over it.
 Staleness is now **visible to the person who can act on it**, not just to a log:
 
 - The price-books screen shows every program with its age, and flags anything past
-  180 days or carrying no effective date at all.
+  ~24 months or carrying no effective date at all.
 - The rail badge carries the stale count on every screen.
 - `catalog.list_price_books` returns `ageDays` and `stale`, so a pricing pass sees
   the same signal the estimator does.
@@ -28,9 +28,9 @@ harder to miss. NFR-10 stays OPEN until CBC names a person and an interval.
 ## Interim mitigation
 - Every price-book file carries its **effective date** in pricebooks/index.json and that date
   is echoed onto every priced line (see the auditability rule).
-- scripts/refresh_pricebooks.sh reports the age of each price book and warns past **180 days**.
+- scripts/refresh_pricebooks.sh reports the age of each price book and warns past **~24 months**.
 - Manually entered prices always show the **"price may be out of date — refresh"** prompt (NR-2).
-- The P21 freshness rule (6-8 months unreliable, 3-4 years discard) applies independently.
+- The P21 freshness rule (more than 24 months unreliable, more than 2.5 years discard) applies independently.
 
 ## Risk if left open
 Stale price sheets drive wrong quotes — silently, and at scale.

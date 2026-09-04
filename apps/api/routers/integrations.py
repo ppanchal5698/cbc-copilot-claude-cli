@@ -18,24 +18,24 @@ async def integration_status() -> dict[str, Any]:
             "path": 1,
             "requirement": "NR-10",
             "status": "connected" if p21_connected else "deferred",
-            "title": "P21 last-PO cost (Path 1)",
-            "summary": (
-                "Prophet 21 last purchase-order cost for regularly-bought items "
-                "(Requirements Matrix 6.2)."
-            ),
+            "title": "P21 purchase-order cost",
+            "summary": "Last PO cost from Prophet 21 for regularly purchased items.",
             "note": (
                 "P21 is connected and read-only."
                 if p21_connected
                 else (
-                    "P21 is not connected in this environment. Path 1 (last-PO cost) "
-                    "is deferred while NR-10 feasibility is investigated. Pricing falls "
-                    "back to list × multiplier (Path 2) or manual distributor / RFQ "
-                    "entry (Path 3)."
+                    "Not connected in this environment. Pricing uses vendor list × "
+                    "multiplier or manual entry until integration is enabled."
                 )
             ),
+            "adminNote": (
+                None
+                if p21_connected
+                else "NR-10 / Path 1 deferred. Set P21_BASE_URL to connect."
+            ),
             "fallbacks": [
-                "Path 2: vendor list price × multiplier tier",
-                "Path 3: distributor lookup or vendor RFQ",
+                "Vendor list price × tier multiplier",
+                "Distributor lookup or vendor RFQ",
             ],
         },
     }

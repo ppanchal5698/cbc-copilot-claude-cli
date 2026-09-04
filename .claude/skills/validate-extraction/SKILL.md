@@ -48,12 +48,6 @@ Whether a missing rating should hard-stop the line is still an open question
 - **Counts reconcile.** Openings extracted vs door numbers referenced on the floor
   plans - a mismatch usually means a whole schedule block was missed.
 
-## Rules
-
-- @.claude/rules/accuracy-trust.md
-- @.claude/rules/auditability.md
-- @.claude/rules/scope-boundaries.md
-
 ## Reference
 
 - `references/validation_rules.md`

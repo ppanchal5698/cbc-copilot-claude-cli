@@ -9,15 +9,30 @@ whatever the code happens to do.
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from bson import ObjectId
+from pymongo import MongoClient
 
 from cbc.config import settings
 from tests.shared import ROOT, opshub_client  # noqa: E402
 
 TEST_DB = "cbc_opshub_test"
 FIXTURE = ROOT / "tests" / "fixtures" / "pdfs" / "1_Architectural.pdf"
+
+
+def _finish_active_pipeline_jobs(code: str) -> None:
+    """Clear queued/running pipeline jobs so phase-boundary routes can enqueue."""
+    raw = MongoClient(settings.mongodb_uri)[TEST_DB]
+    project_id = ObjectId(
+        raw.projects.find_one({"code": code}, {"_id": 1})["_id"]
+    )
+    raw.jobs.update_many(
+        {"projectId": project_id, "status": {"$in": ["queued", "running"]}},
+        {"$set": {"status": "done", "finishedAt": datetime.now(timezone.utc)}},
+    )
 
 
 @pytest.fixture(scope="module")
@@ -160,6 +175,7 @@ def test_unknown_filter_is_rejected(client, project):
 
 def test_continue_to_quote_writes_the_confirmed_state_to_disk(client, project):
     code, slug = project["code"], project["slug"]
+    _finish_active_pipeline_jobs(code)
     client.post(
         f"/api/projects/{code}/line-items",
         json={"mark": "900", "description": "Hand-added opening", "qty": 2},
@@ -193,7 +209,9 @@ def test_quote_line_math_matches_calc_engine(client, project):
     # Commodity band: 27% -> divisor 0.73
     assert line["margin"] == pytest.approx(0.27)
     assert line["sell"] == pytest.approx(round(412.00 / 0.73, 2))
-    assert line["extended"] == pytest.approx(round(line["sell"] * 3, 2))
+    # From the unrounded unit price, not the displayed one: rounding the unit
+    # first and multiplying put up to half a cent per unit into the extension.
+    assert line["extended"] == pytest.approx(round(412.00 / 0.73 * 3, 2))
 
 
 def test_editing_margin_recomputes_and_records_the_override(client, project):
@@ -344,6 +362,39 @@ def test_stale_price_books_are_reported(client):
     assert body["stewardship"]["owner"] is None, "NFR-10 is open; do not fake an owner"
 
 
+def test_a_mid_age_price_book_follows_the_review_window(client):
+    from datetime import date, timedelta
+
+    from cbc.services import freshness as freshness_settings
+
+    effective = (date.today() - timedelta(days=400)).isoformat()
+    client.post(
+        "/api/price-books",
+        json={"vendor": "windowvendor", "multiplier": 0.5, "effective": effective},
+    )
+
+    def book():
+        books = client.get("/api/price-books").json()["priceBooks"]
+        return next(row for row in books if row["vendor"] == "windowvendor")
+
+    assert book()["stale"] is False
+
+    try:
+        saved = client.put(
+            "/api/settings/freshness",
+            json={"catalogStaleMonths": 6, "discardAfterMonths": 12},
+        )
+        assert saved.status_code == 200, saved.text
+        freshness_settings.clear_cache()
+        assert book()["stale"] is True
+    finally:
+        client.put(
+            "/api/settings/freshness",
+            json={"catalogStaleMonths": 24, "discardAfterMonths": 30},
+        )
+        freshness_settings.clear_cache()
+
+
 # ── proposal ────────────────────────────────────────────────────────────────
 
 
@@ -385,9 +436,22 @@ def test_marking_complete_does_not_send(client, project):
 
 
 def test_duplicate_job_is_not_queued_twice(client, project):
+    _finish_active_pipeline_jobs(project["code"])
     first = client.post(f"/api/projects/{project['code']}/line-items/rerun").json()["job"]
     second = client.post(f"/api/projects/{project['code']}/line-items/rerun").json()["job"]
     assert first["id"] == second["id"], "a double click must not queue two extractions"
+
+
+def test_continue_to_quote_returns_409_when_pipeline_active(client, project):
+    code = project["code"]
+    _finish_active_pipeline_jobs(code)
+    client.post(f"/api/projects/{code}/line-items/rerun")
+
+    response = client.post(f"/api/projects/{code}/line-items/continue-to-quote")
+    assert response.status_code == 409
+    body = response.json()["detail"]
+    assert "already in progress" in body["message"]
+    assert body["activeJob"]["type"] == "rerun_extraction"
 
 
 def test_jobs_are_listed_for_a_project(client, project):
