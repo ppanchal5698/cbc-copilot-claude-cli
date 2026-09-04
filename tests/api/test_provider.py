@@ -308,6 +308,61 @@ def test_cloudflare_workers_route_pins_aliases_and_does_not_support_subagents():
     assert any("Agent" in warning for warning in described["warnings"])
 
 
+def test_cloudflare_workers_route_auto_points_at_built_in_bridge():
+    """Account + token with no custom URL → local Anthropic↔Workers AI bridge."""
+    env, _ = provider.build_env(
+        {
+            "mode": provider.CLOUDFLARE,
+            "cfRoute": "workers",
+            "accountId": "acc123",
+            "gatewayToken": "cfut-test-token",
+            "model": "@cf/moonshotai/kimi-k2.7-code",
+        }
+    )
+    assert env["ANTHROPIC_BASE_URL"] == provider.DEFAULT_WORKERS_AI_BRIDGE_URL
+    assert env["ANTHROPIC_API_KEY"] == "cfut-test-token"
+    assert "ANTHROPIC_CUSTOM_HEADERS" not in env
+    assert env["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "@cf/moonshotai/kimi-k2.7-code"
+
+
+def test_cloudflare_workers_route_honours_WORKERS_AI_BRIDGE_URL(monkeypatch):
+    monkeypatch.setenv("WORKERS_AI_BRIDGE_URL", "http://workers-ai-bridge:8787")
+    env, _ = provider.build_env(
+        {
+            "mode": provider.CLOUDFLARE,
+            "cfRoute": "workers",
+            "accountId": "acc123",
+            "gatewayToken": "tok",
+            "model": "@cf/meta/llama-3.1-8b-instruct",
+        }
+    )
+    assert env["ANTHROPIC_BASE_URL"] == "http://workers-ai-bridge:8787"
+
+
+def test_cloudflare_workerai_token_alias_fills_gateway_token(monkeypatch):
+    monkeypatch.setenv("CLOUDFLARE_WORKERAI_API_TOKEN", "cfut-alias-token")
+    env, sources = provider.build_env(
+        {
+            "mode": provider.CLOUDFLARE,
+            "cfRoute": "workers",
+            "accountId": "acc123",
+            "model": "@cf/meta/llama-3.1-8b-instruct",
+        }
+    )
+    assert env["CLOUDFLARE_AIG_TOKEN"] == "cfut-alias-token"
+    assert env["ANTHROPIC_API_KEY"] == "cfut-alias-token"
+    assert env["ANTHROPIC_BASE_URL"] == provider.DEFAULT_WORKERS_AI_BRIDGE_URL
+    assert sources["gatewayToken"] == "env"
+    assert "cfut-alias-token" in provider.secret_values(
+        {"mode": provider.CLOUDFLARE, "cfRoute": "workers", "accountId": "acc123"}
+    )
+
+
+def test_workers_ai_bridge_host_is_an_allowed_provider_host():
+    provider.check_base_url("http://workers-ai-bridge:8787")
+    provider.check_base_url("http://127.0.0.1:8787")
+
+
 def test_cloudflare_unknown_route_falls_back_to_anthropic():
     env, _ = provider.build_env(
         {

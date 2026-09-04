@@ -131,7 +131,7 @@ the app and unfixable from outside it.
 | Claude subscription | `CLAUDE_CODE_OAUTH_TOKEN` | local development |
 | Anthropic API key | `ANTHROPIC_API_KEY` (x-api-key) | per-token billing |
 | Amazon Bedrock | `CLAUDE_CODE_USE_BEDROCK=1`, `AWS_REGION`, `AWS_BEARER_TOKEN_BEDROCK` (optional), inference-profile `ANTHROPIC_MODEL` | Fargate via the task role, or a Bedrock API key locally |
-| Cloudflare | AI Gateway URL + `ANTHROPIC_CUSTOM_HEADERS` (`cf-aig-authorization`), or a typed Workers `/v1/messages` URL | Anthropic, Bedrock, or Vertex through AI Gateway; OSS `@cf/` models on a Workers bridge |
+| Cloudflare | AI Gateway URL + `ANTHROPIC_CUSTOM_HEADERS` (`cf-aig-authorization`), or Workers AI via the built-in `/v1/messages` bridge | Anthropic/Bedrock/Vertex through AI Gateway; free `@cf/` models on Workers AI |
 | Gateway | `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` (Bearer) | LiteLLM, self-hosted |
 | Ollama | `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN=ollama` + `ANTHROPIC_MODEL` | local dev with host Ollama |
 
@@ -199,14 +199,18 @@ environment still wins — that is how Fargate stays authoritative.
 Copy `.env.example` to `.env` **before** `docker compose up`. If the file is
 missing, Docker mounts a directory at `/app/.env` and Save cannot write the key.
 
-### Cloudflare (AI Gateway)
+### Cloudflare (AI Gateway and Workers AI)
 
-Claude Code does not speak Workers AI natively. The documented path is
-[AI Gateway](https://developers.cloudflare.com/ai-gateway/integrations/coding-agents/claude-code/),
-which exposes Anthropic, Amazon Bedrock, and Google Vertex as Anthropic-compatible
-endpoints. A fourth Settings route accepts a custom URL that already speaks
-`/v1/messages` (a Workers bridge you deployed elsewhere — this repo does not
-ship one).
+Claude Code speaks Anthropic `/v1/messages` only. Free Cloudflare `@cf/` models
+speak `/ai/run` (or OpenAI chat completions). This repo ships a small local
+bridge (`python -m cbc.workers_ai_bridge`, Compose service `workers-ai-bridge`)
+that translates between them.
+
+**AI Gateway** (Anthropic / Bedrock / Vertex) remains the production-quality
+path when you have Anthropic (or Unified Billing) credits. Docs:
+[AI Gateway + Claude Code](https://developers.cloudflare.com/ai-gateway/integrations/coding-agents/claude-code/).
+
+#### AI Gateway routes
 
 1. Create an AI Gateway in the Cloudflare dashboard and a token with **Run**
    permission.
@@ -219,20 +223,34 @@ ship one).
 | Anthropic | `ANTHROPIC_BASE_URL=https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/anthropic`, `ANTHROPIC_CUSTOM_HEADERS=cf-aig-authorization: Bearer <token>` |
 | Bedrock via Gateway | `CLAUDE_CODE_USE_BEDROCK=1`, `CLAUDE_CODE_SKIP_BEDROCK_AUTH=1`, `ANTHROPIC_BEDROCK_BASE_URL=…/aws-bedrock/bedrock-runtime/<region>/`. No AWS keys. |
 | Vertex via Gateway | `CLAUDE_CODE_USE_VERTEX=1`, `CLAUDE_CODE_SKIP_VERTEX_AUTH=1`, `ANTHROPIC_VERTEX_BASE_URL=…/google-vertex-ai/v1`, plus project ID and `CLOUD_ML_REGION`. |
-| Workers AI bridge | The typed `ANTHROPIC_BASE_URL`. Sonnet/opus/haiku aliases pin to the configured model. Agent-tool delegation is off — OSS `@cf/` models do not reliably call it. |
 
 **Unified Billing:** leave the Anthropic API key empty. The gateway token is
 used as `ANTHROPIC_API_KEY` (Claude Code requires one) and as
 `cf-aig-authorization`. **BYOK:** paste a real Anthropic key as well; the
 gateway forwards it and still authenticates with the token header.
 
-Model IDs: Anthropic/Bedrock/Vertex routes take Claude IDs
-(`claude-sonnet-4-5`, or a Bedrock inference-profile ID). The Workers route
-takes whatever the bridge serves (`@cf/…`).
+#### Workers AI (free `@cf/` models)
+
+1. Create a Cloudflare API token with Workers AI permissions (`cfut_…`).
+2. **Settings → Claude Code → Cloudflare → Workers AI (free @cf models)** —
+   account ID, API token, model (e.g. `@cf/moonshotai/kimi-k2.7-code`). Leave
+   the custom bridge URL empty.
+3. Compose starts `workers-ai-bridge` on port 8787. Claude Code points at
+   `http://workers-ai-bridge:8787`; the bridge calls
+   `…/accounts/<id>/ai/run/<model>` with your Bearer token.
+4. Native (no Compose): run `python -m cbc.workers_ai_bridge` and leave
+   `WORKERS_AI_BRIDGE_URL` unset (defaults to `http://127.0.0.1:8787`).
+
+| Route | What Claude Code gets |
+|---|---|
+| Workers AI | Built-in bridge URL (or a typed custom `/v1/messages` URL). Sonnet/opus aliases pin to the configured `@cf/…` model. Agent-tool delegation is off. |
+
+Free `@cf` models are best-effort for local development — expect weaker MCP/tool
+fidelity than Claude. Prefer Anthropic via AI Gateway for production estimating.
 
 Save writes the constructed Claude variables — including
-`ANTHROPIC_CUSTOM_HEADERS` — into `.env`, not only the raw account/gateway
-pieces. Switching provider clears them.
+`ANTHROPIC_CUSTOM_HEADERS` for gateway routes — into `.env`, not only the raw
+account/gateway pieces. Switching provider clears them.
 
 ### Ollama (local dev)
 

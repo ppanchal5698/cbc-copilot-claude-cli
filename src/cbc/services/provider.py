@@ -145,10 +145,15 @@ DEFAULT_ALLOWED_HOSTS = (
     "127.0.0.1",
     "host.docker.internal",
     "litellm",
+    "workers-ai-bridge",
     "gateway.ai.cloudflare.com",
     ".cloudflare.com",
     ".workers.dev",
 )
+
+# Built-in Anthropic↔Workers AI bridge (see cbc.workers_ai_bridge). Compose sets
+# WORKERS_AI_BRIDGE_URL to the service hostname; native local defaults to loopback.
+DEFAULT_WORKERS_AI_BRIDGE_URL = "http://127.0.0.1:8787"
 
 
 def allowed_hosts() -> tuple[str, ...]:
@@ -240,6 +245,24 @@ def _uses_ai_gateway(url: str | None) -> bool:
     return bool(url) and "gateway.ai.cloudflare.com" in url.lower()
 
 
+def workers_ai_bridge_url() -> str:
+    return (
+        os.environ.get("WORKERS_AI_BRIDGE_URL") or DEFAULT_WORKERS_AI_BRIDGE_URL
+    ).rstrip("/")
+
+
+def _cloudflare_token(env: dict[str, str], file_env: dict[str, str] | None = None) -> str:
+    """Gateway or Workers AI API token. CLOUDFLARE_WORKERAI_API_TOKEN is an alias."""
+    token = (env.get("CLOUDFLARE_AIG_TOKEN") or "").strip()
+    if token:
+        return token
+    for source in (os.environ, file_env or {}):
+        alias = (source.get("CLOUDFLARE_WORKERAI_API_TOKEN") or "").strip()
+        if alias:
+            return alias
+    return ""
+
+
 def _pin_model_aliases(env: dict[str, str], *, pin_haiku: bool = False) -> None:
     """Map Claude Code's sonnet/opus/haiku aliases onto the configured model.
 
@@ -259,19 +282,27 @@ def _pin_model_aliases(env: dict[str, str], *, pin_haiku: bool = False) -> None:
         env.setdefault("ANTHROPIC_DEFAULT_HAIKU_MODEL", main_model)
 
 
-def _apply_cloudflare(env: dict[str, str], config: dict[str, Any]) -> None:
+def _apply_cloudflare(
+    env: dict[str, str],
+    config: dict[str, Any],
+    *,
+    file_env: dict[str, str] | None = None,
+) -> None:
     """Translate stored Cloudflare pieces into the Claude Code variables.
 
-    Claude Code does not speak Workers AI. The documented path is AI Gateway,
-    which exposes Anthropic, Bedrock, and Vertex as Anthropic-compatible
-    endpoints. A fourth route accepts a typed URL that already speaks
-    `/v1/messages` (a Workers bridge you deployed elsewhere).
+    Claude Code does not speak Workers AI. AI Gateway exposes Anthropic,
+    Bedrock, and Vertex as Anthropic-compatible endpoints. The workers route
+    points Claude at an Anthropic `/v1/messages` URL: either a typed custom
+    bridge, or the in-repo `cbc.workers_ai_bridge` that forwards to free `@cf/`
+    models via `/ai/run`.
     """
     route = resolve_cf_route(config, env)
     env["CLOUDFLARE_ROUTE"] = route
     account = env.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
     gateway = env.get("CLOUDFLARE_GATEWAY_ID", "").strip()
-    token = env.get("CLOUDFLARE_AIG_TOKEN", "").strip()
+    token = _cloudflare_token(env, file_env)
+    if token:
+        env["CLOUDFLARE_AIG_TOKEN"] = token
     root = _gateway_root(account, gateway) if account and gateway else ""
     workers_url = env.get("ANTHROPIC_BASE_URL", "").strip()
 
@@ -308,8 +339,10 @@ def _apply_cloudflare(env: dict[str, str], config: dict[str, Any]) -> None:
         env.pop("ANTHROPIC_BASE_URL", None)
         return
 
-    # workers — typed Anthropic-compatible bridge. OSS @cf/ models do not
-    # reliably call the Agent tool, so aliases pin onto the one configured ID.
+    # workers — Anthropic-compatible bridge (custom URL or built-in). OSS @cf/
+    # models do not reliably call the Agent tool, so aliases pin onto one ID.
+    if not workers_url and account and token:
+        env["ANTHROPIC_BASE_URL"] = workers_ai_bridge_url()
     if token and "ANTHROPIC_API_KEY" not in env:
         env["ANTHROPIC_API_KEY"] = token
     _pin_model_aliases(env)
@@ -417,7 +450,14 @@ def build_env(config: dict[str, Any] | None) -> tuple[dict[str, str], dict[str, 
             _pin_model_aliases(env, pin_haiku=True)
 
     if mode == CLOUDFLARE:
-        _apply_cloudflare(env, config)
+        _apply_cloudflare(env, config, file_env=file_env)
+        if env.get("CLOUDFLARE_AIG_TOKEN") and "gatewayToken" not in sources:
+            # Filled from CLOUDFLARE_WORKERAI_API_TOKEN alias.
+            sources["gatewayToken"] = (
+                "env"
+                if os.environ.get("CLOUDFLARE_WORKERAI_API_TOKEN")
+                else "dotenv"
+            )
 
     return env, sources
 
@@ -438,6 +478,13 @@ def secret_values(config: dict[str, Any] | None) -> list[str]:
         )
         if value:
             found.append(value)
+    if mode == CLOUDFLARE:
+        alias = (
+            os.environ.get("CLOUDFLARE_WORKERAI_API_TOKEN")
+            or file_env.get("CLOUDFLARE_WORKERAI_API_TOKEN")
+        )
+        if alias and alias not in found:
+            found.append(alias)
     return found
 
 
@@ -493,7 +540,7 @@ def persist_env_file(config: dict[str, Any]) -> bool:
         updates["CLAUDE_CODE_USE_BEDROCK"] = "1"
     if mode == CLOUDFLARE:
         constructed = {key: value for key, value in updates.items() if value}
-        _apply_cloudflare(constructed, config)
+        _apply_cloudflare(constructed, config, file_env=envfile.read())
         for key in _PERSISTED:
             updates[key] = constructed.get(key)
     return envfile.upsert(updates)
@@ -550,8 +597,10 @@ def describe(config: dict[str, Any] | None) -> dict[str, Any]:
     cf_route = resolve_cf_route(config, env) if mode == CLOUDFLARE else None
     if mode == CLOUDFLARE and cf_route == CF_WORKERS:
         warnings.append(
-            "Workers AI / OSS @cf/ models may fail Agent-tool delegation; "
-            "Anthropic via AI Gateway is recommended for pipeline jobs."
+            "Workers AI / OSS @cf/ models run through the local Anthropic bridge "
+            "in solo mode; Agent-tool delegation is off. Free @cf models are "
+            "best-effort for local development — Anthropic via AI Gateway is "
+            "recommended for production estimating runs."
         )
     region = None
     if mode == BEDROCK or cf_route == CF_BEDROCK:

@@ -25,6 +25,8 @@ x-app-env: &app-env
   MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-200}
   # Host Ollama when api/worker run in Docker (native dev uses localhost:11434).
   OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+  # Built-in Anthropic ↔ Workers AI bridge (Cloudflare workers route, no custom URL).
+  WORKERS_AI_BRIDGE_URL: ${WORKERS_AI_BRIDGE_URL:-http://workers-ai-bridge:8787}
 
 services:
   mongo:
@@ -119,6 +121,8 @@ services:
     depends_on:
       mongo:
         condition: service_healthy
+      workers-ai-bridge:
+        condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -128,6 +132,36 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  workers-ai-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: cbc-opshub-app:latest
+    container_name: cbc-workers-ai-bridge
+    restart: unless-stopped
+    command: ["python", "-m", "cbc.workers_ai_bridge"]
+    environment:
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_AIG_TOKEN: ${CLOUDFLARE_AIG_TOKEN:-}
+      CLOUDFLARE_WORKERAI_API_TOKEN: ${CLOUDFLARE_WORKERAI_API_TOKEN:-}
+      CLOUDFLARE_BASE_API_URL: ${CLOUDFLARE_BASE_API_URL:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-}
+      WORKERS_AI_BRIDGE_HOST: "0.0.0.0"
+      WORKERS_AI_BRIDGE_PORT: "8787"
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      # Same .env the Settings screen writes so account/token stay in sync.
+      - ./.env:/app/.env:ro
+    ports:
+      - "127.0.0.1:8787:8787"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8787/health', timeout=4).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   worker:
     build:
@@ -158,6 +192,8 @@ services:
       mongo:
         condition: service_healthy
       api:
+        condition: service_healthy
+      workers-ai-bridge:
         condition: service_healthy
     extra_hosts:
       - "host.docker.internal:host-gateway"

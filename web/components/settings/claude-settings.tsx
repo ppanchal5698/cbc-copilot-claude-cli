@@ -76,7 +76,7 @@ const MODES: {
   {
     key: "cloudflare",
     label: "Cloudflare",
-    blurb: "AI Gateway, or a Workers URL that speaks /v1/messages.",
+    blurb: "AI Gateway for Claude, or free Workers AI @cf models via the built-in bridge.",
     Icon: Globe,
   },
   {
@@ -97,7 +97,7 @@ const CF_ROUTES: { key: string; label: string }[] = [
   { key: "anthropic", label: "Anthropic (AI Gateway)" },
   { key: "bedrock", label: "Bedrock via Gateway" },
   { key: "vertex", label: "Vertex via Gateway" },
-  { key: "workers", label: "Workers AI bridge" },
+  { key: "workers", label: "Workers AI (free @cf models)" },
 ];
 
 const FIELD_LABELS: Record<string, { label: string; hint?: string; placeholder?: string }> = {
@@ -145,7 +145,7 @@ const FIELD_LABELS: Record<string, { label: string; hint?: string; placeholder?:
   },
   cfRoute: {
     label: "Route",
-    hint: "Anthropic, Bedrock, and Vertex go through AI Gateway. Workers is a URL you already deployed.",
+    hint: "Anthropic, Bedrock, and Vertex go through AI Gateway. Workers AI uses free @cf models via the built-in bridge.",
   },
   vertexProject: {
     label: "Vertex project ID",
@@ -215,6 +215,20 @@ function fieldMeta(
     }
   }
   if (mode === "cloudflare") {
+    if (key === "accountId") {
+      return {
+        label: "Cloudflare account ID",
+        placeholder: "0123456789abcdef0123456789abcdef",
+        hint: "Account ID from the Cloudflare dashboard. Used for AI Gateway URLs and Workers AI /ai/run.",
+      };
+    }
+    if (key === "gatewayToken") {
+      return {
+        label: "API token",
+        placeholder: "cfut_… or cf-aig-…",
+        hint: "Workers AI: a token with Workers AI permissions (cfut_…). AI Gateway routes: a gateway token with Run permission (cf-aig-…).",
+      };
+    }
     if (key === "apiKey") {
       return {
         label: "Anthropic API key (optional)",
@@ -224,16 +238,16 @@ function fieldMeta(
     }
     if (key === "baseUrl") {
       return {
-        label: "Workers / custom URL",
+        label: "Custom bridge URL (optional)",
         placeholder: "https://claude-bridge.example.workers.dev",
-        hint: "An Anthropic-compatible /v1/messages endpoint you already deployed. Do not type the AI Gateway URL here — that is built from account + gateway ID.",
+        hint: "Leave empty to use the built-in Workers AI bridge. Only set this if you already deployed an Anthropic-compatible /v1/messages URL.",
       };
     }
     if (key === "model") {
       return {
         label: "Model",
-        placeholder: "claude-sonnet-4-5",
-        hint: "Anthropic/Bedrock/Vertex: a Claude ID (claude-sonnet-4-5). Workers: a @cf/… id, which is pinned onto sonnet/opus/haiku aliases.",
+        placeholder: "@cf/moonshotai/kimi-k2.7-code",
+        hint: "Anthropic/Bedrock/Vertex: a Claude ID (claude-sonnet-4-5). Workers AI: a @cf/… id, pinned onto sonnet/opus aliases.",
       };
     }
     if (key === "awsRegion") {
@@ -255,9 +269,9 @@ function fieldMeta(
 }
 
 function cloudflareFieldVisible(route: string, key: string): boolean {
+  if (key === "gatewayId") return route !== "workers";
   if (
     key === "accountId" ||
-    key === "gatewayId" ||
     key === "gatewayToken" ||
     key === "cfRoute" ||
     key === "model" ||
@@ -265,7 +279,7 @@ function cloudflareFieldVisible(route: string, key: string): boolean {
   ) {
     return true;
   }
-  if (key === "apiKey") return route === "anthropic" || route === "workers";
+  if (key === "apiKey") return route === "anthropic";
   if (key === "awsRegion") return route === "bedrock";
   if (key === "vertexProject" || key === "vertexRegion") return route === "vertex";
   if (key === "baseUrl") return route === "workers";
@@ -541,16 +555,18 @@ export function ClaudeSettingsClient() {
 
       {mode === "cloudflare" && (
         <ModeNotice
-          summary="Claude Code connects through Cloudflare AI Gateway. Use a gateway token for Unified Billing, or add an Anthropic key for BYOK."
+          summary="AI Gateway routes Claude through Anthropic/Bedrock/Vertex. Workers AI uses free @cf models via the built-in local bridge (solo mode)."
           advanced={
             <>
               <p>
-                Bedrock and Vertex via Gateway skip AWS/GCP keys (
+                Anthropic / Bedrock / Vertex need an AI Gateway ID and a gateway token
+                with Run permission. Bedrock and Vertex via Gateway skip AWS/GCP keys (
                 <code>CLAUDE_CODE_SKIP_BEDROCK_AUTH</code> / <code>SKIP_VERTEX_AUTH</code>).
               </p>
               <p>
-                The Workers route is a URL you deployed that speaks <code>/v1/messages</code>; OSS{" "}
-                <code>@cf/</code> models do not reliably call the Agent tool.
+                Workers AI needs only Account ID + a Workers AI API token + a{" "}
+                <code>@cf/…</code> model. Leave the custom bridge URL empty to use the
+                built-in translator. Agent-tool subagents are disabled on this route.
               </p>
             </>
           }
