@@ -23,29 +23,33 @@ def test_freshness_settings_default_to_twenty_four_and_thirty_months():
 def test_saving_freshness_settings_round_trips():
     with opshub_client(TEST_DB) as client:
         freshness_settings.clear_cache()
-        saved = client.put(
-            "/api/settings/freshness",
-            json={"catalogStaleMonths": 18, "discardAfterMonths": 36},
-        )
-        assert saved.status_code == 200, saved.text
-        body = saved.json()
-        assert body["catalogStaleMonths"] == 18
-        assert body["discardAfterMonths"] == 36
-        assert body["updatedBy"] == TEST_ACTOR
-
-        again = client.get("/api/settings/freshness").json()
-        assert again["catalogStaleMonths"] == 18
-        assert again["discardAfterMonths"] == 36
-
-        raw = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
         try:
-            entries = list(
-                raw[TEST_DB]["auditLog"].find({"action": "settings.freshness.update"})
+            saved = client.put(
+                "/api/settings/freshness",
+                json={"catalogStaleMonths": 18, "discardAfterMonths": 36},
             )
+            assert saved.status_code == 200, saved.text
+            body = saved.json()
+            assert body["catalogStaleMonths"] == 18
+            assert body["discardAfterMonths"] == 36
+            assert body["updatedBy"] == TEST_ACTOR
+
+            again = client.get("/api/settings/freshness").json()
+            assert again["catalogStaleMonths"] == 18
+            assert again["discardAfterMonths"] == 36
+
+            raw = MongoClient(settings.mongodb_uri, serverSelectionTimeoutMS=5000)
+            try:
+                entries = list(
+                    raw[TEST_DB]["auditLog"].find({"action": "settings.freshness.update"})
+                )
+            finally:
+                raw.close()
+            assert entries
+            assert entries[-1]["after"]["catalogStaleMonths"] == 18
         finally:
-            raw.close()
-        assert entries
-        assert entries[-1]["after"]["catalogStaleMonths"] == 18
+            # Shared process cache must not leak 18/36 into p21 / catalog tests.
+            freshness_settings.clear_cache()
 
 
 def test_discard_must_be_later_than_the_review_window():

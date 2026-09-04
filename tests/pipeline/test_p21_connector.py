@@ -4,10 +4,22 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "mcp-servers" / "p21-connector"))
 
 from server import check_freshness, lookup_last_po, search_item  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _clear_freshness_cache():
+    """API settings tests share a process-wide bands cache with load_sync()."""
+    from cbc.services import freshness as freshness_settings
+
+    freshness_settings.clear_cache()
+    yield
+    freshness_settings.clear_cache()
 
 
 def test_lookup_without_base_url_returns_manual_entry() -> None:

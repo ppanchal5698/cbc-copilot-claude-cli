@@ -18,7 +18,8 @@ def test_concurrency_for_rejects_junk_and_zero() -> None:
 
 def test_compose_worker_has_no_fixed_container_name() -> None:
     body = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
-    assert "container_name: cbc-worker" not in body
+    # Exact service name — do not match container_name: cbc-workers-ai-bridge.
+    assert re.search(r"(?m)^\s*container_name:\s*cbc-worker\s*$", body) is None
     assert re.search(r"WORKER_CONCURRENCY:", body)
 
 
