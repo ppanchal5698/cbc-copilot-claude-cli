@@ -185,7 +185,13 @@ def _demo() -> None:
         assert list_versions(project, "review/demo.json")["version_count"] == 2
         old = get_artifact(project, "review/demo.json", version=first["sha256"][:8])
         assert json.loads(old["content"])["v"] == 1
-        assert list_project_files(project)["file_count"] == 1
+        # save_artifact also writes <path>.manifest.json (B-13); .versions/ is excluded.
+        listed = list_project_files(project)
+        assert listed["file_count"] == 2
+        assert {f["path"] for f in listed["files"]} == {
+            "review/demo.json",
+            "review/demo.json.manifest.json",
+        }
 
         try:
             save_artifact(project, "../../pricebooks/evil.txt", "nope")

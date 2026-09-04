@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 /**
  * Shell-wide UI state.
@@ -44,11 +52,10 @@ const Context = createContext<UiState | null>(null);
 /**
  * Read a persisted preference without breaking hydration.
  *
- * The server has no localStorage, so the first client render must match the
- * server's markup and the stored value can only be applied afterwards. Both
- * preferences are cosmetic, so a one-frame default is acceptable; the theme
- * itself is already applied pre-paint by the inline script in app/layout.tsx,
- * which is what actually stops the flash.
+ * The server has no localStorage, so getServerSnapshot returns the default.
+ * useSyncExternalStore then applies the stored value on the client without a
+ * setState-in-effect cascade. Both preferences are cosmetic; the theme itself
+ * is already applied pre-paint by the inline script in app/layout.tsx.
  */
 function stored(key: string): string | null {
   if (typeof window === "undefined") return null;
@@ -67,6 +74,29 @@ function remember(key: string, value: string): void {
   }
 }
 
+const LS_EVENT = "opshub-local-preference";
+
+function notifyPreferenceChange(): void {
+  window.dispatchEvent(new Event(LS_EVENT));
+}
+
+function subscribePreferences(onStoreChange: () => void): () => void {
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener(LS_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener(LS_EVENT, onStoreChange);
+  };
+}
+
+function getFocusSnapshot(): boolean {
+  return stored("opshub-focus") === "1";
+}
+
+function getThemeSnapshot(): Theme {
+  return stored("opshub-theme") === "light" ? "light" : "dark";
+}
+
 export function UiStateProvider({
   children,
   userRole = "estimator",
@@ -78,22 +108,24 @@ export function UiStateProvider({
   const [notesRef, setNotesRef] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const [focusMode, setFocusMode] = useState(false);
-  const [theme, setTheme] = useState<Theme>("dark");
   const [notesVersion, setNotesVersion] = useState(0);
 
-  useEffect(() => {
-    setFocusMode(stored("opshub-focus") === "1");
-    setTheme(stored("opshub-theme") === "light" ? "light" : "dark");
-  }, []);
+  const focusMode = useSyncExternalStore(
+    subscribePreferences,
+    getFocusSnapshot,
+    () => false,
+  );
+  const theme = useSyncExternalStore(
+    subscribePreferences,
+    getThemeSnapshot,
+    () => "dark" as Theme,
+  );
 
   const toggleTheme = useCallback(() => {
-    setTheme((current) => {
-      const next: Theme = current === "dark" ? "light" : "dark";
-      document.documentElement.dataset.theme = next;
-      remember("opshub-theme", next);
-      return next;
-    });
+    const next: Theme = getThemeSnapshot() === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    remember("opshub-theme", next);
+    notifyPreferenceChange();
   }, []);
 
   const openNotes = useCallback((ref?: string) => {
@@ -102,11 +134,9 @@ export function UiStateProvider({
   }, []);
 
   const toggleFocus = useCallback(() => {
-    setFocusMode((current) => {
-      const next = !current;
-      remember("opshub-focus", next ? "1" : "0");
-      return next;
-    });
+    const next = !getFocusSnapshot();
+    remember("opshub-focus", next ? "1" : "0");
+    notifyPreferenceChange();
   }, []);
 
   // Ctrl/Cmd+K anywhere; C opens the call drawer unless you are typing.

@@ -38,6 +38,7 @@ export function useJobRecording(
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [state, setState] = useState<RecordingState>("connecting");
   const [reason, setReason] = useState<string | null>(null);
+  const [activeJobId, setActiveJobId] = useState(jobId);
   const carried = useRef("");
   const sessionCtx = useRef({ sessionInits: 0 });
   const rawCarried = useRef("");
@@ -56,12 +57,12 @@ export function useJobRecording(
   });
 
   // A new job clears the transcript before the subscription effect runs.
-  useEffect(() => {
+  if (activeJobId !== jobId) {
+    setActiveJobId(jobId);
     setEntries([]);
     setState("connecting");
     setReason(null);
-    rawLogRef.current = "";
-  }, [jobId]);
+  }
 
   useEffect(() => {
     let disposed = false;

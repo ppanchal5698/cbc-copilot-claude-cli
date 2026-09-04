@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import {
@@ -81,6 +81,13 @@ export function ExtractionClient({
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [alternate, setAlternate] = useState<string | null | undefined>(undefined);
   const [runDismissed, setRunDismissed] = useState<string | null>(null);
+  // Selection is scoped to the active filter/alternate; reset when the scope changes.
+  const pickScope = `${filter}:${alternate === undefined ? "" : (alternate ?? "")}`;
+  const [pickScopeKey, setPickScopeKey] = useState(pickScope);
+  if (pickScopeKey !== pickScope) {
+    setPickScopeKey(pickScope);
+    setPicked(new Set());
+  }
 
   const { job, running } = usePipelineJob(code, initialJob);
 
@@ -107,10 +114,6 @@ export function ExtractionClient({
   const items = data?.lineItems ?? [];
   const counts = data?.counts;
   const needsLook = counts?.needs_look ?? 0;
-
-  useEffect(() => {
-    setPicked(new Set());
-  }, [filter, alternate]);
 
   const togglePick = useCallback((item: LineItem) => {
     setPicked((current) => {

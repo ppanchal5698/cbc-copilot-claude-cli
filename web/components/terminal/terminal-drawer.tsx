@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import useSWR from "swr";
 import { X, Prohibit, CaretDown, CaretUp } from "@phosphor-icons/react/dist/ssr";
 import { toast } from "sonner";
@@ -56,44 +56,63 @@ function rememberTerminalHeight(height: number): void {
   }
 }
 
+const TERMINAL_HEIGHT_EVENT = "opshub-terminal-height-change";
+
+function preferredTerminalHeight(): number {
+  const stored = readStoredTerminalHeight();
+  if (typeof window === "undefined") return DEFAULT_HEIGHT;
+  return clampTerminalHeight(
+    stored ?? Math.min(Math.floor(window.innerHeight * 0.52), DEFAULT_HEIGHT),
+  );
+}
+
+function subscribeTerminalHeight(onStoreChange: () => void): () => void {
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener(TERMINAL_HEIGHT_EVENT, onStoreChange);
+  window.addEventListener("resize", onStoreChange);
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener(TERMINAL_HEIGHT_EVENT, onStoreChange);
+    window.removeEventListener("resize", onStoreChange);
+  };
+}
+
 function useTerminalDrawerHeight(): {
   height: number;
   startResize: (clientY: number) => void;
   nudgeHeight: (delta: number) => void;
 } {
-  const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  const preferred = useSyncExternalStore(
+    subscribeTerminalHeight,
+    preferredTerminalHeight,
+    () => DEFAULT_HEIGHT,
+  );
+  // Drag/nudge overrides the preferred height until the next persist.
+  const [override, setOverride] = useState<number | null>(null);
+  const height = clampTerminalHeight(override ?? preferred);
+  // Keep the override inside the window clamp when the viewport shrinks.
+  if (override !== null && override !== height) {
+    setOverride(height);
+  }
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const heightRef = useRef(height);
-  heightRef.current = height;
 
   useEffect(() => {
-    const stored = readStoredTerminalHeight();
-    setHeight(
-      clampTerminalHeight(
-        stored ?? Math.min(Math.floor(window.innerHeight * 0.52), DEFAULT_HEIGHT),
-      ),
-    );
-  }, []);
-
-  useEffect(() => {
-    function onResize() {
-      setHeight((current) => clampTerminalHeight(current));
-    }
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, []);
+    heightRef.current = height;
+  }, [height]);
 
   useEffect(() => {
     function onPointerMove(event: PointerEvent) {
       if (!dragRef.current) return;
       const delta = dragRef.current.startY - event.clientY;
-      setHeight(clampTerminalHeight(dragRef.current.startHeight + delta));
+      setOverride(clampTerminalHeight(dragRef.current.startHeight + delta));
     }
 
     function onPointerUp() {
       if (!dragRef.current) return;
       dragRef.current = null;
       rememberTerminalHeight(heightRef.current);
+      window.dispatchEvent(new Event(TERMINAL_HEIGHT_EVENT));
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     }
@@ -115,9 +134,11 @@ function useTerminalDrawerHeight(): {
   }, []);
 
   const nudgeHeight = useCallback((delta: number) => {
-    setHeight((current) => {
-      const next = clampTerminalHeight(current + delta);
+    setOverride((current) => {
+      const base = current ?? preferredTerminalHeight();
+      const next = clampTerminalHeight(base + delta);
       rememberTerminalHeight(next);
+      window.dispatchEvent(new Event(TERMINAL_HEIGHT_EVENT));
       return next;
     });
   }, []);
